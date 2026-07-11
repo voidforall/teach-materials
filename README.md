@@ -4,10 +4,9 @@ Personal learning repo. Stores materials created with the `/teach` skill plus as
 
 ## Structure
 
-- `teach/` — outputs from the `/teach` skill, one folder per topic
-- `notes/` — freeform study notes and summaries
+One folder per topic at the repo root. Keep each folder self-contained.
 
 ## Conventions
 
-- One topic per folder; keep folders self-contained.
+- One topic per folder.
 - Prefer many small Markdown files over few large ones.
