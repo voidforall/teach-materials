@@ -1,0 +1,272 @@
+/* SCP Foundation course — shared lesson stylesheet.
+   Tufte-inspired: generous margins, readable serif body, restrained palette.
+   Every lesson links this file so the course reads as one consistent whole. */
+
+:root {
+  --ink: #1a1a1a;
+  --paper: #fdfdf9;
+  --muted: #6a6a63;
+  --rule: #d8d8cf;
+  --accent: #7a1414;       /* Foundation redacted-ink red */
+  --accent-soft: #f3e6e6;
+  --mono: "SFMono-Regular", "Consolas", "Liberation Mono", Menlo, monospace;
+  --serif: "Palatino Linotype", "Palatino", "Book Antiqua", Georgia, serif;
+  --sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0 auto;
+  max-width: 42rem;
+  padding: 4rem 1.5rem 6rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.12rem;
+  line-height: 1.65;
+}
+
+/* --- Masthead --- */
+.masthead {
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 0.6rem;
+  margin-bottom: 2.2rem;
+}
+.masthead .kicker {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.masthead h1 {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 1.85rem;
+  line-height: 1.15;
+  margin: 0.5rem 0 0.2rem;
+  letter-spacing: -0.01em;
+}
+.masthead .dek {
+  color: var(--muted);
+  font-style: italic;
+  margin: 0.3rem 0 0;
+}
+
+h2 {
+  font-family: var(--sans);
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  margin: 2.4rem 0 0.6rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid var(--rule);
+}
+h3 {
+  font-family: var(--sans);
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 1.6rem 0 0.4rem;
+}
+
+p { margin: 0.8rem 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+
+strong { font-weight: 700; }
+em { font-style: italic; }
+
+/* --- The core "aha" callout --- */
+.keystone {
+  background: var(--accent-soft);
+  border-left: 4px solid var(--accent);
+  padding: 1rem 1.2rem;
+  margin: 1.6rem 0;
+  font-size: 1.05rem;
+}
+.keystone .label {
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+/* --- Redaction / clinical flavour --- */
+.redact {
+  background: var(--ink);
+  color: var(--ink);
+  padding: 0 0.15em;
+  border-radius: 1px;
+  user-select: none;
+}
+.term {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: #eeeee7;
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+}
+
+/* --- Class cards --- */
+.classgrid { margin: 1.2rem 0; }
+.classcard {
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--muted);
+  padding: 0.7rem 1rem;
+  margin: 0.6rem 0;
+}
+.classcard .name {
+  font-family: var(--sans);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.classcard .gloss { color: var(--muted); font-style: italic; font-size: 0.95rem; }
+.classcard.safe   { border-left-color: #2e7d32; }
+.classcard.euclid { border-left-color: #c9820a; }
+.classcard.keter  { border-left-color: var(--accent); }
+.classcard.thaumiel { border-left-color: #35507a; }
+
+/* --- Curated reading list --- */
+.readlist { margin: 1.2rem 0; }
+.readlist .tier {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 1.2rem 0 0.5rem;
+}
+.readitem {
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 0.7rem 0.95rem;
+  margin: 0.55rem 0;
+  background: #fbfbf5;
+}
+.readitem .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.readitem .id {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.03em;
+}
+.readitem .id .ttl { font-weight: 400; font-style: italic; color: var(--muted); }
+.readitem .score {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.readitem .why { font-size: 0.96rem; margin: 0.35rem 0 0; }
+.readitem .tag {
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.readitem.cw { border-left: 4px solid var(--accent); }
+.readitem.cw .warn {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* --- Sidenotes / citations --- */
+.note {
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+sup.cite a { font-size: 0.7em; text-decoration: none; }
+
+/* --- Retrieval quiz --- */
+.quiz { margin: 1rem 0; }
+.quiz details {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.4rem 0.9rem;
+  margin: 0.5rem 0;
+  background: #fbfbf5;
+}
+.quiz summary {
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+.quiz details[open] summary { margin-bottom: 0.4rem; color: var(--accent); }
+.quiz .answer { font-size: 0.98rem; }
+.quiz .why { color: var(--muted); font-size: 0.9rem; }
+
+/* --- Navigation footer --- */
+.nav {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 2px solid var(--ink);
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.ask {
+  margin-top: 2rem;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  background: #eef1ee;
+  border-radius: 6px;
+  padding: 0.8rem 1rem;
+}
+.ask b { color: var(--accent); }
+
+.source {
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  background: var(--accent-soft);
+  border-radius: 6px;
+  padding: 0.8rem 1rem;
+  margin: 1.4rem 0;
+}
+.source .label {
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 0.3rem;
+}
+
+ul, ol { padding-left: 1.3rem; }
+li { margin: 0.3rem 0; }
+
+/* --- Print --- */
+@media print {
+  body { max-width: none; padding: 0; font-size: 11pt; color: #000; background: #fff; }
+  .quiz details { break-inside: avoid; }
+  .keystone, .source, .ask { break-inside: avoid; }
+  a { color: #000; text-decoration: underline; }
+  .nav, .ask { display: none; }
+}
+
+@media (max-width: 480px) {
+  body { padding: 2.5rem 1.1rem 4rem; font-size: 1.05rem; }
+  .masthead h1 { font-size: 1.5rem; }
+}
