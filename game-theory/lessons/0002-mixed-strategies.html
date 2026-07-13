@@ -1,0 +1,145 @@
+<title>GT · Lesson 2 — Mixed Strategies &amp; the Indifference Principle</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Game Theory · Lesson 2</span><span>≈12 min</span></div>
+  <h1>Mixed Strategies &amp; the Indifference Principle</h1>
+  <p class="dek">What to do when the underline method finds <em>no</em> equilibrium: randomize — and compute exactly how much.</p>
+</header>
+
+<p>Last lesson, a matrix with <strong>zero</strong> double-underlined cells was a loose end. Here's why it happens and what rational players actually do: they stop being predictable. This lesson gives you the second core skill — <strong>computing the mixed-strategy equilibrium of a 2×2 game by hand</strong>.</p>
+
+<h2>Why pure equilibria can fail: be unpredictable</h2>
+
+<p>Some games punish predictability. If your rival can guess your move, they exploit it — so any pure choice invites a counter, and best responses chase each other in a circle with nowhere to rest.<sup class="cite"><a href="#s1">1</a></sup> The classic bare-bones version is <span class="term">Matching Pennies</span>: you win by <em>mis</em>matching, they win by matching. Whatever you'd reliably pick, they'd pick to beat.</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>Matching Pennies — Row wins on a mismatch, Column on a match (zero-sum)</caption>
+  <tr><th class="corner"></th><th>Col: Heads</th><th>Col: Tails</th></tr>
+  <tr><th>Row: Heads</th><td>(<span class="pr">−1</span>, <span class="pc">1</span>)</td><td>(<span class="pr">1</span>, <span class="pc">−1</span>)</td></tr>
+  <tr><th>Row: Tails</th><td>(<span class="pr">1</span>, <span class="pc">−1</span>)</td><td>(<span class="pr">−1</span>, <span class="pc">1</span>)</td></tr>
+</table>
+</div>
+
+<p>Run the underline passes and the best responses never coincide — no pure NE. The resolution: a <span class="term">mixed strategy</span>, a <em>probability</em> over your actions. Here, obviously, flip 50/50 so you can't be read. But "obvious" only works when the game is symmetric. For everything else, you need the method.</p>
+
+<h2>The method: make your opponent indifferent</h2>
+
+<p>Here is the move that surprises everyone the first time:</p>
+
+<div class="keystone">
+  <span class="label">The indifference principle</span>
+  In a mixed equilibrium, you choose <em>your</em> mix so that your <strong>opponent is indifferent</strong> between the actions they're mixing over. <br><br>
+  Why: if your opponent strictly preferred one of their actions, they'd play it for sure — and then randomizing is a mistake, they'd exploit you. Randomizing is only rational when both of your actions pay <em>equally</em>. So each of you tunes your dice to flatten the <em>other's</em> incentives.
+</div>
+
+<p>Concretely, for a 2×2: write down the opponent's expected payoff to each of their two actions <em>as a function of your mixing probability</em>, then set those two expressions <strong>equal</strong> and solve. That single equation gives your equilibrium mix.</p>
+
+<h2>Worked example — an audit game (compliance)</h2>
+
+<p>Straight from the mission. An <strong>Auditor</strong> decides each period to <em>Inspect</em> (costly) or <em>Trust</em>. A <strong>Trader</strong> decides to trade <em>Honest</em> or <em>Cheat</em>. Cheating pays — unless you're inspected and caught.</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>Auditor (rows) vs. Trader (columns) — payoffs = (<span class="pr">Auditor</span>, <span class="pc">Trader</span>)</caption>
+  <tr><th class="corner"></th><th>Trader: Honest</th><th>Trader: Cheat</th></tr>
+  <tr><th>Auditor: Inspect</th><td>(<span class="pr">−1</span>, <span class="pc">1</span>)</td><td>(<span class="pr">2</span>, <span class="pc">−2</span>)</td></tr>
+  <tr><th>Auditor: Trust</th><td>(<span class="pr">0</span>, <span class="pc">1</span>)</td><td>(<span class="pr">−2</span>, <span class="pc">2</span>)</td></tr>
+</table>
+</div>
+
+<p><strong>First confirm there's no pure NE.</strong> Auditor best-responds <em>Trust</em> to Honest but <em>Inspect</em> to Cheat; Trader best-responds <em>Honest</em> to Inspect but <em>Cheat</em> to Trust. The arrows chase in a circle — no double-underline. Good, we need a mix.</p>
+
+<h3>Step 1 — the Auditor's mix (makes the Trader indifferent)</h3>
+<p>Let the Auditor <strong>Inspect with probability <em>p</em></strong>. The Trader's expected payoffs:</p>
+<ul>
+  <li>Honest: <em>p</em>·(1) + (1−<em>p</em>)·(1) = <strong>1</strong> &nbsp;<span class="note">(honest always pays 1)</span></li>
+  <li>Cheat: <em>p</em>·(−2) + (1−<em>p</em>)·(2) = <strong>2 − 4<em>p</em></strong></li>
+</ul>
+<p>Set equal: 1 = 2 − 4<em>p</em> ⟹ <strong><em>p</em> = 1/4</strong>. The Auditor inspects a quarter of the time — just enough that cheating no longer pays.</p>
+
+<h3>Step 2 — the Trader's mix (makes the Auditor indifferent)</h3>
+<p>Let the Trader be <strong>Honest with probability <em>q</em></strong>. The Auditor's expected payoffs:</p>
+<ul>
+  <li>Inspect: <em>q</em>·(−1) + (1−<em>q</em>)·(2) = <strong>2 − 3<em>q</em></strong></li>
+  <li>Trust: <em>q</em>·(0) + (1−<em>q</em>)·(−2) = <strong>−2 + 2<em>q</em></strong></li>
+</ul>
+<p>Set equal: 2 − 3<em>q</em> = −2 + 2<em>q</em> ⟹ 5<em>q</em> = 4 ⟹ <strong><em>q</em> = 4/5</strong>. The Trader is honest 4/5 of the time and cheats 1/5.</p>
+
+<p><strong>The equilibrium:</strong> Auditor inspects 1/4, Trader cheats 1/5. Neither can do better by changing their dice.</p>
+
+<h2>The twist worth remembering</h2>
+
+<div class="keystone">
+  <span class="label">Counterintuitive — and deeply useful</span>
+  Look again: the <strong>Auditor's</strong> mix <em>p</em> fell out of the <strong>Trader's</strong> payoffs, and the <strong>Trader's</strong> mix <em>q</em> fell out of the <strong>Auditor's</strong> payoffs. <br><br>
+  <strong>Your equilibrium probabilities are pinned down by the other player's incentives, not your own.</strong> So if you raise the punishment for cheating, you don't change how often the auditor <em>needs</em> to inspect in the naïve way — you change how often the <em>trader</em> cheats. This inversion is the doorway to <span class="term">mechanism design</span>: to move someone's behavior, change the payoffs they face, not your own.
+</div>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. In a mixed equilibrium, whose payoffs determine <em>your</em> mixing probabilities?</summary>
+    <p class="answer">Your opponent's — you mix precisely to make them indifferent between actions.</p>
+    <p class="why">If they weren't indifferent they'd go pure and exploit any tilt in your dice.</p>
+  </details>
+  <details>
+    <summary>Q2. You compute a "probability" of 1.3 for some action. What went wrong — or what does it mean?</summary>
+    <p class="answer">No interior mix exists; a pure strategy is the best response instead there.</p>
+    <p class="why">Probabilities outside [0,1] signal the game actually has a pure-strategy solution.</p>
+  </details>
+  <details>
+    <summary>Q3. <em>(Spaced recall from Lesson 1)</em> Before mixing, how do you check a 2×2 has no pure NE?</summary>
+    <p class="answer">Underline each player's best payoff; no cell gets both numbers underlined.</p>
+    <p class="why">Always check for pure equilibria first — only reach for mixing when none exist.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Try it — compute the mix before revealing</span>
+  <p style="margin-top:0">A <strong>Defender</strong> guards one of two sites; an <strong>Attacker</strong> raids one. The south site is more valuable. Payoffs = (<span class="pr">Defender</span>, <span class="pc">Attacker</span>), zero-sum. <strong>Find the probability the Defender should guard North</strong> so the Attacker can't exploit either raid.</p>
+  <div class="payoff-wrap">
+  <table class="payoff">
+    <tr><th class="corner"></th><th>Attacker: Raid N</th><th>Attacker: Raid S</th></tr>
+    <tr><th>Defender: Guard N</th><td>(<span class="pr">1</span>, <span class="pc">−1</span>)</td><td>(<span class="pr">−2</span>, <span class="pc">2</span>)</td></tr>
+    <tr><th>Defender: Guard S</th><td>(<span class="pr">−1</span>, <span class="pc">1</span>)</td><td>(<span class="pr">1</span>, <span class="pc">−1</span>)</td></tr>
+  </table>
+  </div>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal the solution</summary>
+      <p class="answer"><strong>Guard North with probability 2/5</strong> (so guard South 3/5).</p>
+      <p class="why">Let the Defender guard North with prob <em>g</em>. Make the <em>Attacker</em> indifferent:
+      Raid N pays the attacker <em>g</em>·(−1) + (1−<em>g</em>)·(1) = 1 − 2<em>g</em>; Raid S pays
+      <em>g</em>·(2) + (1−<em>g</em>)·(−1) = 3<em>g</em> − 1. Set equal: 1 − 2<em>g</em> = 3<em>g</em> − 1
+      ⟹ 5<em>g</em> = 2 ⟹ <em>g</em> = 2/5. Sensible: the more valuable South is guarded <em>more</em>
+      (3/5). The attacker's own mix, by symmetry of the method, comes from the Defender's payoffs.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — watch this</span>
+  <strong>Open Yale · ECON 159, Ben Polak</strong> — the lectures on mixed strategies (Lectures 10–11) derive the indifference condition on live examples.
+  <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>. For the written version, Osborne's chapter on mixed-strategy equilibrium (<a href="https://www.economics.utoronto.ca/osborne/igt/">free draft chapters</a>).
+</div>
+
+<h3 id="s1">Notes &amp; citations</h3>
+<ol class="note">
+  <li id="s1">Formally: a finite game may have no equilibrium in <em>pure</em> strategies, but <strong>Nash's theorem</strong> guarantees at least one once mixed strategies are allowed. Matching Pennies is the minimal witness. See the <a href="../reference/glossary.html">glossary</a> entries on <em>mixed strategy</em> and <em>Nash equilibrium</em>.</li>
+</ol>
+
+<div class="ask">
+  <b>I'm your teacher — ask me anything.</b> Want to see why probabilities outside [0,1] mean "play pure"? Curious how this scales past 2×2, or how mixed equilibria show up in bluffing and order-book games? Ask and I'll build you an example.
+</div>
+
+<nav class="nav">
+  <a href="0001-best-response-and-nash.html">← Lesson 1</a>
+  <a href="../reference/glossary.html">Glossary</a>
+  <span>Next: Lesson 3 — Sequential games &amp; credible threats</span>
+</nav>

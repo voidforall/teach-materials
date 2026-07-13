@@ -1,0 +1,138 @@
+<title>GT · Lesson 4 — Market Games: Cournot &amp; Bertrand</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Game Theory · Lesson 4</span><span>≈15 min</span></div>
+  <h1>Market Games: Cournot &amp; Bertrand</h1>
+  <p class="dek">Real firms don't pick from two boxes — they pick a number. Best response becomes a <em>function</em>, and the equilibrium is where the curves cross.</p>
+</header>
+
+<p>Every game so far had a small grid of actions. But a firm's move is a <strong>quantity</strong> or a <strong>price</strong> — a continuous number. The whole toolkit still works; two things just upgrade: a best response becomes a <span class="term">reaction function</span>, and a Nash equilibrium becomes the point where both reaction functions <strong>intersect</strong>. This lesson makes that concrete on the two workhorse models of competition — and ends with a jolt: the same two firms can earn healthy profits or <em>zero</em>, depending only on whether they compete on quantity or price.</p>
+
+<h2>Cournot: firms choose quantities</h2>
+
+<p>Two firms make an identical good and each pick how much to produce, <em>q₁</em> and <em>q₂</em>. The more total output <em>Q = q₁ + q₂</em> hits the market, the lower the price it clears at:</p>
+
+<p style="text-align:center"><strong>Price&nbsp; P = a − Q&nbsp; = a − q₁ − q₂</strong>&nbsp;; each unit costs <em>c</em> to make.</p>
+
+<p>Firm 1's profit is revenue minus cost: <em>π₁ = (P − c)·q₁ = (a − c − q₁ − q₂)·q₁</em>. Now find Firm 1's best response — the <em>q₁</em> that maximizes π₁ <em>for a given q₂</em>. Take the derivative w.r.t. <em>q₁</em> and set it to zero (the top of the profit hill):<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<p style="text-align:center"><em>a − c − 2q₁ − q₂ = 0</em>&nbsp;&nbsp;⟹&nbsp;&nbsp;<strong>q₁ = (a − c − q₂) / 2</strong></p>
+
+<div class="keystone">
+  <span class="label">Reaction function</span>
+  That last line is Firm 1's <strong>reaction (best-response) function</strong>: "however much you make, I make half of what's left of the market." The more the rival produces, the less you do — the curves slope <em>down</em>. Firm 2's is the mirror image. The Nash equilibrium is the <strong>one pair (q₁, q₂) that lies on <em>both</em> curves at once</strong>.
+</div>
+
+<h3>Where the curves cross</h3>
+
+<p>Take clean numbers: <em>a = 12</em>, <em>c = 0</em>. Firm 1: <em>q₁ = (12 − q₂)/2</em>. Firm 2: <em>q₂ = (12 − q₁)/2</em>. By symmetry set <em>q₁ = q₂ = q</em>: &nbsp;<em>q = (12 − q)/2</em> ⟹ <em>3q = 12</em> ⟹ <strong>q = 4</strong>.</p>
+
+<div class="plot">
+<svg viewBox="0 0 320 240" role="img" aria-label="Two downward-sloping Cournot reaction curves intersecting at the Nash equilibrium (4,4)">
+  <!-- axes -->
+  <line class="pl-axis" x1="55" y1="50" x2="55" y2="205"/>
+  <line class="pl-axis" x1="55" y1="205" x2="215" y2="205"/>
+  <!-- guide lines to NE -->
+  <line class="pl-grid" x1="55" y1="157" x2="103" y2="157"/>
+  <line class="pl-grid" x1="103" y1="205" x2="103" y2="157"/>
+  <!-- Firm 1 reaction: (q1=6,q2=0)->(q1=0,q2=12) -->
+  <line class="pl-line f1" x1="127" y1="205" x2="55" y2="61"/>
+  <!-- Firm 2 reaction: (q1=0,q2=6)->(q1=12,q2=0) -->
+  <line class="pl-line f2" x1="55" y1="133" x2="199" y2="205"/>
+  <!-- NE point (4,4) -->
+  <circle class="pl-pt" cx="103" cy="157" r="5"/>
+  <!-- labels -->
+  <text class="pl-lbl" x="212" y="220">q₁</text>
+  <text class="pl-lbl" x="34" y="54">q₂</text>
+  <text class="pl-lbl f1" x="128" y="70">Firm 1 reacts</text>
+  <text class="pl-lbl f2" x="150" y="200">Firm 2 reacts</text>
+  <text class="pl-lbl ne" x="110" y="150">NE (4, 4)</text>
+</svg>
+<p class="treelegend">Each firm's best-response curve slopes down; they cross once — the Cournot equilibrium.</p>
+</div>
+
+<p><strong>Read the outcome:</strong> total <em>Q = 8</em>, price <em>P = 12 − 8 = 4</em>, and each firm earns <em>(4 − 0)·4 = 16</em>. Compare the two extremes:</p>
+<ul>
+  <li><strong>Collude like a monopoly</strong> (jointly restrict output): they'd make <em>Q = 6</em>, price 6, and split <em>36</em> → <strong>18 each</strong> — better for them, worse for buyers.</li>
+  <li><strong>Perfect competition</strong>: price gets driven to cost 0.</li>
+</ul>
+<p>Cournot sits <em>between</em>: rivalry erodes the monopoly profit (16 &lt; 18) but doesn't erase it. Add more firms and the equilibrium slides toward the competitive price — the model's headline result.</p>
+
+<h2>Bertrand: firms choose prices — and the paradox</h2>
+
+<p>Same two firms, same constant cost <em>c</em>, identical product. But now they post <strong>prices</strong>, and every buyer goes to the cheaper one. What's your best response to a rival pricing at <em>p</em>?</p>
+
+<p><strong>Undercut them</strong> — set your price a hair below <em>p</em> and capture the <em>entire</em> market, as long as you're still above cost <em>c</em>. But your rival reasons identically. So each keeps undercutting the other…</p>
+
+<div class="keystone">
+  <span class="label">The Bertrand paradox</span>
+  …until price hits <strong>marginal cost c</strong>, where neither can profitably cut further. The unique equilibrium is <strong>p₁ = p₂ = c</strong>, with <strong>zero profit</strong>. Just <em>two</em> price-setting firms reproduce the perfectly-competitive outcome. Same firms as Cournot — profit 16 each there — now make nothing. <strong>The strategic variable you compete on (quantity vs. price) can matter more than how many of you there are.</strong>
+</div>
+
+<p>That's genuinely surprising, and its "resolutions" are where real markets live — each one relaxes an assumption:</p>
+<ul>
+  <li><strong>Capacity limits</strong> — you can't actually serve the whole market, so you can't fully undercut (this connects back to the <a href="0003-sequential-games-credible-threats.html">commitment</a> idea — capacity is a credible pre-move).</li>
+  <li><strong>Product differentiation</strong> — if goods aren't identical, a slightly cheaper rival doesn't steal <em>all</em> your buyers; prices settle above cost.</li>
+  <li><strong>Repetition</strong> — firms that meet repeatedly can sustain higher prices by threatening to punish undercutting (next lesson's territory).</li>
+</ul>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. With continuous actions, what <em>is</em> a Nash equilibrium, geometrically?</summary>
+    <p class="answer">The point where both players' reaction curves intersect at once.</p>
+    <p class="why">Same idea as double-underlining: each is best-responding to the other simultaneously.</p>
+  </details>
+  <details>
+    <summary>Q2. Why do two Bertrand firms end up pricing at marginal cost?</summary>
+    <p class="answer">Each can grab the whole market by undercutting, until no cut stays profitable.</p>
+    <p class="why">Any price above cost invites a rival to shave a penny and take everything.</p>
+  </details>
+  <details>
+    <summary>Q3. <em>(Spaced recall — Lesson 3)</em> Why doesn't a "we'll start a price war" threat always deter entry?</summary>
+    <p class="answer">If fighting hurts the incumbent too, the threat is non-credible and ignored.</p>
+    <p class="why">Backward induction keeps only threats the mover would actually carry out.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Try it — derive the equilibrium before revealing</span>
+  <p style="margin-top:0">Two firms compete <strong>à la Cournot</strong>. Demand is <strong>P = 8 − Q</strong> (with <em>Q = q₁ + q₂</em>) and each unit costs <strong>c = 2</strong>. Find Firm 1's reaction function and the symmetric equilibrium quantity per firm.</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal the solution</summary>
+      <p class="answer"><strong>Reaction: q₁ = (6 − q₂)/2. &nbsp; Equilibrium: q₁ = q₂ = 2 each.</strong></p>
+      <p class="why">Profit π₁ = (8 − q₁ − q₂ − 2)·q₁ = (6 − q₁ − q₂)·q₁. Derivative w.r.t. q₁ set to 0:
+      6 − 2q₁ − q₂ = 0 ⟹ q₁ = (6 − q₂)/2 — same shape as the worked case with (a − c) = 6.
+      Symmetric: q = (6 − q)/2 ⟹ 3q = 6 ⟹ <strong>q = 2</strong>. Then Q = 4, price P = 8 − 4 = 4,
+      and each firm earns (4 − 2)·2 = 4. Sanity check: monopoly would set Q = (a−c)/2 = 3 (price 5,
+      profit 9) — more than the duopoly's 4+4 split of 8, exactly as expected: competition shrinks
+      the pie's price and each slice.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read/watch</span>
+  <strong>Osborne, <em>An Introduction to Game Theory</em></strong> — the chapter on Cournot &amp; Bertrand oligopoly works these best-response functions carefully (<a href="https://www.economics.utoronto.ca/osborne/igt/">free draft chapters</a>). Video companion: <strong>Open Yale ECON 159</strong>'s treatment of Cournot competition — <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>.
+</div>
+
+<h3 id="s1">Notes &amp; citations</h3>
+<ol class="note">
+  <li id="s1">The first-order condition just says "at your best quantity, a tiny change up or down doesn't raise profit." Since π₁ is a downward parabola in q₁, that stationary point is the maximum. No heavier calculus needed for the linear-demand case.</li>
+</ol>
+
+<div class="ask">
+  <b>I'm your teacher — ask me anything.</b> Want the <em>asymmetric-cost</em> Cournot case (what happens when one firm is cheaper)? Or Stackelberg, where one firm commits to a quantity <em>first</em> and the L3 first-mover logic returns? Ask.
+</div>
+
+<nav class="nav">
+  <a href="0003-sequential-games-credible-threats.html">← Lesson 3</a>
+  <a href="../reference/glossary.html">Glossary</a>
+  <span>Next: Lesson 5 — Auctions &amp; mechanism design</span>
+</nav>

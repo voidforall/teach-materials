@@ -1,0 +1,146 @@
+<title>GT · Lesson 1 — Best Response &amp; Nash Equilibrium</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Game Theory · Lesson 1</span><span>≈10 min</span></div>
+  <h1>Best Response &amp; the Underline Method</h1>
+  <p class="dek">One mechanical procedure that finds every pure-strategy Nash equilibrium in any payoff matrix — no guessing.</p>
+</header>
+
+<p>You already know the phrase "Nash equilibrium." This lesson turns it into a <em>skill you can execute</em>: given any two-player matrix, you'll find <strong>all</strong> its pure equilibria by hand in under a minute. That's the load-bearing move for everything ahead — pricing wars, entry decisions, auctions.</p>
+
+<h2>The one idea underneath everything: best response</h2>
+
+<p>A game is any situation where your best move <em>depends on what others do</em>. So freeze the others for a moment and ask the only question that matters:</p>
+
+<p><strong>"If they do <em>that</em>, what's the best I can do?"</strong> — that answer is your <span class="term">best response</span>.<sup class="cite"><a href="#s1">1</a></sup> Everything in game theory is players best-responding to each other. Solve a game = find where all the best responses agree at once.</p>
+
+<h2>How to read a payoff matrix</h2>
+
+<p>The <span class="term">normal form</span> lays a game out as a grid. Rows are one player's actions, columns the other's. Each cell holds a pair of payoffs. <strong>Convention: the row player's payoff is written first.</strong> Higher is better.</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>How to read one cell — <span class="pr">(row's payoff</span>, <span class="pc">column's payoff)</span></caption>
+  <tr><th class="corner"></th><th>Rival: Left</th><th>Rival: Right</th></tr>
+  <tr><th>You: Up</th><td>(<span class="pr">3</span>, <span class="pc">1</span>)</td><td>(<span class="pr">0</span>, <span class="pc">0</span>)</td></tr>
+  <tr><th>You: Down</th><td>(<span class="pr">2</span>, <span class="pc">2</span>)</td><td>(<span class="pr">1</span>, <span class="pc">4</span>)</td></tr>
+</table>
+</div>
+<p class="legend"><span class="pr">Blue = the row player ("You")</span> · <span class="pc">Red = the column player ("Rival")</span></p>
+
+<h2>The underline method</h2>
+
+<p>This is the whole procedure. Four passes, then read off the answer:</p>
+
+<ol>
+  <li><strong>Fix each column</strong> (a choice by the Rival). In that column, find <em>your</em> best payoff and <span class="br pr">underline it in blue</span>. That's your best response to that column.</li>
+  <li>Repeat for <strong>every column</strong>.</li>
+  <li><strong>Fix each row</strong> (a choice by You). In that row, find the <em>Rival's</em> best payoff and <span class="br pc">underline it in red</span>.</li>
+  <li>Repeat for <strong>every row</strong>.</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  Any cell where <strong>both numbers are underlined</strong> is a <strong>pure-strategy Nash equilibrium</strong>: each player is already best-responding to the other, so <em>neither wants to move</em>. Zero double-underlines → no pure NE. Several → several equilibria.
+</div>
+
+<h2>Worked example 1 — a price war</h2>
+
+<p>Two coffee shops each set a price, <strong>High</strong> or <strong>Low</strong>. Both High is cozy for everyone; if you undercut a High rival you steal their customers; if both go Low you're stuck in a margin war.</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>Shop A (rows) vs. Shop B (columns) — payoffs = profit</caption>
+  <tr><th class="corner"></th><th>B: High</th><th>B: Low</th></tr>
+  <tr><th>A: High</th><td>(<span class="pr">3</span>, <span class="pc">3</span>)</td><td>(<span class="pr">1</span>, <span class="pc br pc">4</span>)</td></tr>
+  <tr><th>A: Low</th><td>(<span class="pr br pr">4</span>, <span class="pc">1</span>)</td><td class="ne">(<span class="pr br pr">2</span>, <span class="pc br pc">2</span>)</td></tr>
+</table>
+</div>
+
+<p><strong>Blue passes (A's best response):</strong> if B plays High, A compares 3 vs 4 → <span class="br pr">Low (4)</span>. If B plays Low, A compares 1 vs 2 → <span class="br pr">Low (2)</span>. A prefers Low <em>whichever</em> column — Low is a <strong>dominant strategy</strong> for A.</p>
+<p><strong>Red passes (B's best response):</strong> by symmetry, B underlines Low in both rows.</p>
+<p>The only double-underlined cell is <strong>(Low, Low) = (2, 2)</strong> — the unique Nash equilibrium. Notice the sting: both would earn <strong>3</strong> under (High, High), but each can't resist undercutting, so competition drags them to 2 apiece. That's the <span class="term">Prisoner's Dilemma</span> hiding inside every price war.<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<h2>Worked example 2 — a standards war (two equilibria)</h2>
+
+<p>Dominance won't always hand you the answer. Two firms each adopt a file format, <strong>A</strong> or <strong>B</strong>. They only make money if they <em>match</em> the rest of the market; format B is the better technology, so matching on B pays more than matching on A.</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>Firm 1 (rows) vs. Firm 2 (columns) — coordination payoffs</caption>
+  <tr><th class="corner"></th><th>Firm 2: A</th><th>Firm 2: B</th></tr>
+  <tr><th>Firm 1: A</th><td class="ne">(<span class="pr br pr">2</span>, <span class="pc br pc">2</span>)</td><td>(<span class="pr">0</span>, <span class="pc">0</span>)</td></tr>
+  <tr><th>Firm 1: B</th><td>(<span class="pr">0</span>, <span class="pc">0</span>)</td><td class="ne">(<span class="pr br pr">3</span>, <span class="pc br pc">3</span>)</td></tr>
+</table>
+</div>
+
+<p>Run the passes: if Firm 2 picks A, Firm 1's best reply is <span class="br pr">A (2 &gt; 0)</span>; if Firm 2 picks B, Firm 1's best reply is <span class="br pr">B (3 &gt; 0)</span>. Neither action is dominant — the right move <em>depends</em> on the rival. Two cells end up double-underlined: <strong>(A, A)</strong> and <strong>(B, B)</strong>.</p>
+
+<div class="keystone">
+  <span class="label">What this teaches</span>
+  A game can have <strong>more than one</strong> Nash equilibrium. Both (A,A) and (B,B) are self-enforcing, but (B,B) pays everyone more. Game theory tells you both are stable resting points; it does <em>not</em> promise you land on the best one. Escaping a stuck-on-A market is a coordination problem — the seed of standards battles, network effects, and lock-in.
+</div>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. In your own words, when is a cell a Nash equilibrium?</summary>
+    <p class="answer">When each player is best-responding to the other, so neither can gain by changing alone.</p>
+    <p class="why">Operationally: both payoffs in that cell are underlined by the method.</p>
+  </details>
+  <details>
+    <summary>Q2. A game has zero double-underlined cells. What does that mean?</summary>
+    <p class="answer">It has no equilibrium in pure strategies; a stable solution needs randomizing.</p>
+    <p class="why">"Mixed" strategies come next lesson — Nash proved one always exists once you allow them.</p>
+  </details>
+  <details>
+    <summary>Q3. Why do the two shops earn 2 each instead of 3 each?</summary>
+    <p class="answer">Each has a dominant Low, so mutual best-responding lands below joint-best.</p>
+    <p class="why">Individual rationality and collective good pull apart — the core tension of the field.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Try it — before you reveal</span>
+  <p style="margin-top:0">You (rows) face a Rival (columns). Run the four passes on paper. <strong>Hint: the Rival has a dominant strategy — find it first, then best-respond to it.</strong> How many Nash equilibria are there, and which cell?</p>
+  <div class="payoff-wrap">
+  <table class="payoff">
+    <tr><th class="corner"></th><th>Rival: Left</th><th>Rival: Right</th></tr>
+    <tr><th>You: Up</th><td>(<span class="pr">2</span>, <span class="pc">1</span>)</td><td>(<span class="pr">0</span>, <span class="pc">2</span>)</td></tr>
+    <tr><th>You: Down</th><td>(<span class="pr">1</span>, <span class="pc">0</span>)</td><td>(<span class="pr">1</span>, <span class="pc">3</span>)</td></tr>
+  </table>
+  </div>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal the solution</summary>
+      <p class="answer"><strong>One equilibrium: (Down, Right) = (1, 3).</strong></p>
+      <p class="why"><strong>Rival (red):</strong> Right beats Left in both rows — top row 2&gt;1, bottom row 3&gt;0 — so <em>Right is dominant</em>; underline Right's payoff in both rows. <strong>You (blue):</strong> if Rival plays Left you'd pick Up (2&gt;1), but a rational Rival won't play Left. Against the Rival's actual choice, Right, you compare Up=0 vs Down=1 → <em>Down</em>. Only (Down, Right) is double-underlined. Note the twist: you'd <em>love</em> the (Up, Left)=2 cell, but it isn't an equilibrium — the Rival would bolt to Right, so it can't hold.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — watch this</span>
+  <strong>Open Yale · ECON 159, Ben Polak</strong> — free, complete, superb. His early lectures build best response, dominance, and Nash equilibrium in exactly this hands-on style.
+  <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>. Pair with Osborne's chapter on Nash equilibrium &amp; best-response functions (<a href="https://www.economics.utoronto.ca/osborne/igt/">free draft chapters</a>).
+</div>
+
+<h3 id="s1">Notes &amp; citations</h3>
+<ol class="note">
+  <li id="s1">Best response is the primitive of Nash equilibrium: an NE is just a strategy profile in which everyone plays a best response to everyone else. See the <a href="../reference/glossary.html#">course glossary</a>.</li>
+  <li id="s2">The price-war matrix is a Prisoner's Dilemma in disguise: a dominant "defect" (undercut) for each, and a jointly-worse equilibrium. Same structure recurs in arms races, overfishing, and ad spending.</li>
+</ol>
+
+<div class="ask">
+  <b>I'm your teacher — ask me anything.</b> Want another practice matrix? Curious what happens with three players, or when there's no pure equilibrium? Confused why (High, High) can't hold together? Just ask.
+</div>
+
+<nav class="nav">
+  <a href="../reference/glossary.html">Glossary →</a>
+  <span>Next: Lesson 2 — Mixed strategies (when there's no pure NE)</span>
+</nav>

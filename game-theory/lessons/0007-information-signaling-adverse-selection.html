@@ -1,0 +1,118 @@
+<title>GT · Lesson 7 — Information: Signaling &amp; Adverse Selection</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Game Theory · Lesson 7</span><span>≈16 min</span></div>
+  <h1>Information: Signaling &amp; Adverse Selection</h1>
+  <p class="dek">When one side knows something the other doesn't, markets can quietly collapse — and the fix is a signal only the honest can afford.</p>
+</header>
+
+<p>Every earlier lesson assumed both players knew the payoffs. Drop that: let one side hold <strong>private information</strong> about their own "type" — a used-car's quality, a worker's ability, a trader's private signal about where the price is going. This <span class="term">asymmetric information</span> is where markets get strange: good products get driven out, and the credible remedy is a costly action only the good type would rationally take. This is the most directly <em>trading-relevant</em> lesson yet — it's the theory behind the bid–ask spread.</p>
+
+<h2>Adverse selection: the market for lemons</h2>
+
+<p>A seller knows if their car is a <strong>Peach</strong> or a <strong>Lemon</strong>; the buyer can't tell them apart. Suppose gains from trade exist for <em>both</em> types — an efficient market would trade every car:</p>
+
+<ul>
+  <li><strong>Peach:</strong> seller won't part with it below <strong>8</strong>; buyer values it at <strong>10</strong>.</li>
+  <li><strong>Lemon:</strong> seller's floor is <strong>2</strong>; buyer values it at <strong>4</strong>.</li>
+  <li>The lot is <strong>50/50</strong>, and the buyer only knows those odds.</li>
+</ul>
+
+<p>What price <em>p</em> can clear this market? Watch the selection at work:</p>
+<ul>
+  <li>At <em>p</em> between 2 and 8, <strong>only Lemon sellers show up</strong> (a Peach seller won't sell below 8). So the buyer is really only buying lemons — worth 4 — and won't pay above 4. Consistent trades: lemons only, at ~2–4.</li>
+  <li>To pull Peaches in you'd need <em>p</em> ≥ 8. But then the buyer faces a 50/50 lot worth <strong>0.5·10 + 0.5·4 = 7</strong> in expectation — and <strong>7 &lt; 8</strong>. No buyer pays 8 for an expected 7.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Adverse selection</span>
+  The good cars <strong>vanish from the market</strong> even though trading them is efficient. Any price high enough to attract Peaches is a price at which the buyer is overpaying for the average car — because the very act of offering to sell at that price is dominated by Lemons. Hidden quality makes the <em>bad</em> type crowd out the good. Akerlof's "market for lemons" — one of the most consequential ideas in economics.<sup class="cite"><a href="#s1">1</a></sup>
+</div>
+
+<h2>The trading connection: the bid–ask spread</h2>
+
+<div class="keystone">
+  <span class="label">Why market makers quote a spread</span>
+  A market maker posting a bid and ask faces exactly this problem: some counterparties are <em>informed</em> (they know the price is about to move — the "Peach/Lemon" is now <em>you</em> vs. them). If the maker quoted the true mid-price, informed traders would pick them off every time. The <strong>bid–ask spread is the maker's defense against adverse selection</strong> — it's the premium charged to survive trading against people who might know more. Toxic (informed) order flow widens spreads; benign flow narrows them.<sup class="cite"><a href="#s2">2</a></sup>
+</div>
+
+<h2>Signaling: prove your type by paying for it</h2>
+
+<p>How does a Peach seller escape the lemon trap? By taking an action that a Lemon seller <em>wouldn't rationally imitate</em>. Offer a <strong>warranty</strong>: cheap to provide on a genuinely good car, ruinous on a lemon. Now the warranty <em>credibly</em> reveals quality. In the labor market, Michael Spence's classic example is <strong>education as a signal</strong> — a credential that's cheaper to obtain for high-ability workers, so employers read it as ability even if it taught nothing.<sup class="cite"><a href="#s3">3</a></sup></p>
+
+<div class="keystone">
+  <span class="label">When a signal is credible — the single-crossing condition</span>
+  A signal separates types only if it is <strong>differentially costly</strong>: strictly cheaper for the type sending it than for the type mimicking it. If both types could send it equally cheaply, it reveals nothing (that's "cheap talk"). The signal must hurt the liar more than the honest.
+</div>
+
+<p>This produces two kinds of equilibria you should be able to name:</p>
+<ul>
+  <li><strong>Separating equilibrium:</strong> different types choose different signals, so behavior <em>reveals</em> type (only Peaches offer the warranty).</li>
+  <li><strong>Pooling equilibrium:</strong> all types send the same signal (or none), so nothing is revealed and beliefs stay at the prior.</li>
+</ul>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. In one line, what is adverse selection?</summary>
+    <p class="answer">Hidden quality drives good types out, since bad types imitate their offers.</p>
+    <p class="why">Any price attracting good types overpays for the adversely-selected average.</p>
+  </details>
+  <details>
+    <summary>Q2. What makes a costly signal actually credible?</summary>
+    <p class="answer">It must be strictly cheaper for the honest type than for a mimic.</p>
+    <p class="why">Equal-cost signals are cheap talk and separate nothing — the liar just copies.</p>
+  </details>
+  <details>
+    <summary>Q3. <em>(Spaced recall — Lesson 6)</em> Why can a repeated relationship sustain cooperation a one-shot can't?</summary>
+    <p class="answer">Future punishment can outweigh the one-time gain from defecting today.</p>
+    <p class="why">Holds when players are patient enough — e.g. δ ≥ ½ for the standard PD.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Try it — find the separating condition before revealing</span>
+  <p style="margin-top:0">A worker is <strong>High</strong> or <strong>Low</strong> productivity (only they know which). A firm pays a wage equal to what it believes: <strong>10</strong> to a credentialed worker (read as High), <strong>4</strong> to an un-credentialed one (read as Low). Getting the credential costs <strong>c<sub>H</sub></strong> for a High type and <strong>c<sub>L</sub></strong> for a Low type. <strong>For which costs does a <em>separating</em> equilibrium exist — where only the High type gets credentialed?</strong></p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal the solution</summary>
+      <p class="answer"><strong>Need c<sub>H</sub> ≤ 6 <em>and</em> c<sub>L</sub> ≥ 6.</strong></p>
+      <p class="why">Two incentive conditions must both hold:<br>
+      • <strong>High willing to signal:</strong> 10 − c<sub>H</sub> ≥ 4 ⟹ c<sub>H</sub> ≤ 6.<br>
+      • <strong>Low <em>un</em>willing to mimic:</strong> 4 ≥ 10 − c<sub>L</sub> ⟹ c<sub>L</sub> ≥ 6.<br>
+      So the credential separates precisely when it's cheap enough for a High to bother, yet dear
+      enough that a Low won't fake it — i.e. c<sub>H</sub> ≤ 6 ≤ c<sub>L</sub>, the single-crossing
+      condition made numeric. Example: c<sub>H</sub> = 4, c<sub>L</sub> = 8 works (separating);
+      c<sub>H</sub> = 4, c<sub>L</sub> = 5 fails — the Low imitates and you get pooling. Note the
+      credential can be socially wasteful and still be an equilibrium — its whole job is to be
+      <em>hard to fake</em>, not to add skill.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read/watch</span>
+  <strong>Open Yale ECON 159</strong> covers adverse selection and signaling in its late lectures — <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>. The founding papers are short and readable: <strong>Akerlof, "The Market for 'Lemons'" (1970)</strong> and <strong>Spence, "Job Market Signaling" (1973)</strong>. For the trading angle, look up the <strong>Glosten–Milgrom</strong> model of the bid–ask spread.
+</div>
+
+<h3 id="s1">Notes &amp; citations</h3>
+<ol class="note">
+  <li id="s1">George Akerlof shared the 2001 Nobel for this; the "unravelling" logic recurs in insurance (sick people buy more coverage), credit, and online marketplaces.</li>
+  <li id="s2">This is the intuition behind the Glosten–Milgrom (1985) and Kyle (1985) models of market microstructure — the spread as compensation for the risk of trading against informed order flow. Directly relevant to order-book design.</li>
+  <li id="s3">Spence shared that same 2001 Nobel with Akerlof and Stiglitz. The striking claim: a costly signal can sort types <em>even if it produces nothing of real value</em>, purely because its cost differs by type.</li>
+</ol>
+
+<div class="ask">
+  <b>I'm your teacher — ask me anything.</b> Want to see <em>screening</em> — the uninformed side offering a menu (deductibles, versioning) to make types self-sort? Or a fuller Glosten–Milgrom walkthrough tying this straight to your order-book work? Ask.
+</div>
+
+<nav class="nav">
+  <a href="0006-repeated-games.html">← Lesson 6</a>
+  <a href="../reference/glossary.html">Glossary</a>
+  <span>Next (your list): the order book as a double auction / algorithmic GT</span>
+</nav>

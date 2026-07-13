@@ -1,0 +1,121 @@
+<title>GT · Lesson 6 — Repeated Games &amp; Sustaining Cooperation</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Game Theory · Lesson 6</span><span>≈15 min</span></div>
+  <h1>Repeated Games &amp; Sustaining Cooperation</h1>
+  <p class="dek">"We'll meet again" is a contract enforced by the future. When it is, and exactly how patient you must be.</p>
+</header>
+
+<p>In a one-shot Prisoner's Dilemma, both players defect — it's dominant, and cooperation is a fantasy. Yet real firms, traders, and neighbors cooperate all the time <em>without</em> a contract. The missing ingredient is <strong>repetition</strong>: when the same players meet again and again, the shadow of future punishment can make cooperation rational <em>today</em>. This lesson gives you the skill to <strong>compute exactly how patient players must be for cooperation to hold</strong>.</p>
+
+<h2>The stage game</h2>
+
+<p>Here's the one-shot game they play each round — a standard Prisoner's Dilemma (higher = better):</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>Each round — (<span class="pr">Row</span>, <span class="pc">Column</span>)</caption>
+  <tr><th class="corner"></th><th>Col: Cooperate</th><th>Col: Defect</th></tr>
+  <tr><th>Row: Cooperate</th><td>(<span class="pr">3</span>, <span class="pc">3</span>)</td><td>(<span class="pr">0</span>, <span class="pc br pc">5</span>)</td></tr>
+  <tr><th>Row: Defect</th><td>(<span class="pr br pr">5</span>, <span class="pc">0</span>)</td><td class="ne">(<span class="pr br pr">1</span>, <span class="pc br pc">1</span>)</td></tr>
+</table>
+</div>
+
+<p>Defect dominates, so the one-shot equilibrium is (Defect, Defect) = (1, 1) — worse for both than the (3, 3) they can't reach. Now play it <em>repeatedly</em>.</p>
+
+<h2>First a warning: a known last round unravels</h2>
+
+<div class="keystone">
+  <span class="label">Finite horizon → backward induction bites</span>
+  If both players know the game ends after, say, round 100, cooperation <strong>collapses</strong>. In round 100 there's no future to protect, so both defect (it's dominant). Knowing that, round 99 has no cooperation to preserve either → defect. The logic unravels all the way back: <strong>always defect.</strong> This is Lesson 3's backward induction, and it means cooperation needs an <em>infinite</em> or <em>uncertain</em> horizon — a game that might always continue.
+</div>
+
+<p>So model the future as ongoing, with a <strong>discount factor <em>δ</em></strong> (0 &lt; δ &lt; 1) on each next round. Read <em>δ</em> two ways, both useful: how much you <em>value</em> future payoffs, <em>or</em> the <strong>probability the relationship continues</strong> one more round. High <em>δ</em> = patient, or a long expected relationship.</p>
+
+<h2>The enforcement strategy: grim trigger</h2>
+
+<p>Consider this plan for both players: <strong>"Cooperate every round — but the instant the other defects, defect forever after."</strong> That's the <span class="term">grim trigger</span>. Is sticking to cooperation a subgame-perfect equilibrium? Compare a player's two options, valued as a stream:</p>
+
+<ul>
+  <li><strong>Keep cooperating forever:</strong> 3 each round → <em>3 + 3δ + 3δ² + … = 3/(1 − δ)</em>.</li>
+  <li><strong>Defect once, then eat the punishment:</strong> grab the tempting 5 now, but trigger defection forever after (1 each round) → <em>5 + δ·1/(1 − δ) = 5 + δ/(1 − δ)</em>.</li>
+</ul>
+
+<p>Cooperation holds when cooperating is at least as good as deviating:</p>
+
+<p style="text-align:center"><em>3/(1 − δ) ≥ 5 + δ/(1 − δ)</em> &nbsp;⟹&nbsp; <em>(3 − δ) ≥ 5(1 − δ)</em> &nbsp;⟹&nbsp; <em>4δ ≥ 2</em> &nbsp;⟹&nbsp; <strong>δ ≥ 1/2</strong>.</p>
+
+<div class="keystone">
+  <span class="label">The result</span>
+  If players value the future at least <strong>half</strong> as much as the present (or the relationship continues with probability ≥ 50%), <strong>mutual cooperation is a subgame-perfect equilibrium</strong> of the repeated game. The one-shot's "impossible" (3, 3) becomes stable — enforced not by a contract, but by the credible threat of losing all future cooperation. This is how repetition rescued Lesson 3's supplier promise and can sustain Lesson 4's Bertrand collusion.
+</div>
+
+<h3>A gentler enforcer: tit-for-tat</h3>
+<p>Grim trigger is unforgiving — one slip and cooperation dies forever. <span class="term">Tit-for-tat</span> — "start by cooperating, then copy whatever the other did last round" — is the famous alternative from Axelrod's tournaments. It's <em>nice</em> (never defects first), <em>retaliating</em> (punishes defection immediately), <em>forgiving</em> (returns to cooperation the moment the rival does), and <em>clear</em>. Those four traits made it dominate real strategy competitions — a rare piece of theory with a crisp practical prescription.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>The big picture: the folk theorem</h2>
+
+<div class="keystone">
+  <span class="label">Folk theorem</span>
+  Grim trigger sustaining (3, 3) is one instance of a sweeping result: <strong>if players are patient enough (δ near 1), essentially <em>any</em> outcome that gives each player more than their guaranteed one-shot "punishment" payoff can be supported as a subgame-perfect equilibrium of the repeated game.</strong> The upside: it explains how cooperation, cartels, and norms survive without contracts. The catch: it predicts a <em>huge multiplicity</em> of equilibria — theory tells you cooperation is <em>possible</em>, not that it's inevitable. Which one you land on is about focal points, history, and trust.
+</div>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. Why can't cooperation be sustained in a Prisoner's Dilemma with a known final round?</summary>
+    <p class="answer">Backward induction: the last round defects, unraveling cooperation to the start.</p>
+    <p class="why">Needs an infinite or uncertain horizon so there's always a future to protect.</p>
+  </details>
+  <details>
+    <summary>Q2. What are the two readings of the discount factor δ?</summary>
+    <p class="answer">How much you value future payoffs, or the odds the game continues.</p>
+    <p class="why">Both make "high δ" mean the future weighs heavily enough to deter defection.</p>
+  </details>
+  <details>
+    <summary>Q3. <em>(Spaced recall — Lesson 5)</em> In a second-price auction, what should you bid?</summary>
+    <p class="answer">Your true value — it's weakly dominant regardless of others' bids.</p>
+    <p class="why">Your bid decides only whether you win; the price is the top rival bid.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Try it — find the patience threshold before revealing</span>
+  <p style="margin-top:0">Same repeated Prisoner's Dilemma, but the temptation is milder: both-cooperate = <strong>3</strong>, tempt (defect on a cooperator) = <strong>4</strong>, both-defect = <strong>1</strong>, sucker = 0. Using grim trigger, <strong>how patient must players be — what's the threshold on δ — to sustain cooperation?</strong></p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal the solution</summary>
+      <p class="answer"><strong>δ ≥ 1/3.</strong></p>
+      <p class="why">Cooperate forever: 3/(1 − δ). Deviate once then punished forever: 4 + δ/(1 − δ).
+      Hold cooperation when 3/(1 − δ) ≥ 4 + δ/(1 − δ) ⟹ (3 − δ) ≥ 4(1 − δ) ⟹ 3δ ≥ 1 ⟹
+      <strong>δ ≥ 1/3</strong>. Compare to the worked case (temptation 5 → δ ≥ 1/2): a <em>smaller</em>
+      temptation to cheat lowers the patience you need. The intuition generalizes — the bigger the
+      short-term gain from betrayal, the more the future has to matter to hold the deal together.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read/watch</span>
+  <strong>Open Yale ECON 159</strong> covers repeated games and cooperation with worked discounting — <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>. For the deepest intuition on tit-for-tat, <strong>Robert Axelrod, <em>The Evolution of Cooperation</em></strong> — a landmark, and a genuinely enjoyable read.
+</div>
+
+<h3 id="s1">Notes &amp; citations</h3>
+<ol class="note">
+  <li id="s1">Axelrod ran two round-robin tournaments where submitted strategies played repeated Prisoner's Dilemmas. Tit-for-tat, the simplest entry, won both. Its lesson — be nice, retaliate, forgive, be clear — is one of game theory's most cited practical takeaways.</li>
+</ol>
+
+<div class="ask">
+  <b>I'm your teacher — ask me anything.</b> Curious how δ maps to a real interest rate or a customer-churn probability? Or how imperfect monitoring (you can't always <em>tell</em> if the other defected) changes the picture — the frontier that matters for real markets? Ask.
+</div>
+
+<nav class="nav">
+  <a href="0005-auctions-mechanism-design.html">← Lesson 5</a>
+  <a href="../reference/glossary.html">Glossary</a>
+  <span>Next (your list): information games — signaling &amp; adverse selection</span>
+</nav>

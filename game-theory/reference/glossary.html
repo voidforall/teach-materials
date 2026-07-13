@@ -1,0 +1,134 @@
+<title>Game Theory — Glossary</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Game Theory · Reference</span><span>Living document</span></div>
+  <h1>Glossary</h1>
+  <p class="dek">The course's shared vocabulary. Lessons adhere to these definitions. Grows as we go.</p>
+</header>
+
+<p class="note">Ordered roughly from foundations outward, not alphabetically — read top-to-bottom the first time, jump back by <kbd>Ctrl/Cmd-F</kbd> after.</p>
+
+<h2>The game object</h2>
+
+<h3>Game</h3>
+<p>A model of interaction where each participant's outcome depends on <em>everyone's</em> choices, not just their own. Minimum spec: <strong>players</strong>, <strong>actions</strong>, <strong>payoffs</strong>.</p>
+
+<h3>Player</h3>
+<p>A decision-maker. Assumed <strong>rational</strong> (picks actions to maximize their own payoff) and, unless stated, that this rationality is <em>common knowledge</em> (everyone knows that everyone knows… that everyone is rational).</p>
+
+<h3>Action vs. Strategy</h3>
+<p>An <span class="term">action</span> is a single move. A <span class="term">strategy</span> is a complete plan: what you'd do at every point you might have to move. In one-shot simultaneous games the two coincide; in sequential games they differ sharply.</p>
+
+<h3>Payoff (utility)</h3>
+<p>A number ranking how much a player likes an outcome. Higher = better. Only the <em>ordering</em> matters for most solving; the units are not money unless said so.</p>
+
+<h3>Normal (strategic) form</h3>
+<p>A game written as a <strong>payoff matrix</strong>: rows = one player's actions, columns = the other's, each cell = the payoff pair <span class="pr" style="color:var(--accent)">(row's</span>, <span class="pc" style="color:var(--loss)">column's)</span>. Convention: <strong>row player's payoff is listed first</strong>.</p>
+
+<h3>Extensive form</h3>
+<p>A game written as a <strong>tree</strong> of sequential moves — who moves when, what they know, and payoffs at the leaves. Used for sequential games (see <em>backward induction</em>).</p>
+
+<h2>Solving: the core toolkit</h2>
+
+<h3>Best response</h3>
+<p>Given a fixed choice by the others, your best response is the action(s) giving you the highest payoff. The atomic operation of game theory — solving a game is mostly "everyone best-responding to everyone."</p>
+
+<h3>Dominant / dominated strategy</h3>
+<p>A <strong>strictly dominant</strong> strategy is best <em>no matter</em> what others do. A <strong>strictly dominated</strong> strategy is worse than some other option <em>no matter</em> what others do — a rational player never plays it. <strong>Weak</strong> versions replace "strictly better/worse" with "at least as good/never better."</p>
+
+<h3>Iterated elimination of dominated strategies (IEDS)</h3>
+<p>Delete dominated strategies repeatedly; each deletion can expose new dominated strategies in a smaller game. What survives is the set of rationalizable plays.</p>
+
+<h3>Nash equilibrium (NE)</h3>
+<p>A profile of strategies where <em>every</em> player is best-responding to the others simultaneously — <strong>no one can gain by unilaterally deviating</strong>. A "no regrets, given what everyone else did" resting point. May be pure or mixed; a game can have zero, one, or many.</p>
+
+<h3>Pure vs. Mixed strategy</h3>
+<p><span class="term">Pure</span>: commit to one action. <span class="term">Mixed</span>: randomize over actions with set probabilities. <strong>Nash's theorem</strong>: every finite game has at least one Nash equilibrium once mixed strategies are allowed.</p>
+
+<h3>Indifference principle</h3>
+<p>The method for finding a mixed equilibrium: each player sets their own mixing probabilities so that the <em>opponent</em> is <strong>indifferent</strong> between the actions they mix over. Consequence — your equilibrium probabilities are pinned down by the <em>other</em> player's payoffs, not your own. To solve a 2×2: write the opponent's expected payoff to each action as a function of your mix, set them equal, solve.</p>
+
+<h3>Backward induction</h3>
+<p>Solve a sequential game from the last move backward: at each decision, assume future players will act optimally, and fold that back. Yields the <em>subgame-perfect</em> outcome.</p>
+
+<h3>Subgame-perfect equilibrium (SPE)</h3>
+<p>A Nash equilibrium that is also a Nash equilibrium in every subgame — rules out equilibria propped up by <em>non-credible</em> threats. The refinement that makes sequential games behave.</p>
+
+<h3>Credible vs. non-credible threat/promise</h3>
+<p>A threat or promise is <strong>credible</strong> only if carrying it out is in the actor's own interest <em>when the moment comes</em>. Backward induction / SPE discards equilibria that rely on non-credible ones (e.g. "I'll fight any entrant" when fighting would only hurt you).</p>
+
+<h3>Commitment</h3>
+<p>A move that binds your own future choices <em>before</em> a rival acts, changing what they expect you to do. Counterintuitively, <strong>removing your own options can raise your payoff</strong> (excess capacity, binding contracts, escrow, reputation, burning a bridge). The strategic core of bargaining and deterrence.</p>
+
+<h3>Hold-up problem</h3>
+<p>An efficient deal fails because one side <em>can't credibly promise</em> to follow through after the other sinks a cost (e.g. a supplier who'd renege once paid). Fixed by a commitment device: enforceable contracts, escrow, or a repeated relationship.</p>
+
+<h2>Recurring structures &amp; market games</h2>
+
+<h3>Prisoner's Dilemma</h3>
+<p>Each player has a dominant "defect," yet mutual defection is worse for both than mutual cooperation. The canonical clash between individual and collective rationality.</p>
+
+<h3>Repeated game &amp; discount factor (δ)</h3>
+<p>A stage game played over and over by the same players. The <span class="term">discount factor</span> δ ∈ (0,1) weights each future round — read as patience <em>or</em> as the probability the relationship continues. A <strong>known finite horizon</strong> unravels cooperation by backward induction; an <strong>infinite/uncertain horizon</strong> can sustain it.</p>
+
+<h3>Grim trigger / Tit-for-tat</h3>
+<p>Enforcement strategies in a repeated game. <span class="term">Grim trigger</span>: cooperate until the first defection, then defect forever — sustains cooperation when δ is high enough (e.g. δ ≥ ½ for the standard PD). <span class="term">Tit-for-tat</span>: cooperate first, then copy the rival's last move — nice, retaliating, forgiving, clear; won Axelrod's tournaments.</p>
+
+<h3>Folk theorem</h3>
+<p>For patient players (δ near 1), <strong>almost any payoff profile above each player's punishment (minmax) level can be sustained as a subgame-perfect equilibrium</strong> of the infinitely repeated game. Explains contract-free cooperation — at the cost of predicting a large multiplicity of equilibria.</p>
+
+<h3>Zero-sum game</h3>
+<p>One player's gain is exactly the other's loss (payoffs sum to a constant). Pure competition; solved by minimax.</p>
+
+<h3>Reaction (best-response) function</h3>
+<p>Best response generalized to continuous actions: a function giving your optimal move for <em>each</em> possible move by the rival. With linear demand, Cournot reaction functions slope down ("you make more ⟹ I make less"). The Nash equilibrium is where both players' reaction functions <strong>intersect</strong>.</p>
+
+<h3>Cournot / Bertrand competition</h3>
+<p>Two models of duopoly. <span class="term">Cournot</span>: firms choose <em>quantities</em>; equilibrium output per firm is (a−c)/3 under demand P=a−Q, landing between monopoly and perfect competition. <span class="term">Bertrand</span>: firms choose <em>prices</em>, and undercutting drives price to marginal cost.</p>
+
+<h3>Bertrand paradox</h3>
+<p>With identical goods and price competition, just <strong>two</strong> firms suffice to push price to marginal cost and profit to zero — the competitive outcome. Resolved in practice by capacity limits, product differentiation, or repetition. Lesson: the <em>strategic variable</em> (price vs. quantity) can matter more than the number of firms.</p>
+
+<h3>Private vs. common value</h3>
+<p><span class="term">Private value</span>: the item is worth a different, self-known amount to each bidder. <span class="term">Common value</span>: worth the same unknown amount to all, and each has only a noisy estimate (breeds the winner's curse).</p>
+
+<h3>First- vs. Second-price auction</h3>
+<p><span class="term">First-price</span>: highest bidder pays their own bid — you must <em>shade</em> below your value, and there's no dominant strategy (optimal bid depends on beliefs). <span class="term">Second-price / Vickrey</span>: highest bidder pays the <em>second</em>-highest bid, making <strong>truthful bidding a weakly dominant strategy</strong> — your bid sets only <em>whether</em> you win; others' bids set the price.</p>
+
+<h3>Revenue-equivalence theorem</h3>
+<p>Under standard assumptions (independent private values, symmetric risk-neutral bidders), first- and second-price auctions yield the <strong>same expected revenue</strong> — bidders' shading in the first-price format cancels its apparent advantage.</p>
+
+<h3>Winner's curse</h3>
+<p>In common-value auctions, winning means you were the most optimistic bidder — so winning is itself bad news about the value. Rational bidders shade down to correct for it.</p>
+
+<h3>Asymmetric information</h3>
+<p>One side knows something payoff-relevant the other doesn't — typically their own <em>type</em> (quality, ability, a private signal). Breaks the common-knowledge-of-payoffs assumption behind earlier lessons; the source of adverse selection and signaling.</p>
+
+<h3>Adverse selection</h3>
+<p>Hidden information <em>before</em> trading drives good types out: any price attracting the good type overpays for the pool, because bad types imitate the same offer. Akerlof's <em>market for lemons</em>. Real-world remedy in markets: the <strong>bid–ask spread</strong> compensating a market maker for the risk of trading against informed flow.</p>
+
+<h3>Signaling &amp; the single-crossing condition</h3>
+<p>The informed party takes a costly action to reveal type credibly. It only works if the signal is <strong>differentially costly</strong> — strictly cheaper for the type sending it than for a mimic (else it's <em>cheap talk</em> and reveals nothing). Spence's education signal is the classic.</p>
+
+<h3>Separating vs. pooling equilibrium</h3>
+<p><span class="term">Separating</span>: different types send different signals, so behavior reveals type. <span class="term">Pooling</span>: all types send the same signal, revealing nothing and leaving beliefs at the prior.</p>
+
+<h3>Screening</h3>
+<p>The mirror of signaling: the <em>uninformed</em> party designs a menu (insurance deductibles, product versions) so that different types self-select — mechanism design applied to hidden types.</p>
+
+<h3>Mechanism design</h3>
+<p>"Game theory in reverse": design the <em>rules</em> so that self-interested play produces the outcome you want (e.g., the Vickrey auction designed so honesty is optimal). The CS/markets bridge.</p>
+
+<h3>Price of anarchy</h3>
+<p>Ratio of the social cost at the worst Nash equilibrium to the optimal cost. Measures how much selfish play degrades a system — a workhorse of algorithmic game theory.</p>
+
+<div class="ask">
+  <b>Teacher on call.</b> A definition feels slippery? Ask me for a worked example — that's what I'm here for.
+</div>
+
+<nav class="nav">
+  <a href="../lessons/0001-best-response-and-nash.html">← Lesson 1: Best Response &amp; Nash</a>
+  <a href="../MISSION.md">Mission</a>
+</nav>

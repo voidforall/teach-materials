@@ -1,0 +1,122 @@
+<title>GT · Lesson 5 — Auctions &amp; Mechanism Design</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Game Theory · Lesson 5</span><span>≈16 min</span></div>
+  <h1>Auctions &amp; Mechanism Design</h1>
+  <p class="dek">Design the rules and you design the behavior. Why one auction makes honesty the smart move — and one makes winning bad news.</p>
+</header>
+
+<p>An auction is a game where the <strong>rules are the design choice</strong>. Ad exchanges, treasury bonds, spectrum sales, and the matching logic inside an order book are all auctions. This lesson delivers the field's most beautiful practical result — a rule under which <strong>telling the truth is a dominant strategy</strong> — and then flips the whole subject around into <span class="term">mechanism design</span>: game theory run <em>backward</em>, choosing payoffs so that self-interest produces the outcome you want.</p>
+
+<h2>The setup: private values</h2>
+
+<p>You want an item worth <em>v</em> to you (your <span class="term">private value</span> — only you know it). You submit a bid <em>b</em>. Your <strong>surplus</strong> is <em>v − (what you pay)</em> if you win, else 0. The two classic sealed-bid rules differ only in <em>what the winner pays</em>:</p>
+
+<ul>
+  <li><strong>First-price:</strong> highest bidder wins and pays <em>their own bid</em>.</li>
+  <li><strong>Second-price (Vickrey):</strong> highest bidder wins but pays the <em>second-highest</em> bid.</li>
+</ul>
+
+<h2>The gem: in a second-price auction, bid your true value</h2>
+
+<div class="keystone">
+  <span class="label">Truthful bidding is a dominant strategy</span>
+  In a second-price auction, bidding exactly <em>b = v</em> is <strong>weakly dominant</strong> — it is optimal <em>no matter what anyone else bids</em>. The reason is a clean split: <strong>your bid decides only <em>whether</em> you win; the others' bids decide <em>how much</em> you pay.</strong> So you want to win precisely when the price (the top rival bid) is below your value — and bidding your value does exactly that, automatically.
+</div>
+
+<p>Here's the whole proof, by the same case-checking as Lesson 1's dominance. Let <em>m</em> = the highest bid <em>among your rivals</em> (that's the price if you win). Compare bidding your true value <em>v</em> to any deviation:</p>
+
+<ul>
+  <li><strong>Bidding above your value (b &gt; v).</strong> It only changes the outcome when <em>v &lt; m &lt; b</em>: now you win, but pay <em>m &gt; v</em> → <em>negative</em> surplus. You bought a loss. Truthful bidding would have let you lose, which was correct. Never better.</li>
+  <li><strong>Bidding below your value (b &lt; v).</strong> It only changes the outcome when <em>b &lt; m &lt; v</em>: now you <em>lose</em> — but you'd have happily paid <em>m &lt; v</em> for surplus <em>v − m &gt; 0</em>. You threw away a profitable win. Never better.</li>
+  <li><strong>In every other case</strong> the deviation changes nothing (you win/lose the same and pay the same <em>m</em>).</li>
+</ul>
+
+<p>So no deviation ever helps and some deviations hurt: <strong>bid <em>v</em>.</strong> Notice how the design does the work — the rule makes honesty individually rational, so you don't need to model your opponents at all. That is the point of good mechanism design.</p>
+
+<h2>First-price: now you must shade</h2>
+
+<p>Change the rule to "pay your own bid" and truthful bidding becomes a mistake: bidding <em>v</em> wins you zero surplus. You must <strong>shade</strong> — bid below your value. But how far? Bid too low and you lose; bid too high and you win with thin surplus. The sweet spot depends on <em>what you believe rivals will bid</em> — so unlike the second-price auction, there's <strong>no dominant strategy</strong>, only a Nash equilibrium in beliefs.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<div class="keystone">
+  <span class="label">Revenue equivalence — the punchline</span>
+  You'd think "pay-your-own-bid" earns the seller more. It doesn't. Under standard assumptions (independent private values, symmetric bidders), <strong>first-price and second-price auctions yield the same expected revenue</strong>. The bidders' shading in the first-price auction exactly cancels the seller's apparent advantage. This <em>revenue-equivalence theorem</em> is a foundational, non-obvious result — the format is often a choice about robustness and simplicity, not raw revenue.
+</div>
+
+<h2>The trap: the winner's curse</h2>
+
+<p>Everything above assumed <em>private</em> values. Flip to a <span class="term">common value</span> — an asset worth the same unknown amount to everyone (an oil tract, a mispriced block of shares), and each bidder only has a noisy estimate. Now something nasty appears:</p>
+
+<div class="keystone">
+  <span class="label">Winner's curse</span>
+  If everyone bids near their estimate, <strong>the winner is whoever most <em>over</em>-estimated the value</strong> — so winning is itself bad news: it tells you your estimate was the rosiest in the room. Rational bidders correct for this by <strong>shading down</strong>, bidding as if their estimate were conditioned on already being the highest. Ignore it and you systematically overpay. (Directly relevant to bidding for assets of uncertain value — a very trading-flavored failure mode.)
+</div>
+
+<h2>Zooming out: mechanism design</h2>
+
+<p>Every lesson so far <em>analyzed</em> a given game. Mechanism design asks the inverse question: <strong>"I want a certain outcome — what rules make self-interested players produce it?"</strong> The Vickrey auction is the emblem: its designer wanted efficient allocation and truthful bids, and got both by choosing the payment rule cleverly. Its generalization (the <strong>VCG mechanism</strong>) underlies real ad auctions and combinatorial allocation — the CS/markets frontier of the subject.<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<div class="keystone">
+  <span class="label">Full-circle with Lesson 2</span>
+  Remember the audit game's lesson — <em>to change someone's behavior, change the payoffs they face, not your own.</em> Mechanism design is that principle industrialized: pick the rules so that the payoffs make honesty, effort, or efficiency the <em>selfish</em> choice. Analysis finds the equilibrium; design chooses the game so the equilibrium is the one you wanted.
+</div>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. In a second-price auction, why is bidding your true value optimal?</summary>
+    <p class="answer">Your bid sets only whether you win; the price is others' top bid.</p>
+    <p class="why">So you want to win exactly when that price is below your value — bid your value.</p>
+  </details>
+  <details>
+    <summary>Q2. What is the winner's curse, in one line?</summary>
+    <p class="answer">Winning a common-value item means you likely over-estimated its worth.</p>
+    <p class="why">The highest bidder is the most optimistic estimator, so winning signals overpayment.</p>
+  </details>
+  <details>
+    <summary>Q3. <em>(Spaced recall — Lesson 4)</em> Two identical-good firms compete on price. Where does price land?</summary>
+    <p class="answer">At marginal cost, with zero profit — the Bertrand paradox.</p>
+    <p class="why">Each undercuts the other until no profitable cut remains.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Try it — argue it out before revealing</span>
+  <p style="margin-top:0">A <strong>second-price</strong> auction. Your true value is <strong>50</strong>. You're tempted to "get a deal" by bidding <strong>40</strong>. Show that bidding your true value 50 <em>weakly dominates</em> bidding 40, by checking two scenarios: the highest rival bid is <strong>30</strong>, and the highest rival bid is <strong>45</strong>.</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal the solution</summary>
+      <p class="answer"><strong>Bidding 50 is never worse and sometimes strictly better — so bid 50.</strong></p>
+      <p class="why">
+      <strong>Rival bid 30:</strong> Bid 50 → win, pay 30, surplus <strong>20</strong>. Bid 40 → still win, pay 30, surplus <strong>20</strong>. Tie.<br>
+      <strong>Rival bid 45:</strong> Bid 50 → win, pay 45, surplus <strong>5</strong>. Bid 40 → <em>lose</em>, surplus <strong>0</strong>. Bidding 40 forfeits a profitable win.<br>
+      Shading to 40 only ever "protects" you in cases where winning was already unprofitable (rival above 50) — and there, bidding 50 loses too. So it gains nothing and can cost you the 45-case surplus. That's exactly the general proof, made concrete: your bid should equal your value.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read/watch</span>
+  <strong>Open Yale ECON 159</strong> has a superb lecture on auctions and the winner's curse (played live in class) — <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>. For the mechanism-design / CS depth (VCG, revenue), see <strong><em>Algorithmic Game Theory</em></strong>, ch. 9–13 — <a href="https://www.cs.cmu.edu/~sandholm/cs15-892F13/algorithmic-game-theory.pdf">free PDF</a>.
+</div>
+
+<h3 id="s1">Notes &amp; citations</h3>
+<ol class="note">
+  <li id="s1">For values drawn independently and uniformly on [0, 1] with <em>n</em> bidders, the symmetric equilibrium first-price bid is <em>b = (n−1)/n · v</em> — you shade less as the field grows, because competition forces you closer to your value.</li>
+  <li id="s2">Vickrey (1961) won a Nobel for this; the VCG (Vickrey–Clarke–Groves) mechanism extends "pay the harm you impose on others" to complex multi-item settings. Modern ad auctions descend from these ideas.</li>
+</ol>
+
+<div class="ask">
+  <b>I'm your teacher — ask me anything.</b> Want to see how an order book is (and isn't) a double auction? Or work the first-price equilibrium bid derivation? Or how VCG pricing actually computes each winner's payment? Ask.
+</div>
+
+<nav class="nav">
+  <a href="0004-cournot-bertrand.html">← Lesson 4</a>
+  <a href="../reference/glossary.html">Glossary</a>
+  <span>Course arc: fundamentals ✓ · markets ✓ — next, your pick</span>
+</nav>
