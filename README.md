@@ -24,9 +24,11 @@ plus a Chinese version `NNNN-name.zh.html` in the same folder:
   dead-letter, idempotency…) and game-theory terms (Nash equilibrium, best response,
   backward induction…) are never translated away.
 - Diagrams/SVG keep their English labels — consistent with the terminology rule.
-- Each page links to its counterpart: a `中文` link in the original's masthead, an
-  `English` link in the Chinese page's masthead. Lesson-to-lesson nav links point to
-  same-language files.
+- Each page carries a **language toggle button** in its masthead kicker (`.langbtn`):
+  `中` on English pages, `EN` on Chinese pages, linking to the counterpart. Injected
+  by `python3 scripts/add_lang_switches.py` (idempotent — run it after creating a new
+  bilingual pair; styling lives in each course's `assets/lesson.css`). Lesson-to-lesson
+  nav links point to same-language files.
 - `scripts/build_index.py` detects `.zh.html` siblings automatically and adds a 中
   badge per lesson. When editing a page, update its pair too.
 - Course working notes (`NOTES.md`, `MISSION.md`, learning records) stay in English —
