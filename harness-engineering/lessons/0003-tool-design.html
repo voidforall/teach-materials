@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 3 — Tool Design</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · Lesson 3</span><span>Tools <a class="langbtn" href="0003-tool-design.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Tool Design</h1>
+  <p class="dek">A tool is four things: a name, a description, a JSON schema, and a behavior. Three of the four are prompts — and you already know how to write prompts.</p>
+</div>
+
+<p>To the model, your tool surface is not an API. It is a block of text in the context window that it reads <em>before every single call</em>. A tool definition is a prompt that happens to be shaped like a function signature. Design it like one.</p>
+
+<h2>Anatomy of a tool</h2>
+
+<p>Every tool — whether it's an MCP tool, a Claude Code tool, or an OpenAI function — carries the same four parts: <span class="term">name</span> (when to reach for it), <span class="term">description</span> (what it does, when <em>not</em> to use it, what the args mean), <span class="term">JSON schema</span> (the shape of valid input), and <span class="term">behavior</span> (what actually runs and comes back). The model only ever sees text: name + description + schema go into the prompt on every turn. The behavior speaks only through its return value.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Every tool description is a prompt; every error message is a course correction.</strong> The description steers when and how the model calls; the error steers how it recovers when the call fails. Both are steering surfaces — write them like prompts, not like documentation.
+</div>
+
+<h2>Descriptions are prompts, not docs</h2>
+
+<p>A docstring written for humans ("Retrieves records from the records service") tells the model almost nothing. A description written for a model says what it returns, what the args mean in practice, and shows a concrete example. Compare:</p>
+
+<pre><code>// Bad: docs for humans
+name: get_records
+description: Retrieves records from the records service.
+input: { type: object, properties: { q: { type: "string" } } }
+
+// Fixed: a prompt for a model
+name: get_records
+description: Searches support tickets. Returns up to 50 matches,
+  newest first. Use quotes for exact phrases (q: "\"refund\" delayed").
+  Prefer this over list_all_records; it's faster and cheaper.
+  Example: q="plan:pro status:open" returns open tickets on the Pro plan.
+input: { type: object, properties: {
+  q: { type: "string",
+       description: "Query string. Supports field:value filters
+                     (plan:, status:, org:) and quoted phrases." } },
+  required: ["q"] }</code></pre>
+
+<p>The fixed version answers the model's real questions: <em>what comes back, in what order, how do I compose a query, and when should I pick a different tool?</em> Concrete input/output examples in the description are the single highest-leverage edit you can make.</p>
+
+<h2>Errors are steering</h2>
+
+<p>When a call fails, you get one free turn of the model's attention. Spend it well: say what's wrong <strong>and</strong> how to fix it. <span class="term">"Date must be YYYY-MM-DD, e.g. 2026-08-23; you sent 'Aug 23'"</span> lets the loop self-correct on the next step. A stack trace does not.</p>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Returning a stack trace instead of actionable guidance.</strong> <span class="term">Error: ValueError at utils/dates.py:88</span> is a dead end — the model guesses, retries, and burns budget. <span class="term">Error: invalid date 'Aug 23'. Use ISO format YYYY-MM-DD, e.g. 2026-08-23."</span> is a course correction. Every error string is a mini-prompt for the recovery step.
+</div>
+
+<h2>Few tools, sharp edges</h2>
+
+<p>Tool definitions ride along in the context on <em>every</em> turn, so the surface itself has a token cost — and a confusion cost: overlapping tools force the model into a fuzzy choice on every step. Ten high-impact tools with crisp boundaries outperform forty overlapping ones. Before adding a tool, ask: can an existing tool plus a better description cover it? If two tools overlap, merge them or sharpen the descriptions until only one can ever be the right answer.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why put a concrete example query inside a tool description?</summary>
+    <p class="answer">The model imitates examples.</p>
+    <p class="why">Descriptions are prompts. A worked example (q="plan:pro status:open" → open tickets on the Pro plan) pins down format and filters far better than prose rules — the model pattern-matches the example on its next call.</p>
+  </details>
+  <details><summary>A tool call fails with a malformed date. What should the error string contain?</summary>
+    <p class="answer">What's wrong and the fix.</p>
+    <p class="why">Name the bad input, state the expected format, and give an example: "invalid date 'Aug 23'; use YYYY-MM-DD, e.g. 2026-08-23." That turns the failure into a one-step self-correction instead of a blind retry.</p>
+  </details>
+  <details><summary>Your harness has 40 tools and the model keeps picking the wrong one. First move?</summary>
+    <p class="answer">Cut and sharpen, don't add.</p>
+    <p class="why">Overlapping tools force a fuzzy choice every step, and 40 definitions tax the context on every turn. Merge overlapping tools, then rewrite descriptions so each one states when to use it — and when to prefer another tool instead.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 10 minutes</span>
+  <p>Find the worst tool description in a harness you use (any MCP server or plugin config will do). Rewrite it: one sentence on what it returns, one on when <em>not</em> to call it, one concrete input example, and a schema field description for the trickiest argument. Then run a task that needs the tool and watch whether the first call is correct — before and after.</p>
+</div>
+
+<h2>Where this goes next</h2>
+<p>Well-designed tools make single calls reliable. The next question is what wraps the calls: the loop that acts, observes, and decides to stop. That's the agent loop — Lesson 4.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://www.anthropic.com/engineering/writing-tools-for-agents">Anthropic — Writing tools for agents</a> (the tokens-to-tool-call ratio, response formatting, and error-steering doctrine behind this lesson).
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> This lesson is one command away from a teacher — ask the agent anything: "audit my tool descriptions", "how big should a schema be?", "show me a merged tool example".</div>
+
+<div class="nav">
+  <span>Course · Mission</span>
+  <span>Lesson 4: <a href="0004-the-agent-loop.html">The agent loop</a></span>
+</div>
+</body>
+</html>

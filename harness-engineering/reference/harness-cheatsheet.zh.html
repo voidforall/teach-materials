@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Harness Engineering — 速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.cs { border-collapse: collapse; font-size: 0.86rem; margin: 1rem 0; width: 100%; }
+  table.cs th, table.cs td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+  table.cs th { font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  table.cs td:first-child { font-weight: 600; }
+  table.cs .yes { color: #1a7f37; }
+  table.cs .no { color: #b42318; }
+  pre.loop { font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>参考</span><span>Harness Engineering <a class="langbtn" href="harness-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>Harness Engineering — 速查表</h1>
+  <p class="dek">八课课程"工程化大模型脚手架"浓缩为一页可打印速查：解剖、上下文、工具、循环、skills、护栏、委派、evals。</p>
+</div>
+
+<h2>1 · Harness 解剖 <span class="muted">— <a href="../lessons/0001-anatomy-of-a-harness.zh.html">第 1 课</a></span></h2>
+<p>一个智能体产品不是"一个模型"——它是一个归你所有的程序，包裹在一个固定的模型外面。五个部分，外加注视着它们的 evals：</p>
+<table class="cs">
+  <tr><th>部件</th><th>一句话职责</th></tr>
+  <tr><td>模型</td><td>固定的、概率性的推理核心——你改不了它，只能喂它。</td></tr>
+  <tr><td>上下文</td><td>模型本轮看到的一切：系统提示、历史、工具结果。是预算，不是垃圾场。</td></tr>
+  <tr><td>工具</td><td>模型的手——schema 就是提示词，描述引导行为。</td></tr>
+  <tr><td>循环</td><td>行动 → 观察 → 反思，重复——直到某个设计好的停止条件触发。</td></tr>
+  <tr><td>护栏</td><td>权限与 hooks：上下文窗口之外的确定性策略。</td></tr>
+  <tr><td>Evals</td><td>注视以上五者的度量层——每次 harness 改动都是代码改动。</td></tr>
+</table>
+
+<h2>2 · 上下文工程 <span class="muted">— <a href="../lessons/0002-context-engineering.zh.html">第 2 课</a></span></h2>
+<p>每个 token 都在争夺注意力。竞争者：系统提示、对话历史、工具结果、检索到的文档、草稿/todo。</p>
+<ul>
+  <li><strong>渐进披露：</strong>先只加载指针（名称+描述），调用时才加载正文，附带文件按需再取。只为任务所需付费，不为存量付费。</li>
+  <li><strong>压缩（compaction）：</strong>历史超出预算时，把它总结成结构化笔记并丢弃原始记录——保留决策与事实，丢掉过程。</li>
+</ul>
+<table class="cs">
+  <tr><th>要</th><th>不要</th></tr>
+  <tr><td class="yes">像预算一样经营：每个常驻 token 都要挣得位置</td><td class="no">"以防万一"地塞入整个文件/日志</td></tr>
+  <tr><td class="yes">即时检索——在需要的那一刻取</td><td class="no">开头就预加载一切</td></tr>
+  <tr><td class="yes">定期压缩为结构化笔记</td><td class="no">放任记录增长到注意力退化</td></tr>
+  <tr><td class="yes">把状态外置（todo、文件）供模型重读</td><td class="no">指望模型记住第 3 轮说过什么</td></tr>
+</table>
+
+<h2>3 · 工具设计清单 <span class="muted">— <a href="../lessons/0003-tool-design.zh.html">第 3 课</a></span></h2>
+<ul>
+  <li><strong>描述即提示词：</strong>描述就是引导文本——说明工具<em>用来做什么</em>、何时用、何时不用。</li>
+  <li><strong>描述里放具体示例</strong>胜过抽象说教（"'deploy staging' 时用"，而不是"发布东西时用"）。</li>
+  <li><strong>能引导的错误：</strong>错误信息就是反馈——说明哪里错了<em>以及下一步试什么</em>，绝不抛裸堆栈。</li>
+  <li><strong>少而高杠杆的工具：</strong>盯住 token 与工具调用之比；合并重叠工具，别养出一个字母表。</li>
+  <li><strong>输出契约：</strong>声明响应结构；输出要让下一步可直接解析，不必重读。</li>
+</ul>
+
+<h2>4 · 智能体循环 <span class="muted">— <a href="../lessons/0004-the-agent-loop.zh.html">第 4 课</a></span></h2>
+<pre class="loop"><code>while true:
+    response = model(system_prompt, messages, tools)
+    if response.has_tool_calls:            # 行动 ACT
+        for call in response.tool_calls:
+            messages.append(run(call))     # 观察 OBSERVE
+        if not within_budget(): stop("budget exhausted")     # 停止：预算
+        if error_rate > threshold: stop("too many failures") # 停止：错误
+        continue                           # 下一轮反思 REFLECT
+    if response.done: stop("task complete")     # 停止：完成
+    if response.asks_user: stop("input needed") # 停止：需输入
+    stop("end turn")</code></pre>
+<p>没有设计停止条件的智能体就是一个带信用卡的 <code>while(true)</code>。工作流 vs 智能体的判据：<em>谁来选步骤？</em>你的代码 → 工作流；模型 → 智能体。优先选工作流。</p>
+
+<h2>5 · Skills 与渐进披露 <span class="muted">— <a href="../lessons/0005-skills-progressive-disclosure.zh.html">第 5 课</a></span></h2>
+<p>三个披露层级：<strong>（1）名称 + 描述</strong>常驻（几个 token）；<strong>（2）正文</strong>调用时加载；<strong>（3）附带资源</strong>（脚本、参考文档）按需加载。</p>
+<table class="cs">
+  <tr><th>需求</th><th>形式</th></tr>
+  <tr><td>可复用的多步骤工作流，跨任务使用</td><td>Skill（触发前成本为 0）</td></tr>
+  <tr><td>模型应当始终知道的稳定事实</td><td>文档 / 系统提示片段（常驻）</td></tr>
+  <tr><td>需要世界执行的单个动作</td><td>工具（确定性行为，schema 校验）</td></tr>
+</table>
+
+<h2>6 · 权限与 hooks <span class="muted">— <a href="../lessons/0006-permissions-hooks.zh.html">第 6 课</a></span></h2>
+<table class="cs">
+  <tr><th>层级</th><th>保证</th><th>适用</th></tr>
+  <tr><td>提示词指令</td><td>建议——长上下文中会退化</td><td>风格、优先级、默认值</td></tr>
+  <tr><td>权限（ask/allow/deny）</td><td>由 matcher 决定调用<em>是否</em>运行</td><td>有副作用的工具；授权越窄越好</td></tr>
+  <tr><td>Hook</td><td>强制执行——你的代码必然运行</td><td>带理由的阻断，把模型引向正确的下一步</td></tr>
+  <tr><td>沙箱</td><td>直接取消选项（无网络、文件系统监禁）</td><td>hooks 之下的双保险</td></tr>
+</table>
+<p>常见 hook 触发点：<span class="term">pre-tool</span>（执行前阻断/放行/改道）、<span class="term">post-tool</span>（校验或响应结果）、<span class="term">stop</span>（循环结束时检查成果）。一次批准绝不延伸到下一个上下文。</p>
+
+<h2>7 · 子智能体与委派 <span class="muted">— <a href="../lessons/0007-subagents-delegation.zh.html">第 7 课</a></span></h2>
+<p>子智能体烧掉自己的上下文窗口，只交回结论——用延迟和 token，换一条干净的主线程。</p>
+<table class="cs">
+  <tr><th>该委派</th><th>不该委派</th></tr>
+  <tr><td class="yes">高读 / 低写（调研、搜索、总结）</td><td class="no">任务需要与主线程共享实时上下文</td></tr>
+  <tr><td class="yes">可跨独立分块并行</td><td class="no">步骤顺序执行且相互依赖</td></tr>
+  <tr><td class="yes">自包含：输入明确、单一交付物</td><td class="no">不看过程就无法信任结论</td></tr>
+  <tr><td class="yes">否则会撑爆主线程上下文</td><td class="no">只是一次快速调用——委派开销超过工作本身</td></tr>
+</table>
+
+<h2>8 · Evals 与迭代 <span class="muted">— <a href="../lessons/0008-evals-iteration-capstone.zh.html">第 8 课</a></span></h2>
+<ul>
+  <li>一个 eval = <strong>输入</strong>（场景）+ <strong>任务</strong>（harness 应做什么）+ <strong>评分器</strong>（怎样算通过）。</li>
+  <li><strong>代码评分：</strong>确定性检查（测试通过、文件存在、退出码）——尽可能优先。<strong>模型评分：</strong>由模型按 rubric 给输出打分——用于开放性质量；rubric 要具体。</li>
+  <li><strong>单变量迭代：</strong>只改一件事 → 跑套件 → 读通过率的 diff → 保留或回滚。"感觉更好了"不是度量。</li>
+</ul>
+
+<h2>术语速查</h2>
+<table class="cs">
+  <tr><th>术语</th><th>含义</th></tr>
+  <tr><td>Harness（脚手架）</td><td>模型外围的程序：上下文组装、工具、循环、护栏、evals。</td></tr>
+  <tr><td>上下文窗口</td><td>模型每轮看到的有限、会退化的 token 预算。</td></tr>
+  <tr><td>渐进披露</td><td>先加载指针，需要时才加载细节——skills 的核心机制。</td></tr>
+  <tr><td>工具 schema</td><td>工具的名称+描述+JSON 结构；四分之三是提示词。</td></tr>
+  <tr><td>停止条件</td><td>枚举出的循环可停方式：完成、预算、输入、错误。</td></tr>
+  <tr><td>Hook</td><td>harness 在工具事件（pre/post/stop）确定性执行的代码。</td></tr>
+  <tr><td>子智能体</td><td>被委派自包含任务的独立模型+上下文实例，只返回结论。</td></tr>
+  <tr><td>Eval</td><td>输入+任务+评分器；让 harness 迭代变安全的度量。</td></tr>
+</table>
+
+<div class="nav"><span>课程首页 · <a href="../lessons/0001-anatomy-of-a-harness.zh.html">第 1 课：Harness 解剖</a> · <a href="../lessons/0008-evals-iteration-capstone.zh.html">第 8 课：Evals 结业课</a></span></div>
+</body>
+</html>

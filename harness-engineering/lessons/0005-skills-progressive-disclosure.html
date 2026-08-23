@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 5 — Skills &amp; Progressive Disclosure</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · Lesson 5</span><span>Skills <a class="langbtn" href="0005-skills-progressive-disclosure.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Skills &amp; Progressive Disclosure</h1>
+  <p class="dek">Context is a budget. A skill is a folder of instructions that costs almost nothing — until the moment it's needed, when it costs exactly as much as the task requires.</p>
+</div>
+
+<p>Your system prompt is a fixed cost: every token in it is paid on <em>every</em> turn, whether or not it's relevant. A <span class="term">skill</span> inverts that economics. It is a folder with a <span class="term">SKILL.md</span> — YAML frontmatter plus a Markdown body, optionally with bundled reference files and scripts — that the harness loads in three stages.</p>
+
+<h2>The three load levels</h2>
+<ul>
+  <li><strong>Level 1 — always:</strong> the skill's <span class="term">name</span> and <span class="term">description</span> ride in context permanently. A few dozen tokens each. This is the index the model decides with.</li>
+  <li><strong>Level 2 — on invoke:</strong> when the model judges the skill relevant, it reads the full <span class="term">SKILL.md</span> body into context. Now the instructions exist — only for this conversation.</li>
+  <li><strong>Level 3 — on demand:</strong> bulky assets bundled with the skill — a spec PDF, a cheatsheet, a Python script — are read or executed only when the body tells the model to. They may never load at all.</li>
+</ul>
+
+<p>Compare with the naive alternative: paste the whole procedure into the system prompt and pay for it always, in every session, on every task. Progressive disclosure means the harness pays for knowledge <em>lazily</em>, at the moment of use.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A skill is a context valve — closed by default, opened by need.</strong> The description is the valve handle: it must let the model recognize "now" precisely, both when to open the skill and when to leave it shut.
+</div>
+
+<h2>What becomes a skill?</h2>
+<p>The unit-of-work decision. Heuristics that hold up well:</p>
+<ul>
+  <li><strong>Skill:</strong> a repeatable workflow with steps the model can't guess — release checklists, migration procedures, house style for this repo. Enough recurring shape to justify an index entry.</li>
+  <li><strong>Doc (referenced, not always loaded):</strong> reference material the model should fetch when asked — an API reference, a glossary. It needs no trigger logic, only a pointer.</li>
+  <li><strong>Tool:</strong> anything with a crisp input/output contract the model shouldn't improvise. If it's an action, not knowledge, it wants a schema, not prose.</li>
+</ul>
+
+<h2>Writing descriptions that trigger reliably</h2>
+<p>The description is doing retrieval over your whole workflow, with a model as the matcher. Make its job easy:</p>
+<ul>
+  <li><strong>State the trigger phrases.</strong> "Use when the user says X, Y, or asks for Z" beats any abstract summary. A real example, from a skill on this very machine: <em>"Teach the user a new skill or concept, within this workspace."</em> — one line, and the model can match "teach me…", "explain…", "walk me through…".</li>
+  <li><strong>Say when NOT to use it.</strong> Negative space prevents false triggers: "Do not use for one-off questions; only for multi-session learning."</li>
+  <li><strong>Keep it specific enough to be wrong.</strong> A description that could match anything matches nothing reliably. Vagueness is the enemy of Level 1.</li>
+</ul>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Stuffing everything into the system prompt.</strong> A prompt carrying ten procedures pays for all ten on every turn, dilutes attention on the one that matters, and still can't hold the bulky references. If a procedure has a trigger condition, it is a skill — gated behind its description, not taxed on every conversation.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>What lives in context at Level 1, and what does it cost?</summary>
+    <p class="answer">Name and description only.</p>
+    <p class="why">The index entry — a few dozen tokens per skill, permanently resident. The body and every bundled asset stay on disk until invoked or demanded, so a skill you never use costs its description and nothing more.</p>
+  </details>
+  <details><summary>You have a 40-page API reference the model needs occasionally. Skill, doc, or tool?</summary>
+    <p class="answer">A referenced doc.</p>
+    <p class="why">It's knowledge, not action, and it has no multi-step procedure — so not a tool and not a skill body. Put it somewhere findable, keep a pointer to it in context, and let the model read it only when a task touches that API.</p>
+  </details>
+  <details><summary>A skill triggers constantly, including on tasks it shouldn't. What do you fix first?</summary>
+    <p class="answer">The description's boundaries.</p>
+    <p class="why">Level 1 matching is entirely driven by the description. Add explicit "when NOT to use" clauses and name the specific trigger phrases — false positives mean the valve handle is too vague, not that the body is wrong.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — draft a SKILL.md, 10 minutes</span>
+  <p>Pick a workflow you repeat weekly (a release checklist, a weekly report, a code-review ritual). Draft its frontmatter — nothing else:</p>
+  <pre><code>---
+name: release-checklist
+description: Run the release process for this repo. Use when the user
+  says "cut a release", "ship v...", or asks to publish. Do not use for
+  feature work or dependency bumps.
+---</code></pre>
+  <p>Test the description like a retrieval query: read it aloud against three real requests, one that should trigger and two that shouldn't. If you can't tell which is which, neither can the model.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://agentskills.io/">Agent Skills spec (agentskills.io)</a> plus the <a href="https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview">Claude Code skills docs</a> — the normative three-level loading model and frontmatter format.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "audit one of my skill descriptions for trigger reliability", "when is a subagent better than a skill?", "show me a skill that bundles scripts".</div>
+
+<div class="nav">
+  <span>Course · Mission</span>
+  <span>Lesson 4: <a href="0004-the-agent-loop.html">the agent loop</a> · Lesson 6: <a href="0006-permissions-hooks.html">permissions &amp; hooks</a></span>
+</div>
+</body>
+</html>

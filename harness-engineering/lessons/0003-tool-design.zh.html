@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Harness Engineering · 第 3 课 — 工具设计</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · 第 3 课</span><span>工具 <a class="langbtn" href="0003-tool-design.html" title="Switch to English">EN</a></span></div>
+  <h1>工具设计</h1>
+  <p class="dek">一个工具由四样东西构成：名称、描述、JSON schema 和行为。其中三样本质上都是提示词 —— 而提示词你已经会写了。</p>
+</div>
+
+<p>对模型来说，你的工具面（tool surface）不是一套 API。它是上下文窗口里的一段文本，模型在<em>每一次调用之前</em>都会读它。工具定义就是一个恰好长成函数签名样子的提示词。请按提示词来设计它。</p>
+
+<h2>工具的解剖</h2>
+
+<p>每个工具 —— 无论是 MCP 工具、Claude Code 工具还是 OpenAI function —— 都由相同的四部分组成：<span class="term">name</span>（什么时候伸手去拿）、<span class="term">description</span>（做什么、什么时候<em>不要</em>用、参数是什么意思）、<span class="term">JSON schema</span>（合法输入的形状）、<span class="term">behavior</span>（真正运行并返回的东西）。模型能看到的只有文本：name + description + schema 每一轮都会进入提示词。而 behavior 只通过返回值说话。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>每一段工具描述都是提示词；每一条错误信息都是一次航向修正。</strong>描述引导模型何时调用、如何调用；错误信息引导模型在调用失败后如何恢复。两者都是"转向面" —— 按提示词来写，而不是按文档来写。
+</div>
+
+<h2>描述是提示词，不是文档</h2>
+
+<p>为人类写的注释（"Retrieves records from the records service"）对模型几乎什么都没说。为模型写的描述会说明它返回什么、参数在实践中怎么用，并给出具体示例。对比一下：</p>
+
+<pre><code>// 坏：写给人看的文档
+name: get_records
+description: Retrieves records from the records service.
+input: { type: object, properties: { q: { type: "string" } } }
+
+// 修好后：写给模型的提示词
+name: get_records
+description: Searches support tickets. Returns up to 50 matches,
+  newest first. Use quotes for exact phrases (q: "\"refund\" delayed").
+  Prefer this over list_all_records; it's faster and cheaper.
+  Example: q="plan:pro status:open" returns open tickets on the Pro plan.
+input: { type: object, properties: {
+  q: { type: "string",
+       description: "Query string. Supports field:value filters
+                     (plan:, status:, org:) and quoted phrases." } },
+  required: ["q"] }</code></pre>
+
+<p>修好的版本回答了模型真正的问题：<em>返回什么、按什么顺序、怎么拼一个查询、什么时候该选别的工具？</em>在描述里放上具体的输入/输出示例，是你能做的杠杆率最高的一处修改。</p>
+
+<h2>错误信息也是转向</h2>
+
+<p>当一次调用失败，你免费获得了模型一轮注意力。别浪费：说清哪里错了，<strong>并且</strong>怎么修。<span class="term">"Date must be YYYY-MM-DD, e.g. 2026-08-23; you sent 'Aug 23'"</span> 能让循环在下一步自我纠正。堆栈跟踪做不到。</p>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>返回堆栈跟踪而不是可执行的指引。</strong><span class="term">Error: ValueError at utils/dates.py:88</span> 是一条死路 —— 模型只能瞎猜、重试、烧预算。<span class="term">Error: invalid date 'Aug 23'. Use ISO format YYYY-MM-DD, e.g. 2026-08-23."</span> 是一次航向修正。每一条错误信息，都是给恢复步骤的一个迷你提示词。
+</div>
+
+<h2>工具要少，边界要利</h2>
+
+<p>工具定义<em>每一轮</em>都随上下文一起发送，所以工具面本身就有 token 成本 —— 还有混淆成本：相互重叠的工具会逼模型在每一步都做一次模糊选择。十个边界清晰的高价值工具，胜过四十个彼此重叠的工具。新增工具之前先问：一个现有工具加一段更好的描述能不能覆盖？如果两个工具重叠，要么合并，要么把描述磨利，直到任何情况下都只有一个正确答案。</p>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>为什么要在工具描述里放一个具体的示例查询？</summary>
+    <p class="answer">模型会模仿示例。</p>
+    <p class="why">描述就是提示词。一个演示示例（q="plan:pro status:open" → Pro 计划的 open 工单）比一堆散文规则更能钉死格式和过滤器 —— 模型在下一次调用时直接对示例做模式匹配。</p>
+  </details>
+  <details><summary>一次工具调用因日期格式错误而失败。错误信息里应该有什么？</summary>
+    <p class="answer">哪里错了，以及怎么修。</p>
+    <p class="why">点出坏输入、说明期望格式、给个例子："invalid date 'Aug 23'; use YYYY-MM-DD, e.g. 2026-08-23。" 这样失败就变成一步自我纠正，而不是盲目重试。</p>
+  </details>
+  <details><summary>你的 harness 有 40 个工具，模型总是选错。第一步做什么？</summary>
+    <p class="answer">做减法并磨利，而不是加。</p>
+    <p class="why">重叠的工具逼模型每一步都做模糊选择，而且 40 份定义每轮都在消耗上下文。先合并重叠的工具，再重写描述，让每个工具写清什么时候用它 —— 以及什么时候该改用另一个工具。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — 10 分钟</span>
+  <p>在你使用的某个 harness 里找出最糟的一段工具描述（任何 MCP server 或插件配置都行）。重写它：一句说返回什么、一句说什么时候<em>不要</em>调用、一个具体输入示例，再给最棘手的参数补上 schema 字段描述。然后跑一个需要该工具的任务，对比修改前后第一次调用是否就正确。</p>
+</div>
+
+<h2>接下来去哪</h2>
+<p>设计良好的工具让单次调用变得可靠。下一个问题是包住这些调用的是什么：那个"行动、观察、决定停止"的循环。这就是智能体循环 —— 第 4 课。</p>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://www.anthropic.com/engineering/writing-tools-for-agents">Anthropic — Writing tools for agents</a>（本课背后的 tokens-to-tool-call 比率、响应格式与错误转向原则）。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b> —— 我是你的 Agent 老师："帮我审查工具描述"、"schema 应该多大？"、"给我看一个合并工具的例子"。</div>
+
+<div class="nav">
+  <span>课程 · 任务</span>
+  <span>第 4 课：<a href="0004-the-agent-loop.zh.html">智能体循环</a></span>
+</div>
+</body>
+</html>

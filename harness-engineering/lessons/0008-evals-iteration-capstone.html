@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 8 — Evals &amp; Iteration — Capstone</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · Lesson 8</span><span>Measurement <a class="langbtn" href="0008-evals-iteration-capstone.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Evals &amp; Iteration — Capstone</h1>
+  <p class="dek">Every harness change is a code change. Without an eval suite, you're refactoring in the dark — and "it feels better" is not a measurement.</p>
+</div>
+
+<p>You've now built every layer: prompts, context, tools, loops, skills, hooks, subagents. Here's the uncomfortable truth about all of it: <strong>harness changes are code changes</strong>. Tightening a tool description can break a case that used to pass. A new hook can reject an edit that used to succeed. If you wouldn't refactor an API without regression tests, you can't rework a harness without evals.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>You cannot steer what you cannot measure — the eval suite is the harness's harness.</strong> Prompts steer the model; evals steer your editing of the prompts. Without them, every "improvement" is an untested hypothesis.
+</div>
+
+<h2>Anatomy of an eval</h2>
+
+<p>Every eval has three parts:</p>
+<ul>
+  <li><strong>Input</strong> — the scenario: user message, fake file tree, seeded error, a realistic task from your actual usage.</li>
+  <li><strong>Task</strong> — what the harness should do: call the right tool, refuse, produce output matching a contract.</li>
+  <li><strong>Grader</strong> — the check. Two families:
+    <ul>
+      <li><em>Code-graded</em>: deterministic assertions. "Did it call <span class="term">read_file</span> exactly once?" "Is the output valid JSON?" "Did the hook block <span class="term">git push</span>?" Cheap, fast, unambiguous — prefer it whenever the property is mechanical.</li>
+      <li><em>Model-graded</em>: a grader model judges a fuzzy property against a rubric. "Does the reply actually address the user's constraint?" Necessary for quality, but noisy — write the rubric like a tool description, with concrete pass examples.</li>
+    </ul>
+  </li>
+</ul>
+
+<h2>Small scenario suites over one big benchmark</h2>
+
+<p>A public benchmark score won't tell you whether <em>your</em> harness regressed. What will: ten to thirty small scenarios lifted from your real failures — the exact prompt that made the loop spin, the tool call your hook should have blocked, the task where the skill failed to trigger. Each one is a regression test pinned to a real incident. When a suite of 15 catches a break that "it feels better" missed, you'll never go back.</p>
+
+<h2>A/B the change and measure</h2>
+
+<p>The iteration loop is boring on purpose:</p>
+<ol>
+  <li><strong>Change one variable</strong> — one prompt edit, one tool, one hook. Never a batch; batches make attribution impossible.</li>
+  <li><strong>Run the suite</strong> on old and new (an A/B across the change).</li>
+  <li><strong>Keep or revert</strong> — strictly by the numbers. If pass rate holds and a specific case degrades, that case joins the suite permanently.</li>
+</ol>
+
+<p>This is just red-green-refactor, relocated from code to harness. The suite grows one scenario per real failure; each scenario is a fossil of something that once went wrong and can now never silently return.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>"The tool descriptions are clearer now, so the agent should pick tools more accurately." Why is this not a shippable claim?</summary>
+  <p class="answer">It's an unmeasured feeling.</p>
+    <p class="why">"Clearer" is your impression of the input, not a measurement of behavior. Run the scenario suite on old and new: if tool-selection accuracy on your cases didn't move, the change didn't help — regardless of how the prompt reads.</p>
+  </details>
+  <details><summary>Choosing between a code-graded and a model-graded check — what's the decision rule?</summary>
+    <p class="answer">Code-grade whenever the property is mechanical.</p>
+    <p class="why">If a program can check it — tool called or not, output parses, hook fired — code-grade it: cheap, fast, unambiguous. Reserve model-graders for genuinely fuzzy properties like "does the answer respect the constraint", and pin them with a concrete rubric.</p>
+  </details>
+  <details><summary>You ship a prompt tweak plus a new hook at once; three suite cases break. Why can't you act on this result?</summary>
+    <p class="answer">Two variables, no attribution.</p>
+    <p class="why">Either change could own each failure — the tweak may have shifted behavior, or the hook may be over-blocking. Re-run each change alone against the suite; keep the ones that pass independently, then combine.</p>
+  </details>
+</div>
+
+<h2>Capstone — engineer one real harness</h2>
+<div class="task">
+  <span class="label">Capstone — one harness you actually use, ~1 hour</span>
+  <p>Pick a real harness you live in — Claude Code, ZCode, a custom agent, even this course's agent. Improve it end to end:</p>
+  <ol>
+    <li><strong>One tool or skill improvement.</strong> Find the tool that misbehaves or the skill that triggers badly. Fix it with this course's doctrine: tighter schema, better description, progressive disclosure.</li>
+    <li><strong>One hook.</strong> Add a deterministic guardrail on a tool event — block a destructive command, enforce a format on save, log every shell call.</li>
+    <li><strong>A 5-case eval that would catch a regression in your change.</strong> Five scenarios from real usage; grade mechanically where possible; include at least one case that failed <em>before</em> your fix.</li>
+  </ol>
+  <p>Then run the loop once more: change one thing, eval, keep or revert. You're not doing course exercises anymore — you're doing harness engineering.</p>
+</div>
+
+<h2>Course complete</h2>
+<p>You can now decompose any agent product into its harness parts, steer each layer deliberately, and prove your changes with numbers. The compact summary of every mechanism lives in the cheat sheet — keep it next to your harness config.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://platform.openai.com/docs/guides/evals">OpenAI Evals guide</a> — building evals, graders, and running them against model changes (Anthropic's equivalent: <a href="https://docs.claude.com/en/docs/test-and-evaluate/develop-tests">developing tests</a>).
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> This lesson is one command away from a teacher — ask the agent anything: "grade my capstone eval", "is my grader rubric concrete enough?", "how many scenarios is enough?".</div>
+
+<div class="nav">
+  <span>Course complete</span>
+  <span><a href="../reference/harness-cheatsheet.html">Cheat sheet</a> · Back to Lesson 1: <a href="0001-anatomy-of-a-harness.html">anatomy of a harness</a></span>
+</div>
+</body>
+</html>

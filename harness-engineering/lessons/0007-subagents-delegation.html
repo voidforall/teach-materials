@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 7 — Subagents &amp; Delegation</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · Lesson 7</span><span>Context architecture <a class="langbtn" href="0007-subagents-delegation.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Subagents &amp; Delegation</h1>
+  <p class="dek">A subagent burns its own context window and hands back only the conclusion. Delegation is a trade: latency and tokens for a clean main thread.</p>
+</div>
+
+<p>By now your main thread accumulates everything: the system prompt, every tool result, every file read. Somewhere around the tenth tool call, the harness starts to sag — the model re-reads stale output, misses earlier decisions, drifts. The fix is not a bigger window. It's <em>isolation</em>.</p>
+
+<p>A <span class="term">subagent</span> is a fresh agent loop with its own context window, its own tool permissions, and often its own system prompt. The main thread launches it with a prompt; the subagent grinds through whatever reading, searching, or verifying it needs; the main thread receives one thing: the answer.</p>
+
+<h2>Context isolation — read wide, return narrow</h2>
+
+<p>The core mechanism is asymmetric context flow. The subagent may read 200KB of logs, twenty files, a dozen search results — none of that touches the main thread. What crosses the boundary is only the final message: "the bug is in <span class="term">parser.ts:88</span>, the guard skips empty payloads." A hundred thousand tokens of exploration collapse into thirty tokens of conclusion.</p>
+
+<p>This is why subagents shine for <em>high-volume-read, low-volume-write</em> work: research, codebase exploration, log triage, document review. The read side is where context goes to die; the write side is all the main thread actually needs.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Delegation trades latency and tokens for a clean context — worth it exactly when the work is high-volume-read, low-volume-write.</strong> If the subagent must consume a lot of context to produce a little conclusion, the trade pays. If not, you're paying the overhead for nothing.
+</div>
+
+<h2>Parallel fan-out</h2>
+
+<p>The second win is concurrency. Independent searches don't need to run sequentially in one window — launch them as parallel subagents. "Find every call site of <span class="term">processRefund</span>", "summarize the current refund policy doc", "list open bugs mentioning refunds" — three isolated windows, three conclusions, one merged answer. In Claude Code, the Task tool fans out; you get the latency of the slowest branch, not the sum of all three, and the main thread pays only for the three summaries.</p>
+
+<h2>The handoff contract</h2>
+
+<p>Delegation lives or dies on the boundary. Two rules:</p>
+<ul>
+  <li><strong>Prompt in must be self-contained.</strong> The subagent cannot see your conversation. "Check the auth code" fails; "In <span class="term">src/auth/</span>, find where expired tokens are handled and quote the relevant function" works. Include the goal, the scope, and what to return.</li>
+  <li><strong>Summary out, not transcript.</strong> Specify the return shape: findings, file paths, a verdict, next steps. An unbounded return dumps the subagent's mess right back into your window.</li>
+</ul>
+
+<h2>When NOT to delegate</h2>
+
+<p>Delegation is not free: each launch costs tokens, latency, and a full context rebuild. Don't delegate when:</p>
+<ul>
+  <li>The task needs the main thread's <em>accumulated state</em> — the requirements doc, the user's earlier corrections. You'd have to serialize all of it into the prompt, at which point you've rebuilt the main context in a worse place.</li>
+  <li>The task is a cheap lookup — one file read, one grep. Spawning an agent loop for that is like hiring a consultant to pass you a sticky note.</li>
+  <li>The task is stateful back-and-forth — a design discussion with the user, an interactive debug session. Every round-trip re-crosses the boundary and re-pays the overhead.</li>
+</ul>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Delegating a task that needs the main thread's accumulated state.</strong> The subagent returns an answer that ignores the constraint the user stated forty messages ago — or you bloat the handoff prompt trying to replay the whole conversation, and lose the isolation you delegated for in the first place.
+</div>
+
+<p>One more mechanism worth knowing: <em>resume/continuation</em>. Some harnesses let a finished subagent conversation be continued — fed a follow-up without rebuilding from scratch. That turns a subagent into a durable scratch context you can revisit ("re-check with the new schema"), keeping the main thread clean across multiple consultations.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does log triage make better subagent work than answering a clarifying question from the user?</summary>
+    <p class="answer">Read/write volume, and state.</p>
+    <p class="why">Triage reads a huge volume and returns a small conclusion — the isolation pays for itself. A clarifying question is stateful back-and-forth anchored in the main thread's conversation; every round-trip across the boundary re-pays the launch overhead and risks dropping context.</p>
+  </details>
+  <details><summary>A subagent prompt says "look into the flaky test." What's wrong with it?</summary>
+    <p class="answer">It isn't self-contained.</p>
+    <p class="why">The subagent can't see your conversation, so it doesn't know which test, what "flaky" means here, or what to return. The handoff contract needs goal, scope, and the expected return shape — file paths, verdict, or next steps.</p>
+  </details>
+  <details><summary>Three independent research questions, run in one main thread versus three parallel subagents. What exactly do you gain and lose?</summary>
+    <p class="answer">Cleaner context and lower latency, for more tokens.</p>
+    <p class="why">Fan-out means each question burns its own window — the main thread sees only three conclusions. Latency becomes the slowest branch instead of the sum. The cost is total tokens: three fresh loops each re-pay the system prompt and launch overhead.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — split a research task, 15 minutes</span>
+  <p>Take a multi-part research task you actually have (e.g. "compare how three frameworks handle retries"). Split it into parallel subagent prompts. For each, write:</p>
+  <ol>
+    <li>A <strong>self-contained prompt</strong>: goal, scope, constraints, and the exact return format ("a table of framework × retry feature, with doc URLs").</li>
+    <li>The <strong>return shape</strong> the main thread will merge.</li>
+  </ol>
+  <p>Then run them (Task tool, or your harness's equivalent), and check: did any subagent ask a question it could have answered from a better prompt? That question is a bug in your handoff contract.</p>
+</div>
+
+<h2>Where this goes next</h2>
+<p>You now have every harness component — prompt, context, tools, loops, skills, hooks, subagents. What's left is the discipline that keeps them improving instead of drifting: measuring whether a change actually helped. That's evals, and it's the capstone.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://docs.claude.com/en/docs/agents-and-tools/sub-agents">Claude Code subagents docs</a> — context isolation, parallel delegation, and the mechanics of the Task tool.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> This lesson is one command away from a teacher — ask the agent anything: "when does compaction beat a subagent?", "how do subagent permissions differ?", "show me a bad handoff prompt".</div>
+
+<div class="nav">
+  <span>Course · Lesson 7</span>
+  <span><a href="0006-permissions-hooks.html">Lesson 6: permissions &amp; hooks</a> · Lesson 8: <a href="0008-evals-iteration-capstone.html">evals &amp; capstone</a></span>
+</div>
+</body>
+</html>

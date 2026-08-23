@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 4 — The Agent Loop</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · Lesson 4</span><span>Loop <a class="langbtn" href="0004-the-agent-loop.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Agent Loop</h1>
+  <p class="dek">Under every agent is a while-loop: act, observe, reflect, repeat. The engineering is not the loop — it's deciding when it stops, and what it says while it runs.</p>
+</div>
+
+<p>Strip away the chat UI and the tool protocol, and an agent is embarrassingly small: a loop that feeds the model its own recent tool results and asks "next step?" until something says stop. Everything you experience as intelligence-on-your-behalf is this loop plus well-designed tools. And everything you experience as a runaway agent is this loop <em>minus</em> designed stop conditions.</p>
+
+<h2>The loop, honestly rendered</h2>
+
+<pre><code>while true:
+    response = model(system_prompt, messages, tools)
+
+    if response.has_tool_calls:          # ACT
+        for call in response.tool_calls:
+            messages.append(run(call))   # OBSERVE
+        if not within_budget(): stop("budget exhausted")
+        if error_rate > threshold: stop("too many failures")
+        continue                          # REFLECT happens next turn
+
+    if response.done: stop("task complete")
+    if response.asks_user: stop("input needed")
+    stop("no tool calls and not done — end turn")</code></pre>
+
+<p>Three moves per iteration. <strong>Act</strong>: the model emits tool calls. <strong>Observe</strong>: the harness executes them and appends real results to the message list — this is the only way the model learns anything about the world. <strong>Reflect</strong>: on the next turn, the model reads those results and decides: another tool call, a question for the user, or a final answer.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>An agent without designed stop conditions is a while(true) with a credit card.</strong> The loop stops because <em>you</em> enumerated the ways it may stop: task done, budget exhausted, user input needed, error threshold hit. Design them on purpose, or the model will improvise them by accident.
+</div>
+
+<h2>Stop conditions are the product</h2>
+
+<p>"Task complete" is the condition everyone remembers; the others are the ones that save you. Budget: a cap on iterations, tokens, or wall-clock time, so a confused model grinds to a halt instead of grinding through your quota. Errors: if the last N tool calls all failed, stop and surface the failure — retrying a broken call forever is not persistence, it's a loop bug. Ambiguity: when critical information is missing, ending the turn to ask the user is a <em>stop condition</em>, not a failure.</p>
+
+<h2>Planning modes vs acting modes</h2>
+
+<p>The same loop can be steered into different gears by the system prompt. A <strong>plan mode</strong> tells the model to propose a plan and wait for approval before any state-changing tool runs. A todo mechanism (like <span class="term">TodoWrite</span> in Claude Code) externalizes the plan into the context, so each loop iteration can check progress against a list instead of re-deriving intent from a growing transcript. Planning isn't a different architecture — it's the loop with a "think before the first act" instruction and a scratchpad to reflect against.</p>
+
+<h2>Verbosity is steering</h2>
+
+<p>The loop's narration is a system-prompt surface. "Give a one-line update before each tool call, and a short summary when the task is done or blocked" produces an agent a human can supervise — and interrupts early. An agent that says nothing until turn 40 is a black box that discovers its own mistakes too late.</p>
+
+<h2>Workflows vs agents</h2>
+
+<p>Anthropic's framing: a <strong>workflow</strong> is a fixed graph — code orchestrates the model through predefined steps, and control flow lives in <em>your</em> code. An <strong>agent</strong> is model-driven — the loop's own model decides the next step, and control flow lives in the <em>context</em>. Workflows are predictable, cheap to debug, and should be your default; agents buy flexibility for open-ended tasks and pay for it with unpredictability. Ask for each use case: do I need the model to choose the steps, or do I already know the steps?</p>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Reaching for an agent when a workflow would do.</strong> If the steps are known in advance — summarize, then classify, then format — hard-code them. An agent over a deterministic pipeline adds a per-step decision you must now evaluate, debug, and budget-cap, in exchange for nothing.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Name the four stop conditions every agent loop should have designed in.</summary>
+    <p class="answer">Done, budget, input, errors.</p>
+    <p class="why">Task complete (the model's own terminal answer), budget exhausted (iterations/tokens/time), user input needed (ambiguity ends the turn), and error threshold (consecutive failed calls halt the loop). Each one exists so a specific failure mode stops on your terms.</p>
+  </details>
+  <details><summary>A tool in the loop has failed with the same error six turns in a row. What has broken, and what should the harness do?</summary>
+    <p class="answer">The error stop condition.</p>
+    <p class="why">A well-formed error message should steer a retry into a corrected call within a turn or two (Lesson 3). Six identical failures means the steering failed and the error threshold is missing — the harness should halt and surface the failure instead of letting the loop burn budget.</p>
+  </details>
+  <details><summary>What distinguishes a workflow from an agent, in one test question?</summary>
+    <p class="answer">Who chooses the steps.</p>
+    <p class="why">If your code knows the step sequence in advance, it's a workflow — control flow lives in the graph you wrote. If the model must decide the next step from observations, it's an agent — control flow lives in the context. Known steps: workflow. Open-ended: agent.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Task — audit a loop you use</span>
+  <p>Take a harness you run daily (ZCode, Claude Code, or an in-house agent). Find its stop conditions: where is the iteration or token cap? What happens on the fifth consecutive tool error — retry, halt, or ask? Is there a mode where it plans before acting, and a scratchpad it reflects against? Write down each stop condition you find and each one that's missing. The missing ones are the failure modes you haven't hit yet.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://www.anthropic.com/research/building-effective-agents">Anthropic — Building effective agents</a>: the workflow-vs-agent distinction, "start simple, add agency only when needed", and the augmentations (routing, tool use, guardrails) that wrap this loop.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> This lesson is one command away from a teacher — ask the agent anything: "what's ZCode's stop condition?", "show me a loop with a bad budget cap", "when is plan mode worth it?".</div>
+
+<div class="nav">
+  <span>Course · Mission</span>
+  <span>Lesson 5: <a href="0005-skills-progressive-disclosure.html">Skills &amp; progressive disclosure</a></span>
+</div>
+</body>
+</html>

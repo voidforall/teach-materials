@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Harness Engineering · 第 8 课 — Eval 与迭代 · 收官</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · 第 8 课</span><span>度量 <a class="langbtn" href="0008-evals-iteration-capstone.html" title="Switch to English">EN</a></span></div>
+  <h1>Eval 与迭代 —— 收官课（Capstone）</h1>
+  <p class="dek">每一次 harness 改动都是一次代码改动。没有 eval 套件，你就是在黑暗里重构 —— 而"感觉更好了"不是度量。</p>
+</div>
+
+<p>你已经建齐了所有层：提示词、上下文、工具、循环、技能、钩子、子智能体。关于这一切，有个让人不舒服的事实：<strong>harness 改动就是代码改动</strong>。收紧一条工具描述，可能弄坏一个原本能通过的用例；加一个新钩子，可能拒绝掉一个原本成功的编辑。如果你不会在不跑回归测试的情况下重构 API，你就不该在没有 eval 的情况下改造 harness。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>你无法驾驭你无法度量的东西 —— eval 套件就是 harness 的 harness。</strong>提示词驾驭模型；eval 驾驭你对提示词的修改。没有它，每一次"改进"都只是一个未经验证的假设。
+</div>
+
+<h2>一个 eval 的解剖</h2>
+
+<p>每个 eval 有三个部分：</p>
+<ul>
+  <li><strong>输入（input）</strong> —— 场景：用户消息、假想的文件树、预置的错误、一个来自你真实使用的任务。</li>
+  <li><strong>任务（task）</strong> —— harness 应该做什么：调用正确的工具、拒绝、产出符合约定的输出。</li>
+  <li><strong>评分器（grader）</strong> —— 检查。两个流派：
+    <ul>
+      <li><em>代码评分</em>：确定性断言。"它是否恰好调用了一次 <span class="term">read_file</span>？" "输出是不是合法 JSON？" "钩子有没有拦住 <span class="term">git push</span>？"便宜、快、无歧义 —— 只要属性是机械的，就优先用它。</li>
+      <li><em>模型评分</em>：由一个评分模型按 rubric（评分细则）判断模糊属性。"回复是否真的照顾到了用户的约束？"质量类属性离不开它，但有噪声 —— rubric 要像工具描述那样写，配上具体的通过样例。</li>
+    </ul>
+  </li>
+</ul>
+
+<h2>小场景套件胜过一个大基准</h2>
+
+<p>公开基准的分数不会告诉你<em>你的</em> harness 有没有回归。能做到的，是从你的真实失败里捞出来的十到三十个小场景 —— 那条让循环空转的确切提示词、你的钩子本该拦下的那次工具调用、技能没能触发的那个任务。每一个都是钉在一次真实事故上的回归测试。当一个 15 条的套件抓住了"感觉更好"漏掉的破坏，你就再也回不去了。</p>
+
+<h2>对改动做 A/B，然后度量</h2>
+
+<p>迭代循环刻意地朴素：</p>
+<ol>
+  <li><strong>只改一个变量</strong> —— 一处提示词编辑、一个工具、一个钩子。绝不打包；打包就没法归因。</li>
+  <li><strong>在新旧两版上跑套件</strong>（跨改动做一次 A/B）。</li>
+  <li><strong>保留或回滚</strong> —— 完全按数字说话。如果整体通过率持平但某个用例退化了，那个用例就永久进套件。</li>
+</ol>
+
+<p>这就是红-绿-重构，只是从代码搬到了 harness 上。套件随着每次真实失败长出一个场景；每个场景都是一块化石，封存着一件曾经出过错、从此再也无法悄悄回来的事。</p>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>"工具描述现在更清晰了，所以 agent 选工具应该更准了。"为什么这不算一个可上线的结论？</summary>
+    <p class="answer">这是没度量的感觉。</p>
+    <p class="why">"更清晰"是你对输入的印象，不是对行为的度量。在新旧两版上跑场景套件：如果你那些用例上的选工具准确率没有变化，这个改动就没帮上忙 —— 无论提示词读起来多顺。</p>
+  </details>
+  <details><summary>在代码评分和模型评分之间选择 —— 决策规则是什么？</summary>
+    <p class="answer">属性是机械的就代码评分。</p>
+    <p class="why">只要程序能检查 —— 工具调没调、输出能否解析、钩子有没有触发 —— 就代码评分：便宜、快、无歧义。模型评分留给真正模糊的属性，比如"答案是否尊重约束"，并用具体的 rubric 钉住它。</p>
+  </details>
+  <details><summary>你同时上线了一处提示词微调和一个新钩子；套件里三个用例挂了。为什么这个结果没法指导行动？</summary>
+    <p class="answer">两个变量，无法归因。</p>
+    <p class="why">每个失败可能属于任何一个改动 —— 微调可能改变了行为，钩子也可能过度拦截。把两个改动各自单独跑一遍套件；独立通过的留下，再组合。</p>
+  </details>
+</div>
+
+<h2>收官项目（Capstone）—— 改造一个真实的 harness</h2>
+<div class="task">
+  <span class="label">Capstone — 你真正在用的一个 harness，约 1 小时</span>
+  <p>选一个你天天用的真实 harness —— Claude Code、ZCode、一个自建 agent，甚至本课程的 agent。端到端地改进它：</p>
+  <ol>
+    <li><strong>一项工具或技能改进。</strong>找到那个行为不端的工具，或触发得很差的技能。用本课程的准则修好它：更紧的 schema、更好的描述、渐进式披露。</li>
+    <li><strong>一个钩子。</strong>在某个工具事件上加一道确定性护栏 —— 拦截危险命令、保存时强制格式、记录每一次 shell 调用。</li>
+    <li><strong>一个能抓住你的改动回归的 5 用例 eval。</strong>五个来自真实使用的场景；能机械评分的就机械评分；至少包含一个在你修复<em>之前</em>会失败的用例。</li>
+  </ol>
+  <p>然后再跑一轮循环：改一件事、eval、保留或回滚。你做的已经不再是课程练习 —— 这就是 harness engineering。</p>
+</div>
+
+<h2>课程完成</h2>
+<p>你现在可以把任何 agent 产品拆解成它的 harness 部件、有的放矢地操纵每一层、并用数字证明你的改动。所有机制的紧凑总结都在速查表里 —— 把它放在你的 harness 配置旁边。</p>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://platform.openai.com/docs/guides/evals">OpenAI Evals 指南</a> —— 构建 eval 与评分器、并针对模型改动运行它们（Anthropic 的等价物：<a href="https://docs.claude.com/en/docs/test-and-evaluate/develop-tests">developing tests</a>）。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b> —— 我是你的 Agent 老师："给我的 capstone eval 打个分"、"我的评分 rubric 够具体吗？"、"多少个场景才够？"。</div>
+
+<div class="nav">
+  <span>课程完成</span>
+  <span><a href="../reference/harness-cheatsheet.zh.html">速查表</a> · 回到第 1 课：<a href="0001-anatomy-of-a-harness.zh.html">harness 的解剖</a></span>
+</div>
+</body>
+</html>

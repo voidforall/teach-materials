@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Harness Engineering — Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.cs { border-collapse: collapse; font-size: 0.86rem; margin: 1rem 0; width: 100%; }
+  table.cs th, table.cs td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+  table.cs th { font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  table.cs td:first-child { font-weight: 600; white-space: nowrap; }
+  table.cs .yes { color: #1a7f37; }
+  table.cs .no { color: #b42318; }
+  pre.loop { font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Reference</span><span>Harness Engineering <a class="langbtn" href="harness-cheatsheet.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Harness Engineering — Cheat Sheet</h1>
+  <p class="dek">The 8-lesson course on the scaffolding around LLMs, compressed to one printable page: anatomy, context, tools, the loop, skills, guardrails, delegation, evals.</p>
+</div>
+
+<h2>1 · Harness anatomy <span class="muted">— <a href="../lessons/0001-anatomy-of-a-harness.html">Lesson 1</a></span></h2>
+<p>An agent product is not "a model" — it is a program you own, wrapped around a fixed model. Five parts, plus evals watching them all:</p>
+<table class="cs">
+  <tr><th>Part</th><th>One-line role</th></tr>
+  <tr><td>Model</td><td>Fixed, probabilistic reasoning core — you don't change it, you feed it.</td></tr>
+  <tr><td>Context</td><td>Everything the model sees this turn: system prompt, history, tool results. A budget, not a landfill.</td></tr>
+  <tr><td>Tools</td><td>The model's hands — schemas are prompts; descriptions steer behavior.</td></tr>
+  <tr><td>Loop</td><td>Act → observe → reflect, repeat — until a designed stop condition fires.</td></tr>
+  <tr><td>Guardrails</td><td>Permissions and hooks: deterministic policy outside the context window.</td></tr>
+  <tr><td>Evals</td><td>The measurement layer watching all five — every harness change is a code change.</td></tr>
+</table>
+
+<h2>2 · Context engineering <span class="muted">— <a href="../lessons/0002-context-engineering.html">Lesson 2</a></span></h2>
+<p>Every token competes for attention. Competing consumers: system prompt, conversation history, tool results, retrieved documents, scratchpads/todos.</p>
+<ul>
+  <li><strong>Progressive disclosure:</strong> load a pointer first (name + description), the body only on invoke, bundled files only on demand. Pay for what the task needs, not what exists.</li>
+  <li><strong>Compaction:</strong> when history outgrows the budget, summarize it into structured notes and drop the raw transcript — keep decisions and facts, shed process.</li>
+</ul>
+<table class="cs">
+  <tr><th>Do</th><th>Don't</th></tr>
+  <tr><td class="yes">Curate like a budget: every resident token earns its place</td><td class="no">Dump whole files/logs in "just in case"</td></tr>
+  <tr><td class="yes">Retrieve just-in-time, at the moment of need</td><td class="no">Preload everything up front</td></tr>
+  <tr><td class="yes">Compact to structured notes on a schedule</td><td class="no">Let the transcript grow until attention degrades</td></tr>
+  <tr><td class="yes">Externalize state (todos, files) the model can re-read</td><td class="no">Rely on the model remembering turn 3</td></tr>
+</table>
+
+<h2>3 · Tool design checklist <span class="muted">— <a href="../lessons/0003-tool-design.html">Lesson 3</a></span></h2>
+<ul>
+  <li><strong>Description-as-prompt:</strong> the description is steering text — say what the tool is <em>for</em>, when to use it, and when not to.</li>
+  <li><strong>Concrete examples in the description</strong> beat abstract prose ("Use for 'deploy staging', not 'ship things'").</li>
+  <li><strong>Errors that steer:</strong> an error message is feedback — say what went wrong <em>and what to try next</em>, never a bare stack trace.</li>
+  <li><strong>Few high-impact tools:</strong> watch the tokens-to-tool-call ratio; merge overlapping tools rather than growing an alphabet.</li>
+  <li><strong>Output contracts:</strong> declare the response shape; structured output the next step can parse without re-reading.</li>
+</ul>
+
+<h2>4 · The agent loop <span class="muted">— <a href="../lessons/0004-the-agent-loop.html">Lesson 4</a></span></h2>
+<pre class="loop"><code>while true:
+    response = model(system_prompt, messages, tools)
+    if response.has_tool_calls:            # ACT
+        for call in response.tool_calls:
+            messages.append(run(call))     # OBSERVE
+        if not within_budget(): stop("budget exhausted")   # stop: budget
+        if error_rate > threshold: stop("too many failures") # stop: errors
+        continue                           # REFLECT next turn
+    if response.done: stop("task complete")   # stop: done
+    if response.asks_user: stop("input needed") # stop: input
+    stop("end turn")</code></pre>
+<p>An agent without designed stop conditions is a <code>while(true)</code> with a credit card. Workflow vs agent test: <em>who chooses the steps?</em> Your code → workflow; the model → agent. Prefer the workflow.</p>
+
+<h2>5 · Skills &amp; progressive disclosure <span class="muted">— <a href="../lessons/0005-skills-progressive-disclosure.html">Lesson 5</a></span></h2>
+<p>Three disclosure levels: <strong>(1) name + description</strong> always resident (a few tokens); <strong>(2) body</strong> loaded on invoke; <strong>(3) bundled resources</strong> (scripts, references) loaded only on demand.</p>
+<table class="cs">
+  <tr><th>Need</th><th>Form</th></tr>
+  <tr><td>Repeatable multi-step workflow, reused across tasks</td><td>Skill (pays 0 until triggered)</td></tr>
+  <tr><td>Stable facts the model should always know</td><td>Doc / system-prompt snippet (always resident)</td></tr>
+  <tr><td>A single action the world must perform</td><td>Tool (deterministic behavior, schema-validated)</td></tr>
+</table>
+
+<h2>6 · Permissions &amp; hooks <span class="muted">— <a href="../lessons/0006-permissions-hooks.html">Lesson 6</a></span></h2>
+<table class="cs">
+  <tr><th>Layer</th><th>Guarantee</th><th>Use for</th></tr>
+  <tr><td>Prompt instruction</td><td>Advises — degrades with long context</td><td>Style, priorities, defaults</td></tr>
+  <tr><td>Permission (ask/allow/deny)</td><td>Matcher decides <em>whether</em> a call runs</td><td>Side-effecting tools; narrowest grant wins</td></tr>
+  <tr><td>Hook</td><td>Enforces — your code runs no matter what</td><td>Blocking with a reason that steers the model to the right next action</td></tr>
+  <tr><td>Sandbox</td><td>Removes the choice (no network, jailed FS)</td><td>Belt-and-suspenders under hooks</td></tr>
+</table>
+<p>Common hook points: <span class="term">pre-tool</span> (block/allow/redirect before execution), <span class="term">post-tool</span> (validate or react to results), <span class="term">stop</span> (check work when the loop ends). One approval never extends to the next context.</p>
+
+<h2>7 · Subagents &amp; delegation <span class="muted">— <a href="../lessons/0007-subagents-delegation.html">Lesson 7</a></span></h2>
+<p>A subagent burns its own context window and hands back only the conclusion — latency and tokens traded for a clean main thread.</p>
+<table class="cs">
+  <tr><th>Delegate when</th><th>Don't delegate when</th></tr>
+  <tr><td class="yes">High-read / low-write (research, search, summarize)</td><td class="no">The task needs shared live context with the main thread</td></tr>
+  <tr><td class="yes">Parallelizable across independent chunks</td><td class="no">Steps are sequential and interdependent</td></tr>
+  <tr><td class="yes">Self-contained: clear input, one deliverable output</td><td class="no">The conclusion can't be trusted without seeing the work</td></tr>
+  <tr><td class="yes">Context would otherwise bloat the main thread</td><td class="no">It's a single quick call — delegation overhead exceeds the work</td></tr>
+</table>
+
+<h2>8 · Evals &amp; iteration <span class="muted">— <a href="../lessons/0008-evals-iteration-capstone.html">Lesson 8</a></span></h2>
+<ul>
+  <li>An eval = <strong>input</strong> (the scenario) + <strong>task</strong> (what the harness should do) + <strong>grader</strong> (what counts as pass).</li>
+  <li><strong>Code-graded:</strong> deterministic checks (tests pass, file exists, exit code) — prefer wherever possible. <strong>Model-graded:</strong> a model scores output against a rubric — for open-ended quality; keep rubrics specific.</li>
+  <li><strong>One-variable loop:</strong> change one thing → run the suite → read the diff in pass rates → keep or revert. "It feels better" is not a measurement.</li>
+</ul>
+
+<h2>Quick glossary</h2>
+<table class="cs">
+  <tr><th>Term</th><th>Meaning</th></tr>
+  <tr><td>Harness</td><td>The program around the model: context assembly, tools, loop, guardrails, evals.</td></tr>
+  <tr><td>Context window</td><td>The finite, degrading token budget the model sees each turn.</td></tr>
+  <tr><td>Progressive disclosure</td><td>Load pointers first, details only when needed — skills' core trick.</td></tr>
+  <tr><td>Tool schema</td><td>Name + description + JSON shape of a tool; three-fourths of it is prompt.</td></tr>
+  <tr><td>Stop condition</td><td>An enumerated way the agent loop may halt: done, budget, input, errors.</td></tr>
+  <tr><td>Hook</td><td>Deterministic code the harness runs at a tool event (pre/post/stop).</td></tr>
+  <tr><td>Subagent</td><td>A separate model+context instance delegated a self-contained task, returning a conclusion.</td></tr>
+  <tr><td>Eval</td><td>Input + task + grader; the measurement that makes harness iteration safe.</td></tr>
+</table>
+
+<div class="nav"><span>Course home · <a href="../lessons/0001-anatomy-of-a-harness.html">Lesson 1: Anatomy of a harness</a> · <a href="../lessons/0008-evals-iteration-capstone.html">Lesson 8: Evals capstone</a></span></div>
+</body>
+</html>

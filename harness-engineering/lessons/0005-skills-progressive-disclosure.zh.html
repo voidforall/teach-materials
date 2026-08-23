@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Harness Engineering · 第 5 课 — Skills 与渐进式披露</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · 第 5 课</span><span>Skills <a class="langbtn" href="0005-skills-progressive-disclosure.html" title="Switch to English">EN</a></span></div>
+  <h1>Skills 与渐进式披露（Progressive Disclosure）</h1>
+  <p class="dek">上下文是一份预算。一个 skill 是一个指令文件夹，平时几乎不花钱 —— 直到被需要的那一刻，才按任务的实际所需付费。</p>
+</div>
+
+<p>系统提示词是固定成本：其中每个 token 在<em>每一</em>轮都要付费，不管它相不相关。<span class="term">skill</span> 把这笔账倒了过来。它是一个带 <span class="term">SKILL.md</span> 的文件夹 —— YAML frontmatter 加 Markdown 正文，可选地附带参考文件和脚本 —— 由 harness 分三级加载。</p>
+
+<h2>三级加载</h2>
+<ul>
+  <li><strong>第一级 —— 永远在：</strong>skill 的 <span class="term">name</span> 和 <span class="term">description</span> 常驻上下文。每个几十个 token。这就是模型据以决策的索引。</li>
+  <li><strong>第二级 —— 调用时：</strong>当模型判断某个 skill 相关时，它把完整的 <span class="term">SKILL.md</span> 正文读入上下文。指令此刻才存在 —— 且只存在于这个会话。</li>
+  <li><strong>第三级 —— 按需：</strong>skill 附带的大块资产 —— 规范 PDF、速查表、Python 脚本 —— 只在正文指示模型去读或执行时才加载。它们可能永远都不加载。</li>
+</ul>
+
+<p>对比一下朴素做法：把整套流程贴进系统提示词，于是在每个会话、每个任务上永远付费。渐进式披露意味着 harness <em>惰性地</em>为知识付费，在使用的那一刻才付。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>skill 是一个上下文阀门 —— 默认关闭，按需打开。</strong>description 就是阀门的手柄：它必须让模型精准地识别"现在"—— 什么时候打开这个 skill，什么时候让它继续关着。
+</div>
+
+<h2>什么该做成 skill？</h2>
+<p>这是个工作单元的取舍。几条站得住的经验法则：</p>
+<ul>
+  <li><strong>Skill：</strong>模型猜不出来的、可重复的工作流 —— 发布检查清单、迁移流程、本仓库的代码风格。要有足够复现的形态，才配得上一个索引条目。</li>
+  <li><strong>文档（被引用，而非常驻）：</strong>模型在被问到时才去取的参考资料 —— API 参考、术语表。它不需要触发逻辑，只需要一个指针。</li>
+  <li><strong>工具（tool）：</strong>任何有清晰输入/输出契约、不该让模型即兴发挥的东西。如果它是一个动作而非知识，它要的是 schema，不是散文。</li>
+</ul>
+
+<h2>写可靠的触发描述</h2>
+<p>description 实际上是在你的全部工作流上做检索，而匹配器是模型。让它的活儿好干：</p>
+<ul>
+  <li><strong>写出触发短语。</strong>"当用户说 X、Y 或要求 Z 时使用"胜过任何抽象概括。一个真实例子，来自本机上的一个 skill：<em>"Teach the user a new skill or concept, within this workspace."</em> —— 一行话，模型就能匹配"教我……""解释一下……""带我过一遍……"。</li>
+  <li><strong>写明何时不使用。</strong>负空间防止误触发："不要用于一次性提问；仅用于多会话学习。"</li>
+  <li><strong>保持具体到"可以出错"的程度。</strong>什么都能匹配的 description 什么也匹配不可靠。含糊是第一级的敌人。</li>
+</ul>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>把所有东西都塞进系统提示词。</strong>一条装着十套流程的提示词，每轮都为十套全部付费，把注意力从真正相关的那一套上稀释掉，而且仍然装不下大块参考资料。一个流程只要有触发条件，它就该是 skill —— 用 description 把门，而不是在每个会话上收税。
+</div>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>第一级有哪些东西驻在上下文里？代价是什么？</summary>
+    <p class="answer">只有 name 和 description。</p>
+    <p class="why">即索引条目 —— 每个 skill 几十个 token，永久常驻。正文和所有附带资产在调用或需要之前都留在磁盘上，所以一个你从不使用的 skill 只花掉它的 description，一个多余的字都没有。</p>
+  </details>
+  <details><summary>你有一份 40 页的 API 参考，模型偶尔需要。skill、文档还是工具？</summary>
+    <p class="answer">被引用的文档。</p>
+    <p class="why">它是知识而非动作，也没有多步骤流程 —— 所以既不是工具也不是 skill 正文。把它放在可寻到的地方，在上下文里留一个指针，让模型只在任务碰到那个 API 时才去读。</p>
+  </details>
+  <details><summary>一个 skill 频繁触发，包括在它不该触发的任务上。先修什么？</summary>
+    <p class="answer">description 的边界。</p>
+    <p class="why">第一级的匹配完全由 description 驱动。补上明确的"何时不使用"，写出具体的触发短语 —— 误报说明阀门手柄太含糊，而不是正文写错了。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 —— 起草一个 SKILL.md，10 分钟</span>
+  <p>挑一个你每周重复的工作流（发布检查清单、周报、代码评审仪式）。只起草它的 frontmatter，别的都不写：</p>
+  <pre><code>---
+name: release-checklist
+description: Run the release process for this repo. Use when the user
+  says "cut a release", "ship v...", or asks to publish. Do not use for
+  feature work or dependency bumps.
+---</code></pre>
+  <p>把 description 当检索查询来测试：对着三个真实请求读出来 —— 一个该触发的，两个不该的。如果你自己都分不清哪个是哪个，模型也分不清。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://agentskills.io/">Agent Skills 规范（agentskills.io）</a>，加上 <a href="https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview">Claude Code skills 文档</a> —— 三级加载模型与 frontmatter 格式的标准出处。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b>："审计一下我的某个 skill description 的触发可靠性"、"什么时候 subagent 比 skill 更合适？"、"给我看一个捆绑脚本的 skill"。</div>
+
+<div class="nav">
+  <span>课程 · 任务</span>
+  <span>第 4 课：<a href="0004-the-agent-loop.zh.html">agent 循环</a> · 第 6 课：<a href="0006-permissions-hooks.zh.html">权限与钩子</a></span>
+</div>
+</body>
+</html>

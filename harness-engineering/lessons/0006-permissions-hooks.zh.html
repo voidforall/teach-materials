@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Harness Engineering · 第 6 课 — 权限与钩子</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · 第 6 课</span><span>护栏 <a class="langbtn" href="0006-permissions-hooks.html" title="Switch to English">EN</a></span></div>
+  <h1>权限（Permissions）与钩子（Hooks）</h1>
+  <p class="dek">模型提议，harness 裁决。凡是必须发生 —— 或绝不能发生 —— 的事，都该放进确定性的代码里，而不是礼貌的请求里。</p>
+</div>
+
+<p>一个能调用工具的 agent，可以读、写、运行你能读、写、运行的一切。模型很强，但它是概率性的；而你仓库的安全不能是。harness 用两套机制来应对：<span class="term">权限（permissions）</span>决定一个动作<em>是否</em>执行，<span class="term">钩子（hooks）</span>是在工具事件周围运行的确定性代码 —— 无论模型本意如何，它们都会跑。</p>
+
+<h2>信任边界</h2>
+<p>每次工具调用都跨过一条线：一侧是模型的意图，另一侧是 harness 的执行。模型<em>提议</em> —— "运行 <span class="term">git push --force</span>" —— harness <em>裁决</em>，依据的是模型看不见、也无法与之讨价还价的规则。这个分离就是全部要义：策略活在上下文窗口之外，所以不会被遗忘、稀释，也无法被绕开。</p>
+
+<h2>权限模式与匹配器</h2>
+<p>权限 = 匹配器（matcher）+ 模式（mode）。匹配器按工具名、命令前缀或文件路径圈定一组调用；模式决定命中之后发生什么：</p>
+<ul>
+  <li><strong>ask（询问）</strong>—— 暂停，把调用交给人类裁决。任何有副作用的操作的默认档。</li>
+  <li><strong>allow（允许）</strong>—— 不问直接执行。只留给你已判定安全的调用，比如在工作区内读文件。</li>
+  <li><strong>deny（拒绝）</strong>—— 执行之前直接拒绝。用于在这个项目里根本不该出现的调用。</li>
+</ul>
+<p>还有一条统领一切的原则：<strong>在一个上下文里的批准，不会延续到下一个。</strong>"可以，你可以 push 这个分支"不代表可以 force-push、可以 push 其他分支、或者明天那个会话也可以。授权时，匹配器收得越窄越好，刚好罩住眼前的活儿。</p>
+
+<h2>钩子：工具事件上的确定性代码</h2>
+<p>权限回答是与否，而 hooks 运行的是<em>你的代码</em> —— 在固定的时机：工具执行前、执行后、会话启动时。一个 pre-tool 钩子可以拦下一条命令，而更关键的是它还能<em>回灌信息</em>。下面这个钩子拦下 <span class="term">git push</span> 并告诉模型原因：</p>
+<pre><code>{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{ "type": "command",
+        "command": "jq -r '.tool_input.command' | grep -q 'git push' &amp;&amp; \
+          echo '{\"decision\":\"block\",\"reason\":\"No direct pushes. Open a PR instead.' \
+          'Run: gh pr create --draft\"}' || true" }]
+    }]
+  }
+}</code></pre>
+<p>只拦截只是让世界停下；带着原因拦截则是一个转向信号。模型读到 reason 就会改道 —— 这是工具设计那一课的反馈回路，用在了护栏上。好的 hook 像好的报错信息：指向正确的下一步。</p>
+
+<p>在 hooks 之外，<strong>沙箱（sandboxing）</strong>干脆取消选择：让 agent 的 shell 无网络、锁在文件系统监狱里，"危险"命令失败的原因是环境满足不了它，而不是因为有人记得去拦。腰带、背带，再加一间上锁的房间。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>护栏属于 harness，不属于提示词 —— 提示词是建议，hooks 是执行。</strong>写进 prompt 的指令是一条有失败率的建议；一个 hook 是没有失败率的代码。一切安全攸关的东西，都放在模型无法用语言绕过去的地方。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>试图用提示词让模型永远不运行某条危险命令。</strong>"绝不要运行 git push --force" 一直有效 —— 直到上下文变长、注意力漂移，或者某个听起来合理的任务让"破例"显得情有可原。prompt 是错误的层级：指令会退化，匹配器和 hooks 不会。
+</div>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>为什么把策略放进 harness 而不是系统提示词？</summary>
+    <p class="answer">harness 无法被绕过。</p>
+    <p class="why">写在 prompt 里的规则只是上下文 —— 会被遗忘、被长会话稀释、或被其他指令压过。写在 harness 里的规则每次都原样执行，在模型够不到的地方，于是在 prompt 会失灵的恰好在那一刻，它依然成立。</p>
+  </details>
+  <details><summary>一小时前你批准过一次 <span class="term">git push</span>。模型又 push 了。正确的设计是什么？</summary>
+    <p class="answer">应该再次询问。</p>
+    <p class="why">在一个上下文里的批准不会延续到下一个：对某一次 push 的"是"，不等于对 push 这件事的"是"。如果你想要长期许可，就明确地立一条窄的 allow 规则 —— 绝不要靠让一次批准向前泄漏。</p>
+  </details>
+  <details><summary>能拦截的 hook 比单纯的拒绝强在哪？</summary>
+    <p class="answer">能解释、能改道。</p>
+    <p class="why">拒绝只终结这个动作；而 hook 的 reason 字段会变成模型读到的上下文。"已拦截 —— 请改用 gh pr create"把死路变成了正确的下一步，闭合了护栏与行为之间的回路。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 —— 画一个钩子，10 分钟</span>
+  <p>说出那条你真心害怕 agent 在你机器上运行的命令 —— 在错误位置的 <span class="term">rm -rf</span>、<span class="term">drop database</span>、一次 force-push、一次 <span class="term">npm publish</span>。为它画出配置：哪个事件（PreToolUse）、哪个匹配器，以及人人都跳过的那一步 —— 告诉模型<em>改做什么</em>的 reason 字符串。然后自查：你的 reason 有没有给出一个具体的替代命令？</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://docs.claude.com/en/docs/agents-and-tools/hooks">Claude Code hooks 文档</a> —— hook 事件、匹配器，以及上文用到的 block-with-reason JSON。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b>："为我的害怕命令写一个真正能拦的 hook"、"permission deny 和 PreToolUse block 有什么区别？"、"沙箱和 hooks 怎么配合？"</div>
+
+<div class="nav">
+  <span>课程 · 任务</span>
+  <span>第 5 课：<a href="0005-skills-progressive-disclosure.zh.html">skills 与渐进式披露</a> · 第 7 课：<a href="0007-subagents-delegation.zh.html">subagents 与委派</a></span>
+</div>
+</body>
+</html>

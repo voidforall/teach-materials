@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Harness Engineering · 第 1 课 — Harness 的解剖</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · 第 1 课</span><span>智能体循环 <a class="langbtn" href="0001-anatomy-of-a-harness.html" title="Switch to English">EN</a></span></div>
+  <h1>Harness（脚手架）的解剖</h1>
+  <p class="dek">一个智能体产品不是"一个模型"。它是一个归你所有的程序 —— 组装好的上下文、一层工具表面、一个循环、外加护栏 —— 包裹在一个固定的模型外面。认清这五个部分，你就能对其中任何一个做工程。</p>
+</div>
+
+<p>你每天都在使用 harness：Claude Code、ZCode、Cursor、客服机器人。当它表现糟糕 —— 死循环、无视你的指令、调错工具 —— 解法几乎从来不是"换个更好的模型"。解法在脚手架里。Anthropic 的《Building effective agents》说得很直白：智能体不过是在循环里使用工具的模型，而大多数场景需要的是简单、可组合的模式 —— 不是更多魔法。</p>
+
+<p>解剖任何一个 harness，你都会找到同样的五个部分：</p>
+<ul>
+  <li><strong>模型</strong> —— 位于中心的固定 LLM。这部分不是你工程的对象。</li>
+  <li><strong>组装的上下文</strong> —— 系统提示词、工具定义、文件、历史：调用时刻上下文窗口里的一切。</li>
+  <li><strong>工具表面</strong> —— 模型可以调用的函数，及其 schema、描述和权限。</li>
+  <li><strong>循环</strong> —— 驱动一个个回合的代码：模型调用 → 工具调用 → 观测 → 重复，直到满足停止条件。</li>
+  <li><strong>护栏</strong> —— 权限、hooks、沙箱、输出检查：约束模型决策实际能做什么的确定性代码。</li>
+</ul>
+
+<h2>一个请求，走完整个循环</h2>
+<p>以 Claude Code 风格的 harness 处理"修好 <span class="term">parser_test.py</span> 里挂掉的测试"为例：</p>
+<ol>
+  <li><strong>用户消息</strong>到达。harness 开始组装上下文：系统提示词、CLAUDE.md/AGENTS.md 里的指令、工具定义。</li>
+  <li><strong>上下文组装</strong> —— harness 决定还放什么进去：文件列表、之前的对话、相关文件内容。</li>
+  <li><strong>模型调用</strong> —— 组装好的消息发给模型。它回复文本和/或一个工具调用，比如 <span class="term">Read("parser_test.py")</span>。</li>
+  <li><strong>工具执行</strong> —— 执行工具的是 <em>harness</em> 而不是模型（护栏可能先一步否决）。结果成为一条观测。</li>
+  <li><strong>重复</strong> —— 观测被追加进上下文；再次调用模型。读文件 → 改代码 → 跑测试 → 读输出……</li>
+  <li><strong>停止</strong> —— 模型给出不含工具调用的最终回答，或 harness 触达某个上限（回合数、预算、中断）。</li>
+</ol>
+
+<pre><code>while True:
+    context = assemble(system_prompt, instructions, tools, history)
+    msg = model(context)                 # 唯一"智能"的一步
+    if not msg.tool_calls:
+        return msg.text                  # 停止条件
+    for call in msg.tool_calls:
+        if not permitted(call):          # 护栏
+            observation = deny(call)
+        else:
+            observation = run(call)      # 执行者是 harness，不是模型
+        history.append(call, observation)</code></pre>
+
+<p>除了 <span class="term">model()</span> 那一行，其余全是普通代码 —— 可版本化、可测试、可调试、归你所有的代码。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>模型是固定的；你工程的一切都在它周围。</strong>上下文、工具、循环、护栏是你的四根杠杆。当表现令人失望时，先诊断是五个部分中哪一个出了问题，再责怪模型。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>把 harness 当成"模型的魔法"。</strong>如果你说不清指令从哪里进入上下文、存在哪些工具、什么让循环停止，你就什么都修不了 —— 只能重试并祈祷。含糊的 harness 还会诱发过度建设：在单个提示词或固定工作流就够用的地方堆叠自主性。
+</div>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>在核心循环里，工具调用究竟由谁执行 —— 为什么这一点很重要？</summary>
+    <p class="answer">永远是 harness，绝不是模型。</p>
+    <p class="why">模型只发出一个结构化的请求。执行发生在 harness 代码里，正因如此护栏（权限、hooks）能够确定性地拦截每一次调用 —— 模型无法绕过一个它从未越过的否决。</p>
+  </details>
+  <details><summary>智能体循环终止的两种主要方式是什么？</summary>
+    <p class="answer">模型自己停，或 harness 叫停。</p>
+    <p class="why">要么模型返回一条不含工具调用的消息（自然的最终回答），要么 harness 强制一个上限 —— 回合数、token 预算、超时、用户中断。两种都是你设计的停止条件。</p>
+  </details>
+  <details><summary>用户说"智能体总无视我的项目规则"。五个部分里你先检查哪个？</summary>
+    <p class="answer">组装的上下文。</p>
+    <p class="why">项目规则经由上下文传递 —— CLAUDE.md/AGENTS.md 文件、系统提示词的一节。如果规则缺失、被截断、或被淹没在相互竞争的指令里，模型从未可靠地"看见"过它；改循环或工具都无济于事。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — 10 分钟，不用写代码</span>
+  取一个你每天在用的 harness（ZCode、Claude Code、Cursor）。在纸上列出它的五个部分：1) 用的是哪个（些）模型；2) 什么会被组装进上下文 —— 尽量找到指令文件和系统提示词；3) 列出它的工具；4) 描述它的循环和停止条件；5) 说出至少一条护栏。你<em>填不出来</em>的部分，正是你的知识缺口 —— 也正是本课程的提纲。
+</div>
+
+<h2>接下来去哪</h2>
+<p>五个部分中，工程师最疏于对待的是上下文组装 —— 而它恰恰是杠杆率最高的一环。这就是第 2 课：<a href="0002-context-engineering.zh.html">上下文工程</a>。</p>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://www.anthropic.com/research/building-effective-agents">Anthropic《Building effective agents》</a> —— 工作流 vs 智能体的经典框架，以及"增强型 LLM 循环"的原始版本（篇幅不长；上面那个循环的权威出处）。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b> —— 问问智能体："把你自己的一个回合在循环里走一遍"、"你现在的上下文里有什么？"、"给我一个你撞上过的停止条件"。</div>
+
+<div class="nav">
+  <span>课程 · 任务</span>
+  <span>第 2 课：<a href="0002-context-engineering.zh.html">上下文工程</a></span>
+</div>
+</body>
+</html>

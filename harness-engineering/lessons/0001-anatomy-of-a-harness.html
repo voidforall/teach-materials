@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 1 — Anatomy of a Harness</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · Lesson 1</span><span>Agent loop <a class="langbtn" href="0001-anatomy-of-a-harness.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Anatomy of a Harness</h1>
+  <p class="dek">An agent product is not "a model". It is a program you own — assembled context, a tool surface, a loop, and guardrails — wrapped around a fixed model. Learn the five parts and you can engineer any of them.</p>
+</div>
+
+<p>You use harnesses every day: Claude Code, ZCode, Cursor, a support bot. When one behaves badly — loops forever, ignores your instructions, calls the wrong tool — the fix is almost never "get a better model". The fix is in the scaffolding. Anthropic's <em>Building effective agents</em> makes the point bluntly: agents are simply models using tools in a loop, and most use cases call for simpler, composable patterns — not more magic.</p>
+
+<p>Decompose any harness and you find the same five parts:</p>
+<ul>
+  <li><strong>Model</strong> — the fixed LLM at the center. You don't engineer this.</li>
+  <li><strong>Assembled context</strong> — system prompt, tool definitions, files, history: everything in the context window at call time.</li>
+  <li><strong>Tool surface</strong> — the functions the model may call, their schemas, descriptions, and permissions.</li>
+  <li><strong>Loop</strong> — the code that runs turns: model call → tool call → observation → repeat, until a stop condition.</li>
+  <li><strong>Guardrails</strong> — permissions, hooks, sandboxes, output checks: deterministic code that constrains what the model's decisions can actually do.</li>
+</ul>
+
+<h2>One request, traced through the loop</h2>
+<p>Take "fix the failing test in <span class="term">parser_test.py</span>" in a Claude Code-style harness:</p>
+<ol>
+  <li><strong>User message</strong> arrives. The harness starts assembling context: system prompt, CLAUDE.md/AGENTS.md instructions, tool definitions.</li>
+  <li><strong>Context assembly</strong> — the harness decides what else goes in: file listings, earlier conversation, relevant file contents.</li>
+  <li><strong>Model call</strong> — the assembled messages go to the model. It responds with text and/or a tool call, e.g. <span class="term">Read("parser_test.py")</span>.</li>
+  <li><strong>Tool execution</strong> — the <em>harness</em>, not the model, runs the tool (a guardrail may veto it first). The result becomes an observation.</li>
+  <li><strong>Repeat</strong> — observation is appended; the model is called again. Read → edit → run tests → read output…</li>
+  <li><strong>Stop</strong> — the model produces a final answer with no tool call, or the harness hits a limit (turn cap, budget, interrupt).</li>
+</ol>
+
+<pre><code>while True:
+    context = assemble(system_prompt, instructions, tools, history)
+    msg = model(context)                 # the only "intelligent" step
+    if not msg.tool_calls:
+        return msg.text                  # stop condition
+    for call in msg.tool_calls:
+        if not permitted(call):          # guardrail
+            observation = deny(call)
+        else:
+            observation = run(call)      # harness executes, not model
+        history.append(call, observation)</code></pre>
+
+<p>Everything except the <span class="term">model()</span> line is ordinary code — versionable, testable, debuggable code that you own.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>The model is fixed; everything you engineer is around it.</strong> Context, tools, loop, and guardrails are your levers. When behavior disappoints, diagnose which of the five parts is failing before blaming the model.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Treating the harness as "the model's magic".</strong> If you can't say where your instructions enter the context, which tools exist, or what stops the loop, you can't fix anything — you can only retry and hope. Vague harnesses also breed over-building: adding agency where a single prompt or a fixed workflow would do.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>In the core loop, who actually executes a tool call — and why does it matter?</summary>
+    <p class="answer">The harness, never the model.</p>
+    <p class="why">The model only emits a structured request. Execution happens in harness code, which is why guardrails (permissions, hooks) can intercept every call deterministically — the model cannot bypass a veto it never sees past.</p>
+  </details>
+  <details><summary>What are the two main ways the agent loop terminates?</summary>
+    <p class="answer">Model stops, or harness stops it.</p>
+    <p class="why">Either the model returns a message with no tool call (a natural final answer), or the harness enforces a limit — turn cap, token budget, timeout, or user interrupt. Both are stop conditions you design.</p>
+  </details>
+  <details><summary>A user says "the agent keeps ignoring my project rules." Which of the five parts do you inspect first?</summary>
+    <p class="answer">Assembled context.</p>
+    <p class="why">Project rules travel via context — a CLAUDE.md/AGENTS.md file, a system prompt section. If the rules are missing, truncated, or buried under competing instructions, the model never reliably "saw" them; no loop or tool change will help.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 10 minutes, no code</span>
+  Take a harness you use daily (ZCode, Claude Code, Cursor). On paper, enumerate its five parts: 1) which model(s); 2) what gets assembled into context — find the instruction files and system prompt if you can; 3) list its tools; 4) describe its loop and stop conditions; 5) name at least one guardrail. The parts you <em>can't</em> fill in are exactly where your knowledge gaps — and the syllabus — are.
+</div>
+
+<h2>Where this goes next</h2>
+<p>Of the five parts, the one engineers neglect most is context assembly — and it's the highest-leverage lever. That's Lesson 2: <a href="0002-context-engineering.html">context engineering</a>.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://www.anthropic.com/research/building-effective-agents">Anthropic, "Building effective agents"</a> — the canonical framing of workflows vs agents and the augmented-LLM loop (short; the normative version of the loop above).
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "trace one of your turns through your own loop", "what's in your context right now?", "show me a stop condition you've hit".</div>
+
+<div class="nav">
+  <span>Course · Mission</span>
+  <span>Lesson 2: <a href="0002-context-engineering.html">context engineering</a></span>
+</div>
+</body>
+</html>

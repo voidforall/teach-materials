@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 2 — Context Engineering</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · Lesson 2</span><span>Context window <a class="langbtn" href="0002-context-engineering.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Context Engineering</h1>
+  <p class="dek">The context window is not a database you fill — it is a finite, degrading resource. Every token competes for attention. Curate it like a budget, not a landfill.</p>
+</div>
+
+<p>Lesson 1 named context assembly as your highest-leverage lever. Here's why it's hard: the window feels huge (hundreds of thousands of tokens) but quality is not flat across it. Long-context recall degrades — the well-known <em>lost-in-the-middle</em> effect means information buried mid-context gets far less attention than what sits at the start or end. And an overflowing window triggers compaction or truncation that silently drops things you assumed were there.</p>
+
+<h2>What competes for tokens</h2>
+<p>At every model call, the harness assembles some mix of:</p>
+<ul>
+  <li><strong>System prompt</strong> — identity, rules, output format. Always present, always first.</li>
+  <li><strong>Tool definitions</strong> — every tool's name, schema, description. Tens to thousands of tokens, whether used or not.</li>
+  <li><strong>Conversation history</strong> — prior turns, tool calls, and their (often huge) outputs.</li>
+  <li><strong>Retrieved material</strong> — files, docs, search results pulled in on demand.</li>
+</ul>
+<p>Adding "just one more" file or rule is never free: it spends attention that every other token needs.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Attention is your scarcest resource — curate, don't accumulate.</strong> The question is never "can it fit?" but "does this token earn its place right now?" A half-empty window of the right tokens beats a full window of everything.
+</div>
+
+<h2>The levers</h2>
+<p><strong>Progressive disclosure.</strong> Load the smallest useful summary first; pull details only when needed. Agent Skills do this in three tiers: name + description always in context, the body loaded on invoke, bundled files only on demand. Tool definitions can do the same: short descriptions up front, a <span class="term">--help</span>-style detail tool for depth.</p>
+<p><strong>Compaction.</strong> When history grows past a threshold, summarize older turns into a compact state and drop the raw transcript. Claude Code does this automatically near the window limit; the craft is ensuring the summary keeps decisions, open tasks, and constraints — not chatter.</p>
+<p><strong>Structured notes over raw transcript.</strong> Instead of relying on the model to re-read its own verbose history, maintain a curated artifact: CLAUDE.md/AGENTS.md for durable project facts, a todo list for working state. The transcript is a record of <em>how you got here</em>; structured notes are the <em>state that matters</em>. Rebuilding context from notes is cheaper and more reliable than scrolling a transcript.</p>
+<p><strong>Just-in-time retrieval.</strong> Pull a file's content at the moment it's relevant, not "in case". Retrieval beats preloading both on tokens and on lost-in-the-middle risk.</p>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>The ever-growing CLAUDE.md.</strong> Teams add rules every week and delete nothing; the file balloons to thousands of tokens, gets loaded into every single turn, and mid-list rules quietly stop being followed. Context files are not documentation — they are instructions competing for attention. Every line must beat "nothing".
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why can a 200k-token context window still "forget" a rule stated 100k tokens ago?</summary>
+    <p class="answer">Attention degrades with bulk.</p>
+    <p class="why">Recall weakens as context grows, and mid-context material gets the least attention (lost-in-the-middle). The rule technically fits but no longer earns reliable attention — curation, not capacity, is the fix.</p>
+  </details>
+  <details><summary>Name the three tiers of progressive disclosure in Agent Skills.</summary>
+    <p class="answer">Description, body, files.</p>
+    <p class="why">Name + description load always; the SKILL.md body loads only when invoked; bundled resources load only on demand. Each tier costs more tokens and is paid only when the previous tier earns it.</p>
+  </details>
+  <details><summary>What must a good compaction summary preserve that a raw transcript would?</summary>
+    <p class="answer">Working state, not the journey.</p>
+    <p class="why">Decisions made and why, open tasks, constraints, and current file state. The back-and-forth that produced them is history — keeping it costs tokens and attention while adding nothing the next turn needs.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — audit your CLAUDE.md, 15 minutes</span>
+  Open the CLAUDE.md or AGENTS.md of a project you work on (write one first if none exists). Apply three cuts: 1) delete anything a competent developer already knows; 2) delete anything only relevant to a past task; 3) merge near-duplicate rules. Target: cut it by half. Then diff behavior over a day — which dropped rules, if any, does the agent actually miss? Those are the only lines that were earning their tokens.
+</div>
+
+<h2>Where this goes next</h2>
+<p>Tool definitions are often the biggest hidden consumer of context — and the most engineerable. That's Lesson 3: <a href="0003-tool-design.html">tool design</a>.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Anthropic, "Effective context engineering for AI agents"</a> — the finite-degrading-resource framing, plus compaction, structured note-taking, and just-in-time retrieval (short; the normative version of every lever above).
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "what's in your context right now and what's it costing?", "show me a rule I put in AGENTS.md that you'd never violate anyway", "when did you last get compacted?"</div>
+
+<div class="nav">
+  <span>Course · Mission</span>
+  <span>Lesson 1: <a href="0001-anatomy-of-a-harness.html">anatomy of a harness</a> · Lesson 3: <a href="0003-tool-design.html">tool design</a></span>
+</div>
+</body>
+</html>

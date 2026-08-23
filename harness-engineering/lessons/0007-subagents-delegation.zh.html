@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Harness Engineering · 第 7 课 — 子智能体与委派</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · 第 7 课</span><span>上下文架构 <a class="langbtn" href="0007-subagents-delegation.html" title="Switch to English">EN</a></span></div>
+  <h1>子智能体与委派（Subagents &amp; Delegation）</h1>
+  <p class="dek">子智能体烧掉的是自己的上下文窗口，交回来的只有结论。委派是一场交易：用延迟和 token，换一条干净的主线程。</p>
+</div>
+
+<p>到现在为止，你的主线程已经积累了一切：系统提示词、每一条工具结果、每一个读过的文件。大约第十次工具调用之后，harness 开始下沉 —— 模型重读过期的输出、忘掉早先的决策、开始漂移。解法不是更大的窗口，而是<em>隔离</em>。</p>
+
+<p><span class="term">子智能体（subagent）</span>是一个全新的 agent 循环：拥有自己的上下文窗口、自己的工具权限，通常还有自己的系统提示词。主线程用一个提示词把它发射出去；子智能体把需要读、搜、验证的东西全部啃完；主线程只收到一样东西：答案。</p>
+
+<h2>上下文隔离 —— 读得宽，还得窄</h2>
+
+<p>核心机制是不对称的上下文流动。子智能体可以读 200KB 的日志、二十个文件、一打搜索结果 —— 这些都不碰主线程。跨越边界的只有最终消息："bug 在 <span class="term">parser.ts:88</span>，守卫逻辑跳过了空 payload。"十万 token 的探索，坍缩成三十个 token 的结论。</p>
+
+<p>这正是子智能体擅长<em>高读量、低写量</em>工作的原因：调研、代码库探索、日志分诊、文档审阅。读的那一侧才是上下文的葬身之地；而写的那一侧才是主线程真正需要的。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>委派用延迟和 token 换一个干净的上下文 —— 恰好当工作是"高读量、低写量"时才值得。</strong>如果子智能体要消耗大量上下文才能产出一点结论，这笔交易就赚。如果不是，你是在白白支付开销。
+</div>
+
+<h2>并行扇出（fan-out）</h2>
+
+<p>第二个收益是并发。彼此独立的搜索没必要在同一个窗口里排队 —— 把它们发射成并行的子智能体。"找出 <span class="term">processRefund</span> 的每一处调用"、"总结当前退款政策文档"、"列出提到退款的所有 open bug" —— 三个隔离的窗口、三份结论、一个合并后的答案。在 Claude Code 里，Task 工具负责扇出；你付出的延迟是最慢那条分支，而不是三者之和，而主线程只为三份摘要买单。</p>
+
+<h2>交接契约（handoff contract）</h2>
+
+<p>委派的生死取决于边界。两条规则：</p>
+<ul>
+  <li><strong>送进去的提示词必须自包含。</strong>子智能体看不到你的对话。"看看鉴权代码"会失败；"在 <span class="term">src/auth/</span> 里找到处理过期 token 的位置，并引用相关函数"才行。写清目标、范围、要返回什么。</li>
+  <li><strong>返回的是摘要，不是转录。</strong>规定返回的形状：发现、文件路径、结论、下一步。无约束的返回会把子智能体的一团乱麻直接倒回你的窗口。</li>
+</ul>
+
+<h2>什么时候不该委派</h2>
+
+<p>委派不是免费的：每次发射都要花 token、延迟，还要完整重建一次上下文。以下情况不要委派：</p>
+<ul>
+  <li>任务需要主线程的<em>积累状态</em> —— 需求文档、用户早先的纠正。你得把这一切序列化进提示词，等于在一个更糟的地方重建主上下文。</li>
+  <li>任务只是一次廉价查询 —— 读一个文件、跑一次 grep。为这个启动一个 agent 循环，就像雇一位顾问来给你递一张便利贴。</li>
+  <li>任务是有状态的来回 —— 与用户的设计讨论、交互式调试。每一轮往返都要重新跨越边界、重新支付开销。</li>
+</ul>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>委派一个需要主线程积累状态的任务。</strong>子智能体交回的答案无视了用户四十条消息前说过的约束 —— 或者你为了复刻整个对话而把交接提示词撑爆，结果先失去了你委派想换来的隔离。
+</div>
+
+<p>还有一个值得知道的机制：<em>resume / 续跑（continuation）</em>。一些 harness 允许续跑一个已完成的子智能体对话 —— 不必从零重建就能追加指令。这把子智能体变成一块可反复拜访的持久草稿上下文（"用新 schema 再查一遍"），让主线程在多次咨询之间保持干净。</p>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>为什么日志分诊比回答用户的澄清提问更适合当子智能体任务？</summary>
+    <p class="answer">读写量，以及状态。</p>
+    <p class="why">分诊读的体量巨大、返回的结论很小 —— 隔离自己就能回本。而澄清提问是锚定在主线程对话里的有状态来回；每一轮跨边界往返都要重付发射开销，还有丢上下文的风险。</p>
+  </details>
+  <details><summary>一个子智能体提示词写着"查一下那个 flaky 测试"。它有什么问题？</summary>
+    <p class="answer">它不自包含。</p>
+    <p class="why">子智能体看不到你的对话，所以不知道是哪个测试、"flaky"在这里指什么、该返回什么。交接契约需要目标、范围和期望的返回形状 —— 文件路径、结论，或下一步。</p>
+  </details>
+  <details><summary>三个独立的研究问题，在单个主线程里跑，对比三个并行子智能体。你到底赢得了什么、失去了什么？</summary>
+    <p class="answer">更干净的上下文和更低延迟，代价是更多 token。</p>
+    <p class="why">扇出意味着每个问题烧自己的窗口 —— 主线程只看到三份结论。延迟从三者之和变成最慢那条分支。代价是总 token：三个全新循环各自重付系统提示词和发射开销。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — 拆分一个研究任务，15 分钟</span>
+  <p>取一个你手头真实的多部分研究任务（例如"对比三个框架如何处理重试"）。把它拆成并行的子智能体提示词。对每一个，写出：</p>
+  <ol>
+    <li><strong>自包含的提示词</strong>：目标、范围、约束，以及确切的返回格式（"一张框架 × 重试特性的表，附文档 URL"）。</li>
+    <li>主线程将要合并的<strong>返回形状</strong>。</li>
+  </ol>
+  <p>然后跑起来（Task 工具，或你 harness 里的等价物），检查：有没有子智能体问了一个本可以由更好的提示词回答的问题？那个问题就是你交接契约里的 bug。</p>
+</div>
+
+<h2>接下来去哪</h2>
+<p>至此你已经集齐了 harness 的全部组件 —— 提示词、上下文、工具、循环、技能、钩子、子智能体。剩下的是让它们持续改进而非持续漂移的纪律：度量一次改动是否真的有效。这就是 eval，也是本课的收官。</p>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://docs.claude.com/en/docs/agents-and-tools/sub-agents">Claude Code subagents 文档</a> —— 上下文隔离、并行委派，以及 Task 工具的机制。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b> —— 我是你的 Agent 老师："什么时候 compaction 比子智能体更合适？"、"子智能体的权限有什么不同？"、"给我看一个糟糕的交接提示词"。</div>
+
+<div class="nav">
+  <span>课程 · 第 7 课</span>
+  <span><a href="0006-permissions-hooks.zh.html">第 6 课：权限与钩子</a> · 第 8 课：<a href="0008-evals-iteration-capstone.zh.html">eval 与收官</a></span>
+</div>
+</body>
+</html>

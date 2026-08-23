@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — Permissions &amp; Hooks</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Harness Engineering · Lesson 6</span><span>Guardrails <a class="langbtn" href="0006-permissions-hooks.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Permissions &amp; Hooks</h1>
+  <p class="dek">The model proposes; the harness disposes. Anything that must happen — or must never happen — belongs in deterministic code, not in polite requests.</p>
+</div>
+
+<p>An agent with tool access can read, write, and run anything you can. The model is brilliant but probabilistic; your repo's safety cannot be. The harness answers with two mechanisms: <span class="term">permissions</span>, which decide <em>whether</em> an action runs, and <span class="term">hooks</span>, deterministic code that runs <em>around</em> tool events no matter what the model intended.</p>
+
+<h2>The trust boundary</h2>
+<p>Every tool call crosses a line: on one side the model's intention, on the other the harness's execution. The model <em>proposes</em> — "run <span class="term">git push --force</span>" — and the harness <em>disposes</em>, applying rules the model never sees and cannot negotiate with. This separation is the whole game: policy lives outside the context window, so it can't be forgotten, diluted, or talked around.</p>
+
+<h2>Permission modes and matchers</h2>
+<p>Permissions are matchers plus modes. A matcher pattern selects a set of tool calls (by tool name, by command prefix, by file path); a mode says what happens to a match:</p>
+<ul>
+  <li><strong>ask</strong> — pause and surface the call to a human. The default for anything with side effects.</li>
+  <li><strong>allow</strong> — run without asking. Reserve for calls you've judged safe, like reading within the workspace.</li>
+  <li><strong>deny</strong> — refuse outright, before execution. For calls that are simply never right in this project.</li>
+</ul>
+<p>One rule spans it all: <strong>approval in one context doesn't extend to the next.</strong> "Yes, you may push this branch" does not mean yes to force-push, to other branches, or to tomorrow's session. Grant the narrowest matcher that covers the actual work.</p>
+
+<h2>Hooks: deterministic code on tool events</h2>
+<p>Where permissions answer yes/no, hooks run <em>your code</em> at fixed points — before a tool runs, after it, on session start. A pre-tool hook can block a command, and crucially it can also <em>feed information back</em>. Here's a hook that stops <span class="term">git push</span> and tells the model why:</p>
+<pre><code>{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{ "type": "command",
+        "command": "jq -r '.tool_input.command' | grep -q 'git push' &amp;&amp; \
+          echo '{\"decision\":\"block\",\"reason\":\"No direct pushes. Open a PR instead.' \
+          'Run: gh pr create --draft\"}' || true" }]
+    }]
+  }
+}</code></pre>
+<p>Blocking alone just stops the world; blocking with a reason is a steering signal. The model reads the reason and reroutes — this is the feedback loop from the tool-design lesson, applied to guardrails. Good hooks act like good error messages: they point at the right next action.</p>
+
+<p>Beyond hooks, <strong>sandboxing</strong> removes the choice entirely: run the agent's shell with no network and a filesystem jail, and "dangerous" commands fail because the environment can't satisfy them, not because anyone remembered to block them. Belt, suspenders, and a locked room.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Guardrails belong in the harness, not in the prompt — prompts advise, hooks enforce.</strong> A prompt instruction is a suggestion with a failure rate; a hook is code with none. Everything safety-critical goes where the model can't talk its way past it.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Trying to prompt the model into never running a dangerous command.</strong> "Never run git push --force" works right up until context grows long, attention drifts, or a plausible-sounding task makes an exception seem reasonable. The prompt is the wrong layer: instructions degrade; matchers and hooks don't.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why put policy in the harness rather than the system prompt?</summary>
+    <p class="answer">The harness can't be talked around.</p>
+    <p class="why">A rule in the prompt is context — it can be forgotten, diluted by long sessions, or outweighed by other instructions. A rule in the harness executes identically every time, outside the model's reach, so it holds exactly when the prompt would fail.</p>
+  </details>
+  <details><summary>You approved one <span class="term">git push</span> an hour ago. The model pushes again. What's the correct design?</summary>
+    <p class="answer">It should ask again.</p>
+    <p class="why">Approval in one context doesn't extend to the next: a yes to one push is not a yes to pushes in general. If you want standing consent, grant it explicitly as a narrow allow rule — never by letting one approval leak forward.</p>
+  </details>
+  <details><summary>What can a blocking hook do that a plain denial cannot?</summary>
+    <p class="answer">Explain and redirect.</p>
+    <p class="why">A denial ends the action; a hook's reason field becomes context the model reads. "Blocked — use gh pr create instead" turns a dead end into a correct next step, closing the loop between guardrail and behavior.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — sketch one hook, 10 minutes</span>
+  <p>Name the one command you'd genuinely fear an agent running on your machine — <span class="term">rm -rf</span> in the wrong place, <span class="term">drop database</span>, a force-push, an <span class="term">npm publish</span>. Sketch the config for it: which event (PreToolUse), which matcher, and — the part everyone skips — the <em>reason</em> string that tells the model what to do instead. Then check: does your reason name a concrete alternative command?</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://docs.claude.com/en/docs/agents-and-tools/hooks">Claude Code hooks docs</a> — hook events, matchers, and the block-with-reason JSON used above.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "write a real blocking hook for my feared command", "what's the difference between a permission deny and a PreToolUse block?", "how do sandboxes compose with hooks?".</div>
+
+<div class="nav">
+  <span>Course · Mission</span>
+  <span>Lesson 5: <a href="0005-skills-progressive-disclosure.html">skills &amp; progressive disclosure</a> · Lesson 7: <a href="0007-subagents-delegation.html">subagents &amp; delegation</a></span>
+</div>
+</body>
+</html>
