@@ -33,6 +33,7 @@ CREDITS = [
     ("apache-arrow", "Apache Arrow Logo — Apache Software Foundation", "Apache License 2.0", "https://commons.wikimedia.org/wiki/File:Apache_Arrow_Logo.png"),
     ("clickhouse", "ClickHouse Logomark — ClickHouse Inc.", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:ClickHouse_Logomark.svg"),
     ("cpp-memory-model", "C-memlayout — Yanpas", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:C-memlayout.svg"),
+    ("detective-fiction", "Sherlock Holmes — Sidney Paget, The Man with the Twisted Lip (1891)", "Public domain", "https://commons.wikimedia.org/wiki/File:Sherlock_Holmes_-_The_Man_with_the_Twisted_Lip.jpg"),
     ("event-driven-rabbitmq", "RabbitMQ logo — Pivotal/VMware", "Public domain", "https://commons.wikimedia.org/wiki/File:RabbitMQ_logo.svg"),
     ("game-theory", "Go (13×13) — 2021", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Go_(13%C3%9713)_--_2021_--_6741.jpg"),
     ("harness-engineering", "Study for a Marionette — Metropolitan Museum of Art", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:Study_for_a_Marionette_MET_DP213910.jpg"),
