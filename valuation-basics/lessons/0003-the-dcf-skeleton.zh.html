@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 3 课 — DCF 骨架</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>估值基础 · 第 3 课</span><span>Damodaran <a class="langbtn" href="0003-the-dcf-skeleton.html" title="Switch to English">EN</a></span></div>
+  <h1>DCF 骨架</h1>
+  <p class="dek">你可以折现归属股东的现金流，也可以折现归属整个公司的现金流——而每种选择都决定了它配对的折现率。配对正确之后，任何 DCF 你都能一眼拆解。</p>
+</div>
+
+<p>一致的 DCF 结构只有两种。Damodaran 在《<a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/PdFiles/littlebook.pdf">The Little Book of Valuation</a>》中把它们并排放置：</p>
+
+<table>
+<thead><tr><th></th><th>股权 DCF</th><th>公司 DCF</th></tr></thead>
+<tbody>
+<tr><td>现金流</td><td>归<strong>股东</strong>（扣除利息与偿债之后）</td><td>归<strong>公司</strong>（在偿付债权人之前）</td></tr>
+<tr><td>折现率</td><td>股权成本</td><td>资本成本（WACC）</td></tr>
+<tr><td>结果</td><td>直接得到<strong>股权</strong>价值</td><td><strong>业务</strong>价值；减净债务得股权价值</td></tr>
+</tbody>
+</table>
+
+<p>致命错误是串线：用股权成本折现公司现金流（利率对索取权而言过高），或用 WACC 折现股权现金流（混了索取权）。配对规则：<strong>现金流必须与折现率所代表的索取权人相匹配。</strong></p>
+
+<h2>完整的公司 DCF</h2>
+<p>本课程统一采用公司模型（Damodaran 对非金融公司的默认选择）：</p>
+
+<pre><code>EBIT × (1 − 税率)                  税后经营利润
+− 再投资（资本开支 − 折旧 + 营运资本变动）
+= FCFF                               公司自由现金流
+按 WACC 折现
+公司价值 − (债务 − 现金) = 股权价值
+÷ 股数 = 每股价值</code></pre>
+
+<p>本课程用四节课填入四个输入：现金流（<a href="0004-cash-flows-fcff-fcfe.zh.html">第 4 课</a>）、折现率（<a href="0005-riskfree-and-erp.zh.html">第 5</a>–<a href="0006-cost-of-capital.zh.html">6 课</a>）、增长（<a href="0007-growth-reinvestment-roic.zh.html">第 7 课</a>）、终值（<a href="0008-terminal-value.zh.html">第 8 课</a>）。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>现金流和折现率必须按索取权配对。</strong>股权现金流 ↔ 股权成本；公司现金流 ↔ 资本成本。审计别人的 DCF 时先查这个配对——这是发现坏模型最快的方式。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>把会计净利润当"现金流"。</strong>净利润在利息、税、非现金项目之后——它既不干净地是 FCFF 也不干净地是 FCFE，而且账面利润与现金可以任意背离。DCF 要的是真实现金：从 EBIT 或净利润出发，再有意识地走到现金。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>公司 DCF 为什么最后要减净债务？</summary>
+    <p class="answer">公司价值属于全部索取权人。</p>
+    <p class="why">用 WACC 折现 FCFF 得到的是整个业务的价值——债务和股权加在一起。股东只拥有偿债之后的部分；手头现金可以抵消债务，所以减 (债务 − 现金)。</p>
+  </details>
+  <details><summary>看到股权现金流用 WACC 折现，结果偏高还是偏低？</summary>
+    <p class="answer">偏高——系统性高估。</p>
+    <p class="why">WACC 混入了更便宜的债务，低于股权成本。用太小的利率去除股权现金流会夸大结果。总体教训：配对错误没有安全的方向——它就是错的。</p>
+  </details>
+  <details><summary>为什么给银行估值更适合用股权 DCF？</summary>
+    <p class="answer">对银行恰恰相反——不用公司模型。</p>
+    <p class="why">对银行而言债务是原材料而非融资，经营与融资无法分离，所以 Damodaran 用股权 DCF（或超额收益模型）给金融公司估值。是配对规则而非习惯来选模型。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 —— 10 分钟</span>
+  找一份公开的 DCF（券商研报、博客文章）。给每个成分贴标签：现金流是 FCFF 还是 FCFE？利率是 WACC 还是股权成本？配对了吗？最后一步有没有减净债务、除以股数？大多数散户 DCF 至少挂一项检查——找出失败点就是这项技能本身。
+</div>
+
+<h2>主要来源</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">估值课第 3–4 讲</a>；《Little Book》第 2 章把两个模型并排对比。</p>
+
+<p class="next"><a href="0004-cash-flows-fcff-fcfe.zh.html">下一课：估计现金流 →</a> &nbsp;·&nbsp; <a href="0002-time-value-of-money.zh.html">← 第 2 课</a></p>
+<p class="ask">这里犯迷糊很正常——让代理检验你的配对直觉。</p>
+</body>
+</html>

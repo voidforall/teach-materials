@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 5 — The Risk-Free Rate &amp; the Equity Risk Premium</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 5</span><span>Damodaran <a class="langbtn" href="0005-riskfree-and-erp.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Risk-Free Rate &amp; the Equity Risk Premium</h1>
+  <p class="dek">Every discount rate you will ever use is anchored by two numbers: what time is worth (risk-free rate) and what average risk is worth (equity risk premium). Estimate these badly and no cleverness downstream can save the valuation.</p>
+</div>
+
+<p><strong>The risk-free rate</strong> has two requirements Damodaran insists on: no default risk <em>and</em> no reinvestment risk. That means matching the cash flow's currency and horizon. A 10-year government bond in the cash flow's currency is the standard proxy — but a defaultable government (think emerging markets) overstates the "risk-free" rate; his fix is to net out the sovereign default spread (from the country's CDS or rating).</p>
+
+<p><strong>The equity risk premium (ERP)</strong> is the extra return investors demand for holding the average-risk equity portfolio instead of the risk-free asset:</p>
+
+<pre><code>Cost of equity = Risk-free rate + β × ERP</code></pre>
+
+<p>How big is the ERP? Three estimation routes, in rising order of Damodaran's preference:</p>
+<ul>
+  <li><strong>Historical</strong> — average past stock returns minus bonds. Backward-looking, wildly sensitive to period chosen.</li>
+  <li><strong>Survey</strong> — ask people. Anchored on yesterday's markets.</li>
+  <li><strong>Implied</strong> — invert the DCF: today's index price plus expected cash flows tells you what premium the market is <em>using</em>. Damodaran recomputes this monthly; in recent years the US implied ERP has hovered around 4–5%.</li>
+</ul>
+
+<p>Country risk: for a company whose cash flows are in a risky country, add the <strong>country default spread × equity multiplier</strong> (≈ 1.2) or use a country risk premium — his <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html">datasets</a> publish these annually.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>The anchors are estimates, not constants.</strong> Risk-free rate = government bond matched to currency and horizon, cleansed of default risk. ERP = the market's current price of average equity risk, best read implied from prices. Both move; a valuation built on stale anchors misprices everything.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>The 4% dogma.</strong> Plugging the historical US premium (or an Ibbotson number from a textbook) into every valuation regardless of what markets imply today. When implied ERP is 4.5% and you use 6%, every stock looks cheap — a bias wearing a suit of rigor.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why can't a corporate bond be the risk-free rate?</summary>
+    <p class="answer">It carries default risk.</p>
+    <p class="why">Its yield embeds a spread compensating for possible default — that's risk compensation, not the pure price of time. Mixing it into your "risk-free" anchor double-counts risk you'll add back via beta or default spreads.</p>
+  </details>
+  <details><summary>What does an implied ERP of 5% mean, mechanically?</summary>
+    <p class="answer">Markets pay for average risk at 5%.</p>
+    <p class="why">Given index price, expected dividends/buybacks and growth, 5% is the premium that makes today's price equal the DCF of those cash flows. It's the market's own discount rate, revealed rather than assumed.</p>
+  </details>
+  <details><summary>Valuing an Indian company in dollars — what must change?</summary>
+    <p class="answer">Currency and country risk.</p>
+    <p class="why">Discount rate and cash flows must share a currency (dollar risk-free rate, expected exchange-rate drift in cash flows), and India's country risk premium must enter the cost of equity unless the company's revenues are globally diversified.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 10 minutes</span>
+  Download Damodaran's current <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html">ERP dataset</a> (category "Discount rates"). Find: the current US implied ERP, the 10-year Treasury yield, and the country risk premium for one emerging market. Compute a rough cost of equity for an average-risk (β=1) firm in that emerging market. Compare against what a screen-full of sell-side reports assumes.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Valuation class, Sessions 7–8</a>; the annual paper <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4208994"><em>The Equity Risk Premium</em></a> is the definitive treatment.</p>
+
+<p class="next"><a href="0006-cost-of-capital.html">Next: Beta &amp; the Cost of Capital →</a> &nbsp;·&nbsp; <a href="0004-cash-flows-fcff-fcfe.html">← Lesson 4</a></p>
+<p class="ask">The ERP confuses everyone at first — ask the agent before moving on.</p>
+</body>
+</html>

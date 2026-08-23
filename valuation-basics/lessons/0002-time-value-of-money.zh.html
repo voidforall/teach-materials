@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 2 课 — 货币时间价值</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>估值基础 · 第 2 课</span><span>Damodaran <a class="langbtn" href="0002-time-value-of-money.html" title="Switch to English">EN</a></span></div>
+  <h1>货币时间价值</h1>
+  <p class="dek">明年的 1 美元比今天的 1 美元便宜。本课程的每一个估值公式，都是四个基本积木在这一事实上的堆叠。学一次这四块积木，就能永远认出它们。</p>
+</div>
+
+<p>现金发生在具体时点，而价值必须以今天表述。跨期移动货币需要一个<span class="term">折现率</span> <em>r</em>（每期）。以下是 Damodaran <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">第 2 讲</a>的四个原语：</p>
+
+<ol>
+  <li><strong>一次性款项的现值：</strong>PV = CF<sub>n</sub> / (1+r)<sup>n</sup>。一笔 n 期之后的付款。</li>
+  <li><strong>年金的现值：</strong>PV = CF × [1 − (1+r)<sup>−n</sup>] / r。每期等额，共 n 期。</li>
+  <li><strong>增长年金：</strong>PV = CF<sub>1</sub>/(r−g) × [1 − ((1+g)/(1+r))<sup>n</sup>]。付款按 g 增长 n 期。这是显性预测期的引擎。</li>
+  <li><strong>增长永续：</strong>PV = CF<sub>1</sub> / (r−g)，仅当 g &lt; r 时有效。这是终值的引擎——第 8 课。</li>
+</ol>
+
+<p>注意这个形状：DCF 无非是一个增长年金（预测年份）加一个增长永续（之后的一切）。整个公司估值机器就一行：</p>
+
+<pre><code>价值 = Σ  E(CF_t) / (1+r)^t      t = 1..n      (讲故事的年份)
+      + 终值 / (1+r)^n                         (之后的所有永远)</code></pre>
+
+<h2>复利的直觉</h2>
+<p>折现就是把复利倒着放。r = 10% 时：一年后的 1 美元今天值 1/1.10 = 0.909 美元；十年后的 1 美元只值 0.386 美元。r 的小变化在长期限上会造成残酷的复利差异——这正是为什么终值（遥远的现金流）对折现率误差最敏感，也为什么对 r 的估计应该和增长估计同样用心。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>整个 DCF 就是四个 TVM 积木。</strong>一次性款项、年金、增长年金、增长永续。当某个估值公式吓到你时，把它拆开——底下一定是这四块穿着西装。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>名义利率配实际现金流。</strong>名义现金流配名义利率，或实际配实际——绝不混用。用 6% 的名义利率去折按 2% 通胀调整过的现金流，会悄无声息地毒化每一个现值。Damodaran 把这列为学生 DCF 中最常见的机械错误。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>永续：CF = 100 美元，r = 8%，g = 3%。今天的价值？</summary>
+    <p class="answer">100 / 0.05 = 2,000 美元。</p>
+    <p class="why">增长永续：CF₁/(r−g) = 100/(0.08−0.03)。注意公式用的是下一期的现金流——把今年的现金流代进去是经典的差一期错误。</p>
+  </details>
+  <details><summary>如果假设 g 永远大于 r 会怎样？</summary>
+    <p class="answer">价值变成无穷大。</p>
+    <p class="why">永远跑赢折现率的现金流最终会超过整个经济体。这条常识检验专杀幻想终值——没有公司能永远跑赢全世界。</p>
+  </details>
+  <details><summary>标准 DCF 由哪两个 TVM 积木组成？</summary>
+    <p class="answer">增长年金加永续。</p>
+    <p class="why">显性预测期 = 增长（或分段）年金；终值 = 折回 n 期的增长永续。其余全是簿记。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 —— 15 分钟，只要计算器</span>
+  给这家虚构公司估值：明年归属股东的现金流 100 美元，前 5 年每年增长 5%，之后永远增长 2%；折现率 9%。(a) 手工折现 5 笔现金流。(b) 计算第 5 年末终值：TV = 100×1.05⁵×1.02/(0.09−0.02)。(c) 把终值折回并求和。总价值应约 1,835 美元。你刚刚做了一个完整的 DCF——后面八节课只是精修它的输入。
+</div>
+
+<h2>主要来源</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">估值课第 2 讲（内在价值 / TVM）</a>；《Investment Valuation》<a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/PdFiles/valn2ed.pdf">第 2–3 章</a>。</p>
+
+<p class="next"><a href="0003-the-dcf-skeleton.zh.html">下一课：DCF 骨架 →</a> &nbsp;·&nbsp; <a href="0001-price-vs-value.zh.html">← 第 1 课</a></p>
+<p class="ask">某一步卡住了？让代理陪你一步步走。</p>
+</body>
+</html>

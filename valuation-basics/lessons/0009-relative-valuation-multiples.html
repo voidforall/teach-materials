@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 9 — Relative Valuation &amp; Multiples</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 9</span><span>Damodaran <a class="langbtn" href="0009-relative-valuation-multiples.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Relative Valuation &amp; Multiples</h1>
+  <p class="dek">You will use multiples more often than DCFs — everyone does. The skill is knowing what each multiple is secretly assuming, and when your "comparables" aren't comparable.</p>
+</div>
+
+<p>A multiple is a price ratio. Two big families:</p>
+<ul>
+  <li><strong>Equity multiples</strong> — price over an equity metric: P/E, P/B, price/sales. Consistent with equity costs and equity claims.</li>
+  <li><strong>Firm multiples</strong> — enterprise value over a pre-debt metric: EV/EBITDA, EV/EBIT, EV/sales. Consistent with firm cash flows and WACC.</li>
+</ul>
+
+<p>Mixing families is the classic error: EV/net income divides a whole-business numerator by an equity-only denominator.</p>
+
+<h2>Every multiple is a DCF in disguise</h2>
+<p>From <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Sessions 17–18</a>: the drivers of the common multiples are exactly the DCF drivers. P/E is jointly determined by growth, payout, and risk:</p>
+
+<pre><code>P/E = payout × (1+g) / (cost of equity − g)
+EV/EBITDA ≈ f(ROC, growth, tax rate, cost of capital)</code></pre>
+
+<p>So "cheap on 8× P/E" means cheap only if growth, returns, and risk match the peer. A firm growing 15% deserves a higher multiple than one growing 3% — <strong>a low multiple can be expensive, a high one cheap</strong>. That's why Damodaran's second book is literally titled <em>Relative Valuation</em>'s question: "what do you have to believe?"</p>
+
+<h2>The four questions for any multiple</h2>
+<ol>
+  <li><strong>Is it consistently defined?</strong> Numerator and denominator for the same claim holders (EV with EBITDA; price with earnings), same time basis.</li>
+  <li><strong>Is it uniformly computed across peers?</strong> Same accounting treatments (write-offs, leases, R&amp;D expensing shift earnings wildly).</li>
+  <li><strong>Why is it different across firms?</strong> Explain variation with fundamentals: growth, ROC, risk. Regression does this when peer sets are small.</li>
+  <li><strong>What's the distribution?</strong> Multiples are skewed and fat-tailed; the median beats the mean, and negative-earnings firms silently vanish from P/E screens (survivorship inside the multiple).</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A multiple is a compressed DCF.</strong> Its fair value depends on growth, returns, and risk — never on the number alone. Using multiples well = finding peers whose compressed assumptions match, or adjusting for the differences.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>"It trades below the sector average, therefore cheap."</strong> The sector may be expensive, the firm's growth below the peers', or its earnings about to be restated. Below-average multiples on worse-than-average fundamentals is the value trap — the market's most productive bait.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>EV/EBITDA or P/E — which survives aggressive depreciation choices?</summary>
+    <p class="answer">EV/EBITDA.</p>
+    <p class="why">EBITDA sits above depreciation; P/E sits below it. Heavy capex firms with big depreciation charges look unfairly expensive on P/E and fairer on EV/EBITDA — the multiple choice should follow the accounting distortion.</p>
+  </details>
+  <details><summary>Two firms, same P/E. One grows at 12%, other at 2%. Which is cheaper?</summary>
+    <p class="answer">The faster grower.</p>
+    <p class="why">Same multiple with more growth means the market pays nothing for the extra growth — from P/E = payout(1+g)/(r−g), matching P/Es with higher g implies lower risk or payout elsewhere. Cheapness is relative to drivers, not the raw number.</p>
+  </details>
+  <details><summary>Why do P/E screens systematically drop some firms?</summary>
+    <p class="answer">Negative earnings are excluded.</p>
+    <p class="why">Firms losing money have no meaningful P/E, so screens quietly delete exactly the young, reinvesting companies — the skew survivorship that Damodaran warns biases sector averages upward.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 20 minutes</span>
+  Pick 6 firms in one industry. Tabulate P/E (or EV/EBITDA) alongside revenue growth and operating margin. Is the multiple ranking explained by the drivers, or is there an outlier? For the outlier, write "what you must believe" for it to be cheap. That sentence is relative valuation's whole craft.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Sessions 17–18 (relative valuation)</a>; <em>Investment Valuation</em> Chapters 18–20 give each major multiple its own chapter.</p>
+
+<p class="next"><a href="0010-capstone-value-a-company.html">Next: Capstone — Value a Company →</a> &nbsp;·&nbsp; <a href="0008-terminal-value.html">← Lesson 8</a></p>
+<p class="ask">Ask the agent to stress-test any multiple comparison you make.</p>
+</body>
+</html>

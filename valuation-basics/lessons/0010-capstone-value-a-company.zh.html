@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 10 课 — 毕业课：给一家公司估值</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>估值基础 · 第 10 课</span><span>Damodaran <a class="langbtn" href="0010-capstone-value-a-company.html" title="Switch to English">EN</a></span></div>
+  <h1>毕业课：给一家公司估值</h1>
+  <p class="dek">一家公司、一个故事、一张表格——以及与你自身偏见的正面对峙。前九课在这里变成技能。</p>
+</div>
+
+<p>拿出你在<a href="0001-price-vs-value.zh.html">第 1 课</a>写过三句话的那家公司。搭建完整模型。顺序很重要——先故事，再数字，再价值，再拷问：</p>
+
+<ol>
+  <li><strong>故事</strong>——公司在生命周期的哪个位置（第 7 课）？年轻 / 成熟 / 衰退？用两句话写叙事。</li>
+  <li><strong>现金流</strong>——从财报读出当前收入、利润率、ROC、再投资率（第 4 课）。剔除一次性项目；研发重大就资本化。</li>
+  <li><strong>折现率</strong>——无风险利率 + β×ERP，自下而上 beta，混合成随公司成熟而下降的 WACC（第 5–6 课）。</li>
+  <li><strong>增长路径</strong>——从基本面增长 g = 再投资 × ROC 出发，5–10 年内衰减至 GDP，再投资同步下降（第 7 课）。</li>
+  <li><strong>终值</strong>——稳定增长永续，终值再投资 = g/ROC，成熟 WACC，超额回报衰减（第 8 课）。</li>
+  <li><strong>每股价值</strong>——求和，减净债务，除以股数。</li>
+  <li><strong>交叉检验</strong>——当前市价隐含什么？把 DCF 倒过来（解出价格所需要的 g 或利润率），与你的故事比较（第 9 课的倍数当第二意见）。</li>
+</ol>
+
+<h2>偏见审计</h2>
+<p>Damodaran 真正的毕业课（每期课程的收尾，及《Reflections on Valuation》）：模型从来不是问题——你才是。三种标准腐败：</p>
+<ul>
+  <li><strong>锚定</strong>——你的价值向市价漂移，因为你先看到了它。解药：在查价格<strong>之前</strong>写好故事和关键假设。</li>
+  <li><strong>确认</strong>——你本来就喜欢/讨厌这家公司，假设悄悄服从。解药：假设反向命题为真再估一次，看哪种改变让你难以忍受。</li>
+  <li><strong>确定性</strong>——点估计隐藏了不确定性。解药：给出分布——按悲观/基准/乐观三个故事跑模型，并承认这个区间。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>估值是诚实装置，不是出价机器。</strong>它的产出不是"那个数字"，而是一个被澄清、被量化的故事，加上一张你真正押注内容的清单。说不出你的押注，你就没有完成估值。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>为模型辩护。</strong>当面对质疑的回应是表格的精确而非修正后的故事时，你已经停止估值、开始狡辩。Damodaran 的标准：一次改一个假设，记录价值怎么动，让敏感性——而不是自尊——决定什么重要。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>说出从故事到价值的七步顺序。</summary>
+    <p class="answer">故事、现金流、折现、增长、终值、每股、交叉检验。</p>
+    <p class="why">顺序重要：故事在任何算术诱惑你之前先约束输入；市场隐含的交叉检验闭环，却从不锚定输入。</p>
+  </details>
+  <details><summary>价格比你的价值高 30%。诚实的产出是什么？</summary>
+    <p class="answer">一个说清楚的下注。</p>
+    <p class="why">要么市场故事与你不同（精确指出是哪个输入），要么你漏了什么。产出 = "我押注增长/利润率/风险等于 X；若市场的 Y 成立，我错了"——而不是"市场不理性"。</p>
+  </details>
+  <details><summary>哪一个单一检查能抓住最多的坏 DCF？</summary>
+    <p class="answer">用再投资重算 g。</p>
+    <p class="why">g = 再投资 × ROC（第 7 课）在多数业余模型里都不成立——假设了增长却没有再投资买单，或终值永续违反 GDP 上限。这是最快的全身扫描。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">毕业设计 —— 一个下午，加一周的耿耿于怀</span>
+  在表格里为你选的公司建完整估值（对照 Damodaran <a href="https://pages.stern.nyu.edu/~adamodar/">网站</a>上的模板）。交付物：(1) 故事段落；(2) 模型；(3) 三情景价值区间；(4) 当前价格隐含的市场故事；(5) 一段话："我押注的是 ___"。然后读一篇 Damodaran 博客对知名公司的估值（<a href="https://aswathdamodaran.blogspot.com/">Musings on Markets</a>——特斯拉、苹果、英伟达都有），把他的诚实动作与你的对比。
+</div>
+
+<h2>主要来源</h2>
+<p>整门课程：<a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Damodaran 估值课</a>，加上 <a href="https://aswathdamodaran.blogspot.com/">Musings on Markets</a> 里任意一篇他对家喻户晓公司的公开估值——疑虑全部摊开给你看。</p>
+
+<p class="next">课程完成——每次做真实估值后回到<a href="../reference/valuation-cheatsheet.zh.html">速查表</a>复习。 &nbsp;·&nbsp; <a href="0009-relative-valuation-multiples.zh.html">← 第 9 课</a></p>
+<p class="ask">把完成的模型交给代理做一次不友好但善意的审计。</p>
+</body>
+</html>

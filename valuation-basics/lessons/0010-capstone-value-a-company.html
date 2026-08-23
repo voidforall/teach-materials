@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 10 — Capstone: Value a Company</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 10</span><span>Damodaran <a class="langbtn" href="0010-capstone-value-a-company.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Capstone: Value a Company</h1>
+  <p class="dek">One company, one story, one spreadsheet — and an honest confrontation with your own biases. This is where the nine previous lessons become a skill.</p>
+</div>
+
+<p>Take the company you wrote three sentences about in <a href="0001-price-vs-value.html">Lesson 1</a>. Build the full model. Sequence matters — story first, then numbers, then value, then interrogation:</p>
+
+<ol>
+  <li><strong>Story</strong> — where is this firm on the life cycle (Lesson 7)? Young / mature / declining? Write the narrative in two sentences.</li>
+  <li><strong>Cash flows</strong> — current revenue, margins, ROC, reinvestment rate from filings (Lesson 4). Normalize for one-time items; capitalize R&amp;D if material.</li>
+  <li><strong>Discount rate</strong> — risk-free + β×ERP with a bottom-up beta, blended into a WACC that drifts down as the firm matures (Lessons 5–6).</li>
+  <li><strong>Growth path</strong> — start at fundamental growth g = reinvestment × ROC, fade toward GDP over 5–10 years, with reinvestment falling alongside (Lesson 7).</li>
+  <li><strong>Terminal value</strong> — stable-growth perpetuity with terminal reinvestment = g/ROC, mature WACC, fading excess returns (Lesson 8).</li>
+  <li><strong>Value per share</strong> — sum, subtract net debt, divide by shares.</li>
+  <li><strong>Cross-check</strong> — what does the market's current price imply? Reverse the DCF (solve for the g or margin the price needs) and compare with your story (Lesson 9's multiples as a second opinion).</li>
+</ol>
+
+<h2>The bias audit</h2>
+<p>Damodaran's real capstone lesson (the closing sessions of every class, and <em>Reflections on Valuation</em>): the model is never the problem — you are. The three standard corruptions:</p>
+<ul>
+  <li><strong>Anchoring</strong> — your value drifts toward the market price because you saw it first. Antidote: write your story and key assumptions <em>before</em> checking the price.</li>
+  <li><strong>Confirmation</strong> — you already like/hate the company, and the assumptions quietly obey. Antidote: revalue assuming the opposite thesis is true; see which changes feel unbearable.</li>
+  <li><strong>Certainty</strong> — a point estimate hides the uncertainty. Antidote: present a distribution — run your model at your pessimistic/base/optimistic story and own the range.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A valuation is an honesty device, not a price machine.</strong> Its product is not "the number" but a clarified, quantified story plus a list of what you're really betting on. If you can't name your bet, you haven't valued the company.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Defending the model.</strong> The moment your response to a challenge is spreadsheet precision rather than a revised story, you've stopped valuing and started lawyering. Damodaran's standard: change one assumption at a time, note how value moves, and let the sensitivity — not your ego — decide what matters.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Name the seven-step sequence from story to value.</summary>
+    <p class="answer">Story, cash flows, discount, growth, terminal, per-share, cross-check.</p>
+    <p class="why">Order matters: story disciplines inputs before any arithmetic can seduce you, and the market-implied cross-check closes the loop without ever anchoring the inputs.</p>
+  </details>
+  <details><summary>Price is 30% above your value. What's the honest output?</summary>
+    <p class="answer">A bet, clearly stated.</p>
+    <p class="why">Either the market's story differs from yours (identify exactly which input), or you're missing something. Output = "I'm betting growth/margins/risk equals X; if the market's Y is right, I'm wrong" — not "the market is irrational."</p>
+  </details>
+  <details><summary>Which single check catches the most broken DCFs?</summary>
+    <p class="answer">Recompute g from reinvestment.</p>
+    <p class="why">g = reinvestment × ROC (Lesson 7) fails in most amateur models — growth assumed without the reinvestment to pay for it, or terminal perpetuities violating GDP caps. It's the fastest full-body scan.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Capstone — an afternoon, then a week of nagging doubt</span>
+  Build the full valuation of your company in a spreadsheet (mirror Damodaran's own templates on his <a href="https://pages.stern.nyu.edu/~adamodar/">site</a>). Deliverables: (1) the story paragraph; (2) the model; (3) three-scenario value range; (4) the market-implied story at today's price; (5) one paragraph: "my bet is on ___". Then read one Damodaran blog valuation of a household name (<a href="https://aswathdamodaran.blogspot.com/">Musings on Markets</a>) and compare his honesty moves to yours.
+</div>
+
+<h2>Primary source</h2>
+<p>The whole course: <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Damodaran's valuation class</a>, plus any single post from <a href="https://aswathdamodaran.blogspot.com/">Musings on Markets</a> where he values a company you know — Tesla, Apple, Nvidia all appear — in public, with all the doubts shown.</p>
+
+<p class="next">Course complete — revisit the <a href="../reference/valuation-cheatsheet.html">cheat sheet</a> after every real-world valuation you attempt. &nbsp;·&nbsp; <a href="0009-relative-valuation-multiples.html">← Lesson 9</a></p>
+<p class="ask">Bring your finished model to the agent for a hostile-but-friendly audit.</p>
+</body>
+</html>

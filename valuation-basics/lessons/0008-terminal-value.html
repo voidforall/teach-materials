@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 8 — Terminal Value</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 8</span><span>Damodaran <a class="langbtn" href="0008-terminal-value.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Terminal Value</h1>
+  <p class="dek">Typically 60–80% of a DCF's value sits in the last line: the value of all cash flows after your forecast ends. Terrifying — unless you make that line obey the same economics as everything else.</p>
+</div>
+
+<p>Two routes to the terminal value, from <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Session 12</a>:</p>
+
+<pre><code>1. Stable-growth (forever) model:
+   TV_n = FCFF_{n+1} / (WACC − g),   g ≤ risk-free rate ≈ nominal GDP
+
+2. Exit multiple:
+   TV_n = EV/EBITDA_n × EBITDA_n     (a pricing device smuggled into a DCF)</code></pre>
+
+<p>Damodaran's verdict: the multiple route is fine <em>if you're honest that you've stopped doing intrinsic valuation</em> — the exit multiple imports the market's pricing of peers into your "intrinsic" value. If you use it, it must be consistent with your stable-growth assumptions; a useful cross-check is computing both and reconciling.</p>
+
+<h2>What "stable" means</h2>
+<p>The terminal year isn't just the forecast's last year extended forever — the firm must arrive at <strong>stable-company properties</strong>:</p>
+<ul>
+  <li><strong>Growth</strong> at or below the risk-free rate.</li>
+  <li><strong>Beta drifts toward 1</strong>; debt ratio toward a mature target (often 20–25%); WACC falls.</li>
+  <li><strong>Reinvestment matches growth</strong>: in the terminal year, reinvestment = g/ROC. The classic error is assuming high terminal growth with no reinvestment — value created from nothing.</li>
+  <li><strong>Excess returns decay</strong>: forever-high ROC above cost of capital is a moat claim. Damodaran's default lets excess returns fade toward zero in the terminal year for competitive industries, persisting only for genuine, durable moats.</li>
+</ul>
+
+<pre><code>TV = FCFF_n × (1+g) / (WACC_terminal − g)
+where FCFF_terminal already embeds terminal reinvestment = g / ROC_terminal</code></pre>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>The terminal value is a DCF of its own.</strong> It must obey g = reinvestment × ROC, a mature WACC, and growth capped by GDP. Get the terminal assumptions internally consistent and the big number stops being scary; leave them inconsistent and it's a wish.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Perpetual excess returns.</strong> Assuming your company earns 25% on capital forever with a 8% WACC. Competition, capital mobility, and history all say otherwise — Damodaran's rule of thumb: excess returns last a decade or two, not eternity. Pick a fade schedule and defend it.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Terminal FCFF $200, g 2.5%, WACC 7.5%. TV at year n?</summary>
+    <p class="answer">200 × 1.025 / 0.05 = $4,100.</p>
+    <p class="why">Growing perpetuity on next year's flow, discounted to today separately by (1+WACC)^n. Note how a 0.5% change in WACC or g swings TV by ~10% — terminal sensitivity is the sensitivity.</p>
+  </details>
+  <details><summary>Terminal g is 3%, ROC_terminal is 10%. Required terminal reinvestment?</summary>
+    <p class="answer">3/10 = 30% of after-tax EBIT.</p>
+    <p class="why">Reinvestment = g/ROC. The remaining 70% becomes the FCFF inside the perpetuity — skip this subtraction and you've double-counted growth.</p>
+  </details>
+  <details><summary>Your DCF's terminal value is 95% of total value. What does that tell you?</summary>
+    <p class="answer">The forecast is nearly meaningless.</p>
+    <p class="why">All the value lives in assumptions you can't observe — either extend/structure the forecast, or admit the valuation is a bet on terminal assumptions (typical for young growth firms, where honesty means saying exactly that).</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 15 minutes</span>
+  Take the mini-DCF from Lesson 2. Recompute the terminal value under three g's (1.5%, 2.5%, 3.5%) with reinvestment adjusted as g/ROC for ROC = 12%. Watch total value move. Write one sentence: "my valuation's real bet is on ___."
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Session 12 (terminal value)</a>; <em>Investment Valuation</em> Chapter 12.</p>
+
+<p class="next"><a href="0009-relative-valuation-multiples.html">Next: Relative Valuation &amp; Multiples →</a> &nbsp;·&nbsp; <a href="0007-growth-reinvestment-roic.html">← Lesson 7</a></p>
+<p class="ask">Terminal value confusion is the #1 question — ask the agent freely.</p>
+</body>
+</html>

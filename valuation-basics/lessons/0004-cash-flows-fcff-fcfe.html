@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 4 — Estimating Cash Flows: FCFF &amp; FCFE</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 4</span><span>Damodaran <a class="langbtn" href="0004-cash-flows-fcff-fcfe.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Estimating Cash Flows: FCFF &amp; FCFE</h1>
+  <p class="dek">Accounting earnings are an opinion; cash is a fact. Free cash flow is the cash a business generates that could be paid out without harming future growth — and it is always a subtraction story.</p>
+</div>
+
+<p>Two definitions, from <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/PdFiles/valn2ed.pdf"><em>Investment Valuation</em></a>. Start from after-tax operating income and subtract what growth consumes:</p>
+
+<pre><code>FCFF = EBIT × (1 − tax rate)
+     − (Capital expenditures − Depreciation)
+     − Δ Working capital</code></pre>
+
+<p>Each line has a job. <strong>EBIT(1−t)</strong> is the cash operating earnings of the business, blind to how it's financed. <strong>Net capex</strong> replaces what wore out and adds productive capacity. <strong>Working capital changes</strong> capture the cash quietly absorbed by inventory and receivables when you grow. What survives is genuinely free.</p>
+
+<p>For the equity version, put financing back in:</p>
+
+<pre><code>FCFE = Net income
+     + Depreciation
+     − Capital expenditures
+     − Δ Working capital
+     − (New debt issued − Debt repaid)</code></pre>
+
+<h2>Reading the statement like a valuer</h2>
+<p>Estimating these lines from real filings is mostly reclassification, not arithmetic:</p>
+<ul>
+  <li>Strip out <strong>one-time items</strong> (restructuring, lawsuit settlements) — Damodaran normalizes earnings to what the business would have earned routinely.</li>
+  <li><strong>Capitalize leases</strong> — treat lease payments as debt; otherwise retailers look asset-light and under-levered.</li>
+  <li><strong>R&amp;D and (for some) SG&amp;A are investments, not expenses</strong> — Damodaran's signature adjustment: amortize R&amp;D like an asset, since it builds future cash flows. This single change can transform the value of tech and pharma firms.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Free cash flow = earnings minus reinvestment.</strong> Growth is not free; every dollar of it must be financed by capex and working capital. A company can report rising earnings while its free cash flow collapses — that divergence is the smell test.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Worshiping negative FCF because "Amazon."</strong> Low FCF from heavy reinvestment at high returns is a growth story; low FCF from shrinking margins and bloated working capital is decay. The number alone tells you nothing — the <em>reason</em> for the subtraction does. (Amazon is exactly Damodaran's canonical example of getting this distinction right.)
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>EBIT $200, tax 25%, capex $80, depreciation $50, ΔWC $20. FCFF?</summary>
+    <p class="answer">$150 − $30 − $20 = $100.</p>
+    <p class="why">After-tax EBIT = 200×0.75 = 150; net capex = 80−50 = 30; plus working capital absorption 20. The firm generated $100 of cash available to all claimholders.</p>
+  </details>
+  <details><summary>Why add depreciation back but subtract capex?</summary>
+    <p class="answer">Depreciation isn't cash.</p>
+    <p class="why">Depreciation reduced EBIT without spending cash, so it returns; capex is real cash leaving. Only the net (capex − depreciation) is the true reinvestment above maintenance.</p>
+  </details>
+  <details><summary>Why does Damodaran capitalize R&amp;D?</summary>
+    <p class="answer">R&amp;D builds future cash flows.</p>
+    <p class="why">Expensing a multi-year asset in one year understates current earnings and assets — systematically penalizing R&amp;D-heavy firms. Treating R&amp;D as capex (amortized over the asset life) puts R&amp;D-intensive companies on comparable footing.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 25 minutes</span>
+  Pull the latest annual report of a company you know. Compute one year of FCFF: EBIT × (1−effective tax rate) − net capex − ΔWC (use cash-flow-statement lines: capex, depreciation, and change in inventory+receivables−payables). Compare it to reported net income. Which is bigger, and what does the gap tell you about the story? Ask the agent to sanity-check your numbers.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Valuation class, Sessions 5–6 (cash flows, R&amp;D adjustments)</a>; <em>Investment Valuation</em> Chapters 8–9. Damodaran's post <a href="https://aswathdamodaran.blogspot.com/2014/09/a-tangled-web-of-values-costs.html">on R&amp;D capitalization</a> applies it to real firms.</p>
+
+<p class="next"><a href="0005-riskfree-and-erp.html">Next: Risk-Free Rate &amp; ERP →</a> &nbsp;·&nbsp; <a href="0003-the-dcf-skeleton.html">← Lesson 3</a></p>
+<p class="ask">If a line item confuses you, bring it to the agent.</p>
+</body>
+</html>

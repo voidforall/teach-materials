@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>估值基础 — 速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.cs { border-collapse: collapse; font-size: 0.86rem; margin: 1rem 0; width: 100%; }
+  table.cs th, table.cs td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+  table.cs th { font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  table.cs td:first-child { font-weight: 600; white-space: nowrap; }
+  pre { font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>参考</span><span>估值基础 <a class="langbtn" href="valuation-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>估值基础 — 速查表</h1>
+  <p class="dek">基于 Damodaran 的十课课程，压缩成一页可打印的速查：TVM、DCF 骨架、现金流、折现率、增长、终值、倍数、偏见。</p>
+</div>
+
+<h2>1 · 价格与价值 <span class="muted">— <a href="../lessons/0001-price-vs-value.zh.html">第 1 课</a></span></h2>
+<ul>
+  <li><strong>价值</strong> = f(现金流, 增长, 风险)。<strong>价格</strong> = 市场支付的金额。随时知道自己产出的是哪个。</li>
+  <li>三种方法：内在（DCF）、相对（倍数 = 定价）、或有索取权（期权）。</li>
+  <li>每次估值都是<strong>故事</strong>与<strong>数字</strong>之间的桥梁；二者互相约束。</li>
+</ul>
+
+<h2>2 · 四个 TVM 积木 <span class="muted">— <a href="../lessons/0002-time-value-of-money.zh.html">第 2 课</a></span></h2>
+<table class="cs">
+  <tr><th>积木</th><th>公式</th><th>用途</th></tr>
+  <tr><td>一次性款项</td><td>PV = CF<sub>n</sub>/(1+r)<sup>n</sup></td><td>任意单笔付款</td></tr>
+  <tr><td>年金</td><td>PV = CF·[1−(1+r)<sup>−n</sup>]/r</td><td>等额付款 n 期</td></tr>
+  <tr><td>增长年金</td><td>PV = CF<sub>1</sub>/(r−g)·[1−((1+g)/(1+r))<sup>n</sup>]</td><td>显性预测期</td></tr>
+  <tr><td>增长永续</td><td>PV = CF<sub>1</sub>/(r−g), g&lt;r</td><td>终值</td></tr>
+</table>
+<p>绝不把名义利率配上实际现金流。DCF = 增长年金 + 折现后的增长永续。</p>
+
+<h2>3 · DCF 骨架 <span class="muted">— <a href="../lessons/0003-the-dcf-skeleton.zh.html">第 3 课</a></span></h2>
+<table class="cs">
+  <tr><th></th><th>股权 DCF</th><th>公司 DCF</th></tr>
+  <tr><td>现金流</td><td>FCFE（偿债之后）</td><td>FCFF（偿债之前）</td></tr>
+  <tr><td>利率</td><td>股权成本</td><td>WACC</td></tr>
+  <tr><td>输出</td><td>股权价值</td><td>公司价值 − 净债务 = 股权</td></tr>
+</table>
+<p><strong>永远按索取权配对。</strong>银行 → 股权 DCF（债务是原材料）。</p>
+
+<h2>4 · 现金流 <span class="muted">— <a href="../lessons/0004-cash-flows-fcff-fcfe.zh.html">第 4 课</a></span></h2>
+<pre><code>FCFF = EBIT(1−t) − (资本开支 − 折旧) − 营运资本变动
+FCFE = 净利润 + 折旧 − 资本开支 − 营运资本变动 − (新发债 − 偿还)</code></pre>
+<ul>
+  <li>正常化一次性项目；租赁资本化；研发当投资（摊销）。</li>
+  <li>FCF = 利润 − 再投资。评判低 FCF 前先读懂它的<strong>原因</strong>。</li>
+</ul>
+
+<h2>5 · 折现率 <span class="muted">— <a href="../lessons/0005-riskfree-and-erp.zh.html">第 5</a>–<a href="../lessons/0006-cost-of-capital.zh.html">6 课</a></span></h2>
+<pre><code>股权成本 = rf + β × ERP             (rf: 币种、期限匹配且剔除违约风险的国债)
+债务成本 = (rf + 违约利差) × (1−t)
+WACC = E/(D+E)·ke + D/(D+E)·kd(1−t) (市场价值、目标结构)
+β_L = β_U × (1 + (1−t)·D/E)        (自下而上行业 beta，再加杠杆)</code></pre>
+<ul>
+  <li>ERP：优先隐含法（对指数做反 DCF），近年美国约 4–5%；Damodaran 数据集每年更新。</li>
+  <li>高风险国家/币种的现金流要加国家风险溢价。</li>
+</ul>
+
+<h2>6 · 增长 <span class="muted">— <a href="../lessons/0007-growth-reinvestment-roic.zh.html">第 7 课</a></span></h2>
+<pre><code>g = 再投资率 × ROC                  (股权版: g = 留存比率 × ROE)
+所需再投资 = g / ROC</code></pre>
+<ul>
+  <li>增长由再投资支付；增长的质量 = ROC 对比资本成本。</li>
+  <li>长期 g ≤ 无风险利率 ≈ 名义 GDP。没有东西能永远跑赢经济。</li>
+</ul>
+
+<h2>7 · 终值 <span class="muted">— <a href="../lessons/0008-terminal-value.zh.html">第 8 课</a></span></h2>
+<pre><code>TV_n = FCFF_{n+1} / (WACC_稳定 − g)</code></pre>
+<ul>
+  <li>终值公司必须稳定：g ≤ rf、β→1、成熟债务比、再投资 = g/ROC。</li>
+  <li>超额回报要衰减，除非有真护城河；退出倍数 = 定价，只做交叉检验。</li>
+  <li>终值通常占价值 60–80%——敏感性都活在那里。</li>
+</ul>
+
+<h2>8 · 倍数 <span class="muted">— <a href="../lessons/0009-relative-valuation-multiples.zh.html">第 9 课</a></span></h2>
+<pre><code>P/E = 分红率(1+g)/(ke − g)           EV/EBITDA ≈ f(ROC, g, t, WACC)</code></pre>
+<ul>
+  <li>股权倍数 ↔ 股权索取权；公司倍数 ↔ EV。绝不交叉（EV/净利润！）。</li>
+  <li>倍数是压缩的 DCF：便宜/贵只相对于增长、回报、风险。</li>
+  <li>四查：定义一致、同行统一、能被基本面解释、看分布（中位数 &gt; 均值；亏损公司会从 P/E 筛选里消失）。</li>
+</ul>
+
+<h2>9 · 偏见审计 <span class="muted">— <a href="../lessons/0010-capstone-value-a-company.zh.html">第 10 课</a></span></h2>
+<ul>
+  <li><strong>锚定：</strong>查价格之前先写好故事和假设。</li>
+  <li><strong>确认：</strong>按反向命题重新估一次。</li>
+  <li><strong>确定性：</strong>交付三情景区间，不是点估计。</li>
+  <li>产出 = 被澄清的故事 + 被点名的押注，绝不是"市场不理性"。</li>
+</ul>
+
+<h2>一行模型</h2>
+<pre><code>公司价值 = Σ FCFF_t/(1+WACC)^t  +  TV_n/(1+WACC)^n
+股权价值 = 公司价值 − (债务 − 现金);  每股 = ÷股数
+快速体检:  每个阶段 g = 再投资 × ROC;  终值 g ≤ rf</code></pre>
+
+<p class="dek">来源：Damodaran 的 <a href="https://pages.stern.nyu.edu/~adamodar/">NYU 课程站</a>、<a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">估值课视频</a>、<a href="https://aswathdamodaran.blogspot.com/">Musings on Markets</a>。</p>
+</body>
+</html>

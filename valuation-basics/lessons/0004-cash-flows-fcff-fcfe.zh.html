@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 4 课 — 估计现金流：FCFF 与 FCFE</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>估值基础 · 第 4 课</span><span>Damodaran <a class="langbtn" href="0004-cash-flows-fcff-fcfe.html" title="Switch to English">EN</a></span></div>
+  <h1>估计现金流：FCFF 与 FCFE</h1>
+  <p class="dek">会计利润是一种观点，现金才是事实。自由现金流是企业在不损害未来增长的前提下可以分掉的现金——而它永远是一个做减法的故事。</p>
+</div>
+
+<p>来自《<a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/PdFiles/valn2ed.pdf">Investment Valuation</a>》的两个定义。从税后经营利润出发，减去增长所吞噬的部分：</p>
+
+<pre><code>FCFF = EBIT × (1 − 税率)
+     − (资本开支 − 折旧)
+     − 营运资本变动</code></pre>
+
+<p>每一行都有任务。<strong>EBIT(1−t)</strong> 是业务不考虑融资方式的税后现金经营利润。<strong>净资本开支</strong>替换损耗并新增产能。<strong>营运资本变动</strong>捕捉增长时被存货和应收账款悄悄吸收的现金。剩下的是真正自由的。</p>
+
+<p>股权版本则把融资放回来：</p>
+
+<pre><code>FCFE = 净利润
+     + 折旧
+     − 资本开支
+     − 营运资本变动
+     − (新发债务 − 偿还债务)</code></pre>
+
+<h2>像估值者一样读报表</h2>
+<p>从真实财报估计这些行，主要是重分类而非算术：</p>
+<ul>
+  <li>剔除<strong>一次性项目</strong>（重组、诉讼和解）——Damodaran 把利润正常化为业务本来能例行赚取的水平。</li>
+  <li><strong>租赁资本化</strong>——把租赁付款当作债务；否则零售商会显得轻资产、低杠杆。</li>
+  <li><strong>研发（某些情况下还有 SG&amp;A）是投资而非费用</strong>——Damodaran 的招牌调整：像资产一样摊销研发，因为它建造未来现金流。仅这一项调整就能改变科技和药企的价值。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>自由现金流 = 利润减再投资。</strong>增长不是免费的；每一块钱增长都必须由资本开支和营运资本来融资。公司可以报表利润连年上升而自由现金流崩溃——这个背离就是嗅觉检验。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>因为"亚马逊就是这样"而崇拜负 FCF。</strong>高回报下的重再投资导致的低 FCF 是成长故事；利润率萎缩、营运资本失控导致的低 FCF 是衰退。数字本身什么都不说——减法的<strong>原因</strong>才说。（亚马逊正是 Damodaran 讲清这个区分的经典案例。）
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>EBIT 200，税率 25%，资本开支 80，折旧 50，营运资本变动 20。FCFF？</summary>
+    <p class="answer">150 − 30 − 20 = 100。</p>
+    <p class="why">税后 EBIT = 200×0.75 = 150；净资本开支 = 80−50 = 30；加上营运资本吸收 20。公司产生了 100 可分配给全部索取权人的现金。</p>
+  </details>
+  <details><summary>为什么加回折旧却减资本开支？</summary>
+    <p class="answer">折旧不是现金。</p>
+    <p class="why">折旧降低了 EBIT 却没有花现金，所以要加回；资本开支是真金白银流出。只有净额（资本开支 − 折旧）才是超出维护水平的真实再投资。</p>
+  </details>
+  <details><summary>为什么 Damodaran 要把研发资本化？</summary>
+    <p class="answer">研发建造未来现金流。</p>
+    <p class="why">把多年资产在一年内费用化会低估当期利润和资产——系统性惩罚研发密集公司。把研发当作资本开支（按资产寿命摊销）让重研发公司站上可比的 footing。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 —— 25 分钟</span>
+  调出你熟悉公司的最新年报。计算一年的 FCFF：EBIT × (1−有效税率) − 净资本开支 − 营运资本变动（用现金流量表科目：资本开支、折旧、存货+应收−应付的变动）。与报表净利润比较。哪个更大？这个差距说明了故事的什么？让代理帮你检验数字。
+</div>
+
+<h2>主要来源</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">估值课第 5–6 讲（现金流、研发调整）</a>；《Investment Valuation》第 8–9 章。Damodaran 博客关于<a href="https://aswathdamodaran.blogspot.com/2014/09/a-tangled-web-of-values-costs.html">研发资本化</a>的文章把它应用到真实公司。</p>
+
+<p class="next"><a href="0005-riskfree-and-erp.zh.html">下一课：无风险利率与股权风险溢价 →</a> &nbsp;·&nbsp; <a href="0003-the-dcf-skeleton.zh.html">← 第 3 课</a></p>
+<p class="ask">哪个科目看不懂就带给代理。</p>
+</body>
+</html>

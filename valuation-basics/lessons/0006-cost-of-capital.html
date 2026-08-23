@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — Beta, Debt &amp; WACC</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 6</span><span>Damodaran <a class="langbtn" href="0006-cost-of-capital.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Beta, Debt &amp; WACC</h1>
+  <p class="dek">The cost of capital is a weighted average of what each class of capital costs. The art is entirely in beta — and beta is not a statistics exercise, it's a statement about a business.</p>
+</div>
+
+<p>From <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Sessions 8–9</a>, the full rate stack for a firm DCF:</p>
+
+<pre><code>Cost of equity = Risk-free rate + β × ERP            (Lesson 5's anchors)
+Cost of debt   = Risk-free rate + default spread      (from rating or ratios)
+               × (1 − marginal tax rate)              (debt gets a tax shield)
+
+WACC = E/(D+E) × cost of equity + D/(D+E) × after-tax cost of debt</code></pre>
+
+<p>Market values only: equity at current market cap, debt at market value of the debt (book is a common proxy), using the company's <strong>target</strong> debt ratio, not today's accident.</p>
+
+<h2>Beta: three ways, one idea</h2>
+<p>A regression beta (stock vs index) is noise: short windows, wide standard errors, drift toward whatever you anchored the service to. Damodaran's ladder of fixes:</p>
+<ol>
+  <li><strong>Bottom-up beta</strong> (his default): average the <em>unlevered</em> betas of the business's industries, then relever for the company's own debt:</li>
+</ol>
+<pre><code>β_levered = β_unlevered × (1 + (1−t) × D/E)</code></pre>
+  <li><strong>Financial-leverage logic</strong>: debt amplifies equity's exposure to business risk — same business, more debt, higher beta.</li>
+  <li><strong>Two structural determinants</strong>: what the business sells (cyclical products → high beta) and how (high fixed costs → high operating leverage → high beta). Utilities sell steady demand: β ≈ 0.2–0.4. Luxury goods and semis swing with the cycle: β > 1.2.</li>
+
+<p>The beta you choose should be defensible in business language before it's defensible in statistics.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Beta measures the business, not the ticker.</strong> Bottom-up industry betas, relevered for the firm's actual debt, beat any regression. And WACC is only as honest as its weights: market values, target mix, marginal tax rate.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>WACC as a constant.</strong> As a firm grows and matures, its debt capacity, beta, and mix all change — a young firm's WACC of 12% should glide toward 8% in the terminal years. Using one WACC across the whole model quietly misvalues both ends.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Unlevered beta 1.0, D/E = 0.5, tax 25%. Levered beta?</summary>
+    <p class="answer">1.0 × 1.375 = 1.375.</p>
+    <p class="why">β_L = β_U(1 + (1−t)(D/E)) = 1 × (1 + 0.75×0.5). Debt magnifies equity's exposure to the same business risk by a third.</p>
+  </details>
+  <details><summary>Why does debt get a tax shield but equity doesn't?</summary>
+    <p class="answer">Interest is tax-deductible.</p>
+    <p class="why">Dividends are paid after tax; interest is a pre-tax expense. The government effectively subsidizes part of the interest cost, so the effective cost of debt is r_d(1−t).</p>
+  </details>
+  <details><summary>Two identical businesses, one with 60% debt. Higher equity beta where?</summary>
+    <p class="answer">The levered one.</p>
+    <p class="why">Same unlevered beta, but D/E relevers it upward — fixed debt payments concentrate the business's swings onto fewer equity dollars. This is also why distressed firms show wild betas.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 15 minutes</span>
+  From Damodaran's <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html">current beta dataset</a>, find the unlevered beta of an industry you care about. Relever it at your company's D/E and tax rate; compute cost of equity with Lesson 5's ERP; blend with an after-tax cost of debt (guess the spread from its bond rating, or Baa ≈ 2%). You now hold a complete, defensible WACC.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Valuation class, Sessions 8–9 (beta, cost of capital)</a>; <em>Investment Valuation</em> Chapters 7–8 (the beta chapters are the best in the book).</p>
+
+<p class="next"><a href="0007-growth-reinvestment-roic.html">Next: Growth, Reinvestment &amp; ROIC →</a> &nbsp;·&nbsp; <a href="0005-riskfree-and-erp.html">← Lesson 5</a></p>
+<p class="ask">Relevering algebra tangled? Ask the agent to walk it slowly.</p>
+</body>
+</html>

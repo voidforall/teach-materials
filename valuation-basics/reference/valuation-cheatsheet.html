@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Valuation Basics — Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.cs { border-collapse: collapse; font-size: 0.86rem; margin: 1rem 0; width: 100%; }
+  table.cs th, table.cs td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+  table.cs th { font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  table.cs td:first-child { font-weight: 600; white-space: nowrap; }
+  pre { font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Reference</span><span>Valuation Basics <a class="langbtn" href="valuation-cheatsheet.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Valuation Basics — Cheat Sheet</h1>
+  <p class="dek">The 10-lesson Damodaran-based course, compressed to one printable page: TVM, the DCF skeleton, cash flows, discount rates, growth, terminal value, multiples, biases.</p>
+</div>
+
+<h2>1 · Price vs value <span class="muted">— <a href="../lessons/0001-price-vs-value.html">Lesson 1</a></span></h2>
+<ul>
+  <li><strong>Value</strong> = f(cash flows, growth, risk). <strong>Price</strong> = what the market pays. Know which you're producing.</li>
+  <li>Three approaches: intrinsic (DCF), relative (multiples = pricing), contingent claim (options).</li>
+  <li>Every valuation is a bridge between a <strong>story</strong> and <strong>numbers</strong>; each disciplines the other.</li>
+</ul>
+
+<h2>2 · The four TVM blocks <span class="muted">— <a href="../lessons/0002-time-value-of-money.html">Lesson 2</a></span></h2>
+<table class="cs">
+  <tr><th>Block</th><th>Formula</th><th>Use</th></tr>
+  <tr><td>Lump sum</td><td>PV = CF<sub>n</sub>/(1+r)<sup>n</sup></td><td>Any single payment</td></tr>
+  <tr><td>Annuity</td><td>PV = CF·[1−(1+r)<sup>−n</sup>]/r</td><td>Level payments, n periods</td></tr>
+  <tr><td>Growing annuity</td><td>PV = CF<sub>1</sub>/(r−g)·[1−((1+g)/(1+r))<sup>n</sup>]</td><td>Forecast window</td></tr>
+  <tr><td>Growing perpetuity</td><td>PV = CF<sub>1</sub>/(r−g), g&lt;r</td><td>Terminal value</td></tr>
+</table>
+<p>Never mix nominal rates with real cash flows. A DCF = growing annuity + discounted growing perpetuity.</p>
+
+<h2>3 · The DCF skeleton <span class="muted">— <a href="../lessons/0003-the-dcf-skeleton.html">Lesson 3</a></span></h2>
+<table class="cs">
+  <tr><th></th><th>Equity DCF</th><th>Firm DCF</th></tr>
+  <tr><td>Cash flow</td><td>FCFE (after debt payments)</td><td>FCFF (before debt)</td></tr>
+  <tr><td>Rate</td><td>Cost of equity</td><td>WACC</td></tr>
+  <tr><td>Output</td><td>Equity value</td><td>Firm value − net debt = equity</td></tr>
+</table>
+<p><strong>Claim-match always.</strong> Banks → equity DCF (debt is raw material).</p>
+
+<h2>4 · Cash flows <span class="muted">— <a href="../lessons/0004-cash-flows-fcff-fcfe.html">Lesson 4</a></span></h2>
+<pre><code>FCFF = EBIT(1−t) − (capex − depreciation) − ΔWC
+FCFE = Net income + Depr − capex − ΔWC − (new debt − repaid)</code></pre>
+<ul>
+  <li>Normalize one-time items; capitalize leases; treat R&amp;D as investment (amortize).</li>
+  <li>FCF = earnings − reinvestment. Read the <em>reason</em> for low FCF before judging it.</li>
+</ul>
+
+<h2>5 · Discount rates <span class="muted">— <a href="../lessons/0005-riskfree-and-erp.html">Lessons 5</a>–<a href="../lessons/0006-cost-of-capital.html">6</a></span></h2>
+<pre><code>Cost of equity = rf + β × ERP           (rf: currency- & horizon-matched govt bond, default-cleansed)
+Cost of debt   = (rf + default spread) × (1−t)
+WACC = E/(D+E)·ke + D/(D+E)·kd(1−t)     (market values, target mix)
+β_L = β_U × (1 + (1−t)·D/E)            (bottom-up industry beta, relevered)</code></pre>
+<ul>
+  <li>ERP: prefer implied (inverted DCF on the index) ≈ 4–5% US in recent years; Damodaran's datasets updated annually.</li>
+  <li>Add country risk premium for risky-currency/country cash flows.</li>
+</ul>
+
+<h2>6 · Growth <span class="muted">— <a href="../lessons/0007-growth-reinvestment-roic.html">Lesson 7</a></span></h2>
+<pre><code>g = reinvestment rate × ROC          (equity version: g = retention × ROE)
+required reinvestment = g / ROC</code></pre>
+<ul>
+  <li>Growth is paid for with reinvestment; quality of growth = ROC vs cost of capital.</li>
+  <li>Long-run g ≤ risk-free rate ≈ nominal GDP. Nothing outgrows the economy forever.</li>
+</ul>
+
+<h2>7 · Terminal value <span class="muted">— <a href="../lessons/0008-terminal-value.html">Lesson 8</a></span></h2>
+<pre><code>TV_n = FCFF_{n+1} / (WACC_stable − g)</code></pre>
+<ul>
+  <li>Terminal firm must be stable: g ≤ rf, β→1, mature debt ratio, reinvestment = g/ROC.</li>
+  <li>Let excess returns fade unless a real moat; exit multiple = pricing, cross-check only.</li>
+  <li>TV is usually 60–80% of value — sensitivity live there.</li>
+</ul>
+
+<h2>8 · Multiples <span class="muted">— <a href="../lessons/0009-relative-valuation-multiples.html">Lesson 9</a></span></h2>
+<pre><code>P/E = payout(1+g)/(ke − g)           EV/EBITDA ≈ f(ROC, g, t, WACC)</code></pre>
+<ul>
+  <li>Equity multiples ↔ equity claims; firm multiples ↔ EV. Never cross (EV/net income!).</li>
+  <li>A multiple is a compressed DCF: cheap/expensive only relative to growth, returns, risk.</li>
+  <li>Four checks: consistent, uniform, explained by fundamentals, distribution (median &gt; mean; losses vanish from P/E screens).</li>
+</ul>
+
+<h2>9 · Bias audit <span class="muted">— <a href="../lessons/0010-capstone-value-a-company.html">Lesson 10</a></span></h2>
+<ul>
+  <li><strong>Anchoring:</strong> write story &amp; assumptions before checking the price.</li>
+  <li><strong>Confirmation:</strong> revalue under the opposite thesis.</li>
+  <li><strong>Certainty:</strong> deliver a three-scenario range, not a point.</li>
+  <li>Output = clarified story + named bet, never "the market is irrational."</li>
+</ul>
+
+<h2>The one-line model</h2>
+<pre><code>Value of firm = Σ FCFF_t/(1+WACC)^t  +  TV_n/(1+WACC)^n
+Equity value   = firm value − (debt − cash);  per share = /shares
+Sanity scan:   g = reinvestment × ROC at every stage; terminal g ≤ rf</code></pre>
+
+<p class="dek">Sources: Damodaran's <a href="https://pages.stern.nyu.edu/~adamodar/">NYU course site</a>, <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">valuation class webcasts</a>, <a href="https://aswathdamodaran.blogspot.com/">Musings on Markets</a>.</p>
+</body>
+</html>

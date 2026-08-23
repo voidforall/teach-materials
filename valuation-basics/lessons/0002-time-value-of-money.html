@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 2 — Time Value of Money</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 2</span><span>Damodaran <a class="langbtn" href="0002-time-value-of-money.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Time Value of Money</h1>
+  <p class="dek">A dollar next year is worth less than a dollar today. Every valuation formula in this course is one of four building blocks stacked on that fact. Learn the four blocks once, recognize them forever.</p>
+</div>
+
+<p>Cash arrives at dates; value must be stated today. Moving money across time uses a <span class="term">discount rate</span> <em>r</em> (per period). The four primitives from Damodaran's <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Session 2</a>:</p>
+
+<ol>
+  <li><strong>Present value of a lump sum:</strong> PV = CF<sub>n</sub> / (1+r)<sup>n</sup>. One payment, n periods away.</li>
+  <li><strong>Present value of an annuity:</strong> PV = CF × [1 − (1+r)<sup>−n</sup>] / r. Same payment each period for n periods.</li>
+  <li><strong>Growing annuity:</strong> PV = CF<sub>1</sub>/(r−g) × [1 − ((1+g)/(1+r))<sup>n</sup>]. Payments grow at g for n periods. This is the engine of an explicit forecast window.</li>
+  <li><strong>Growing perpetuity:</strong> PV = CF<sub>1</sub> / (r−g), valid only when g &lt; r. This is the engine of the terminal value — Lesson 8.</li>
+</ol>
+
+<p>Notice the shape: a DCF is nothing but a growing annuity (the forecast years) plus a growing perpetuity (everything after). The entire machinery of corporate valuation fits in one line:</p>
+
+<pre><code>Value = Σ  E(CF_t) / (1+r)^t      for t = 1..n      (the story years)
+      + Terminal value / (1+r)^n                   (the rest, forever)</code></pre>
+
+<h2>Compounding intuition</h2>
+<p>Discounting is just compounding run backwards. At r = 10%: $1 in a year is worth 1/1.10 = $0.909 today; $1 in ten years is worth $0.386. Small changes in r compound brutally over long horizons — which is why the terminal value (far cash flows) is where discount-rate mistakes hurt most, and why estimates of r deserve as much care as estimates of growth.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>All of DCF is four TVM blocks.</strong> Lump sum, annuity, growing annuity, growing perpetuity. When a valuation formula intimidates you, decompose it — you will find these four underneath, wearing a suit.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Nominal rates with real cash flows.</strong> Discount nominal cash flows with nominal rates, or real with real — never mix. A 6% nominal rate against 2%-inflation-adjusted cash flows silently poisons every present value. Damodaran flags this as the most common mechanical error in student DCFs.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Perpetuity: CF = $100, r = 8%, g = 3%. Value today?</summary>
+    <p class="answer">$100 / 0.05 = $2,000.</p>
+    <p class="why">Growing perpetuity: CF₁/(r−g) = 100/(0.08−0.03). Note the formula uses next period's cash flow — a classic off-by-one error is discounting this year's.</p>
+  </details>
+  <details><summary>What happens if you assume g &gt; r forever?</summary>
+    <p class="answer">Value becomes infinite.</p>
+    <p class="why">A cash flow growing faster than the discount rate forever exceeds the economy itself. This is the sanity check that kills fantasy terminal values — no company outgrows the world in perpetuity.</p>
+  </details>
+  <details><summary>Which two TVM blocks compose a standard DCF?</summary>
+    <p class="answer">Growing annuity plus perpetuity.</p>
+    <p class="why">Explicit forecast window = growing (or staged) annuity; terminal value = growing perpetuity discounted back n periods. Everything else is bookkeeping.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 15 minutes, calculator only</span>
+  Value this imaginary firm: cash flow to owners next year $100, growing 5%/yr for 5 years, then 2% forever; discount rate 9%. (a) Discount each of the 5 cash flows by hand. (b) Compute the terminal value at year 5: TV = 100×1.05⁵×1.02/(0.09−0.02). (c) Discount the TV back and add. You should get ≈ $1,835 total. You have just built a complete DCF — the next eight lessons only refine its inputs.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Valuation class, Session 2 (intrinsic value / TVM)</a>; <em>Investment Valuation</em> <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/PdFiles/valn2ed.pdf">Chapters 2–3</a>.</p>
+
+<p class="next"><a href="0003-the-dcf-skeleton.html">Next: The DCF Skeleton →</a> &nbsp;·&nbsp; <a href="0001-price-vs-value.html">← Lesson 1</a></p>
+<p class="ask">Stuck on a step? Ask the agent to walk it through with you.</p>
+</body>
+</html>

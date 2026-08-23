@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 7 — Growth, Reinvestment &amp; ROIC</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 7</span><span>Damodaran <a class="langbtn" href="0007-growth-reinvestment-roic.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Growth, Reinvestment &amp; ROIC</h1>
+  <p class="dek">Growth is never free and never abstract: it equals reinvestment multiplied by the return that reinvestment earns. Internalize this identity and you can smell an impossible growth assumption from across the room.</p>
+</div>
+
+<p>The fundamental growth equation (Damodaran's core, from <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Sessions 11–12</a>):</p>
+
+<pre><code>Operating growth g = Reinvestment rate × Return on capital (ROC)
+
+ROC = EBIT(1−t) / (Book value of debt + equity − cash)
+Reinvestment rate = (Net capex + ΔWC) / EBIT(1−t)</code></pre>
+
+<p>Want 10% growth while earning 8% on capital? You must reinvest 10/8 = 125% of after-tax operating income — i.e., raise capital just to stand still. Want 10% growth on a 40% ROC? Reinvest only 25% and pocket the rest. <strong>Quality of growth is the ROC, quantity is g, and price is the reinvestment.</strong></p>
+
+<p>For equity models, the twin identity uses return <em>on equity</em>: g = retention ratio × ROE.</p>
+
+<h2>The growth continuum</h2>
+<p>Damodaran's valuation map of the life cycle — every input in this course is really a function of where the firm sits:</p>
+<ul>
+  <li><strong>Young growth company:</strong> negative or tiny earnings, growth > 30%, reinvestment enormous, WACC high, terminal value is nearly all the value. The story dominates.</li>
+  <li><strong>Mature growth:</strong> 5–10% growth, fading; betas near 1; stable mix. Most listed firms.</li>
+  <li><strong>Stable/declining:</strong> growth at or below the risk-free rate (i.e., GDP-ish); generous cash return; value lives in cash flows, not the terminal multiple.</li>
+</ul>
+
+<p>Sanity anchors: long-run operating growth cannot exceed the risk-free rate ≈ nominal GDP growth — nothing outgrows the economy forever.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>g = reinvestment × ROC — a conservation law.</strong> Every point of growth must be paid for with reinvested capital earning some return. Any DCF whose growth exceeds what its reinvestment and ROC can deliver is assuming money from nothing.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Growth ex machina.</strong> Typing "15%" into the growth cell while leaving reinvestment near zero — the model value soars, and nothing in it pays for the growth. Auditing a DCF means recomputing g from the firm's reinvestment and ROC and comparing it to the assumed g. The gap is where honesty lives.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>ROC 20%, reinvestment rate 40%. Expected operating growth?</summary>
+    <p class="answer">0.40 × 20% = 8%.</p>
+    <p class="why">The identity is multiplicative. Note the flip: given a target g, required reinvestment = g/ROC — that's the number your forecast must fund.</p>
+  </details>
+  <details><summary>Two firms both grow 10%. Firm A's ROC is 8%, B's is 25%. Which is worth more?</summary>
+    <p class="answer">Firm B, clearly.</p>
+    <p class="why">A reinvests 125% of earnings for its growth (destroying value: return below cost of capital); B reinvests 40% and keeps 60% as free cash. Same g, radically different value creation.</p>
+  </details>
+  <details><summary>Why cap terminal growth at the risk-free rate?</summary>
+    <p class="answer">Nothing beats GDP forever.</p>
+    <p class="why">Nominal GDP ≈ risk-free rate long-run. A firm growing faster than that in perpetuity would eventually swallow the economy — so terminal g above r_f fails both math (g&gt;r eventually) and economics.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 20 minutes</span>
+  For your chosen company: compute ROC and the reinvestment rate from the last three years of filings (EBIT(1−t) over invested capital; net capex + ΔWC over EBIT(1−t)). Multiply to get fundamental growth. Compare to the growth analysts assume. If they diverge, write one sentence saying which reinvestment or ROC assumption would reconcile them.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Sessions 11–12</a>; his blog series on growth (<a href="https://aswathdamodaran.blogspot.com/">Musings on Markets</a> — search "growth, reinvestment").</p>
+
+<p class="next"><a href="0008-terminal-value.html">Next: Terminal Value →</a> &nbsp;·&nbsp; <a href="0006-cost-of-capital.html">← Lesson 6</a></p>
+<p class="ask">Ask the agent to check your fundamental-growth arithmetic.</p>
+</body>
+</html>

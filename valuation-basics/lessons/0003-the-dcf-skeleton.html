@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 3 — The DCF Skeleton</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Valuation Basics · Lesson 3</span><span>Damodaran <a class="langbtn" href="0003-the-dcf-skeleton.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The DCF Skeleton</h1>
+  <p class="dek">You can discount cash flows to equity or cash flows to the whole firm — and each choice dictates its own discount rate. Get the pairing right and any DCF you meet decomposes at a glance.</p>
+</div>
+
+<p>There are only two consistent DCF structures. Damodaran lays them out side by side in <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/PdFiles/littlebook.pdf"><em>The Little Book of Valuation</em></a>:</p>
+
+<table>
+<thead><tr><th></th><th>Equity DCF</th><th>Firm DCF</th></tr></thead>
+<tbody>
+<tr><td>Cash flow</td><td>to <strong>equity</strong> (after interest &amp; debt payments)</td><td>to the <strong>firm</strong> (before debt holders are paid)</td></tr>
+<tr><td>Discount rate</td><td>cost of equity</td><td>cost of capital (WACC)</td></tr>
+<tr><td>Result</td><td>value of <strong>equity</strong> directly</td><td>value of the <strong>business</strong>; subtract net debt for equity</td></tr>
+</tbody>
+</table>
+
+<p>The fatal error is crossing the streams: discounting firm cash flows at the cost of equity (overvalues, rate too high for the claim) or equity cash flows at WACC (mixes claims). The pairing rule: <strong>match the cash flow to the claim holders whose opportunity cost the discount rate represents.</strong></p>
+
+<h2>The firm DCF, in full</h2>
+<p>This course standardizes on the firm model (Damodaran's default for non-financial companies):</p>
+
+<pre><code>EBIT × (1 − tax)                    after-tax operating income
+− reinvestment (capex − depreciation + Δworking capital)
+= FCFF                               free cash flow to the firm
+discount at WACC
+Value of firm − (Debt − Cash) = Value of equity
+÷ shares outstanding = value per share</code></pre>
+
+<p>Four lessons of this course fill in the four inputs: cash flows (<a href="0004-cash-flows-fcff-fcfe.html">Lesson 4</a>), the discount rate (<a href="0005-riskfree-and-erp.html">Lessons 5</a>–<a href="0006-cost-of-capital.html">6</a>), growth (<a href="0007-growth-reinvestment-roic.html">Lesson 7</a>), and the terminal value (<a href="0008-terminal-value.html">Lesson 8</a>).</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Cash flows and discount rates must claim-match.</strong> Equity cash flows ↔ cost of equity; firm cash flows ↔ cost of capital. When you audit someone's DCF, check this pairing before anything else — it's the fastest way to find a broken model.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>"Cash flow" as accounting net income.</strong> Net income is after interest, taxes, and non-cash charges — it is neither FCFF nor FCFE cleanly, and paper earnings can diverge arbitrarily from cash. DCF demands actual cash: start from EBIT or net income, then walk to cash deliberately.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does the firm DCF subtract net debt at the end?</summary>
+    <p class="answer">Firm value belongs to all claimholders.</p>
+    <p class="why">Discounting FCFF at WACC values the whole business — debt and equity together. Equity holders own only what remains after debt is repaid; cash already held offsets debt, hence (Debt − Cash).</p>
+  </details>
+  <details><summary>You see equity cash flows discounted at WACC. Too high or low?</summary>
+    <p class="answer">Overvalued — biased high.</p>
+    <p class="why">WACC blends in cheaper debt, so it sits below the cost of equity. Dividing equity cash flows by too small a rate inflates the result. The general lesson: the pairing error has no safe direction — it's simply wrong.</p>
+  </details>
+  <details><summary>Why is firm DCF preferred for banks?</summary>
+    <p class="answer">Trick question — it isn't.</p>
+    <p class="why">For banks, debt is raw material, not financing; separating operations from financing is impossible, so Damodaran values financial firms with equity DCFs (or excess-return models). The pairing rule, not habit, chooses the model.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 10 minutes</span>
+  Take any published DCF (a stock-research note, a blog post). Label each ingredient: Is the cash flow FCFF or FCFE? Is the rate WACC or cost of equity? Do they match? Does the final step (or not) subtract net debt and divide by shares? Most retail DCFs fail one of these checks — finding the failure is the skill.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/webcastvalspr24.htm">Valuation class, Sessions 3–4</a>; <em>Little Book</em> Chapter 2 has the two models side by side.</p>
+
+<p class="next"><a href="0004-cash-flows-fcff-fcfe.html">Next: Estimating Cash Flows →</a> &nbsp;·&nbsp; <a href="0002-time-value-of-money.html">← Lesson 2</a></p>
+<p class="ask">Confusion is normal here — ask the agent to check your pairing instincts.</p>
+</body>
+</html>
