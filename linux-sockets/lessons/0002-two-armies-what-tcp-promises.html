@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 2 — What TCP Actually Promises</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 2</span><span>Foundations <a class="langbtn" href="0002-two-armies-what-tcp-promises.zh.html" title="切换到中文">中</a></span></div>
+  <h1>What TCP Actually Promises</h1>
+  <p class="dek">A byte stream, in order, not corrupted, eventually — and nothing else. No timing, no boundaries, no delivery deadline. Design your protocol around exactly these promises.</p>
+</div>
+
+<p>Lesson 1 gave you the mechanics. This lesson is the contract — because half of all socket bugs are code that assumes TCP promised something it didn't.</p>
+
+<h2>The promise list</h2>
+<ul>
+  <li><strong>Bytes, not messages.</strong> TCP is a bidirectional <em>stream</em>. It never records "this write ends here".</li>
+  <li><strong>Order.</strong> Bytes arrive in the order written. Reordering happens constantly on the wire (IP routes each packet independently); TCP reassembles.</li>
+  <li><strong>Integrity.</strong> A checksum covers every segment; corrupted segments are discarded (and retransmitted).</li>
+  <li><strong>Eventual, best-effort reliability.</strong> Lost segments are retransmitted — <em>if the connection survives</em>. If the peer or the path dies for long enough, TCP gives up and errors out. "Reliable" does not mean "guaranteed", only "it will tell you when it failed".</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>TCP promises ordering and integrity of a byte stream — never timing, never boundaries, never a delivery deadline.</strong> Every protocol you build on top must add its own message framing (Lesson 4) and its own notion of "is the peer alive" (application-level timeouts / heartbeats).
+</div>
+
+<h2>Connection lifecycle: handshake → data → teardown</h2>
+
+<p>When you watch a connection in <span class="term">tcpdump</span>, you see the state machine:</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg">
+  <g class="mem-lbl" font-weight="600">
+    <text x="0" y="16">open</text>
+    <text x="0" y="78">data</text>
+    <text x="0" y="140">close</text>
+  </g>
+  <g class="mem-lbl" font-weight="400" font-size="12">
+    <text x="70" y="16">client SYN →</text>
+    <text x="200" y="16">← SYN+ACK</text>
+    <text x="330" y="16">ACK → (3-way handshake done)</text>
+    <text x="70" y="70">write() → segments, each ACKed; loss ⇒ retransmit;</text>
+    <text x="70" y="88">kernel buffers hide all of this from your code</text>
+    <text x="70" y="130">active close: FIN →, enters TIME_WAIT (2·MSL ≈ 60s on Linux)</text>
+    <text x="70" y="148">passive close: ← FIN, reply ACK → FIN — then CLOSE_WAIT</text>
+  </g>
+</svg>
+</div>
+
+<p>Three lifecycle facts that bite every beginner:</p>
+<ul>
+  <li><strong><span class="term">read()</span> returning 0 is EOF.</strong> It means the peer called <span class="term">close()</span> (or <span class="term">shutdown()</span>). Zero is the signal, not an error, and not "nothing yet".</li>
+  <li><strong>Closing has two directions.</strong> <span class="term">close()</span> kills both. <span class="term">shutdown(fd, SHUT_WR)</span> closes only your sending side — a "half-close": you've said your last word but can still listen. HTTP/1.0 and many request-response protocols end requests exactly this way.</li>
+  <li><strong>TIME_WAIT belongs to whoever closes first.</strong> It exists so stray retransmits can't poison a future connection on the same ports. It's why a killed server sometimes can't rebind for a minute — the fix is <span class="term">SO_REUSEADDR</span> (Lesson 9), not waiting.</li>
+</ul>
+
+<h2>The two-armies problem (why "guaranteed" is impossible)</h2>
+<p>Two armies on two hills must attack at the same time, but messengers can be captured; no amount of acknowledgment chaining creates certainty — the last ack might be lost, forever. TCP has the same shape: the final <span class="term">FIN-ACK</span> can be lost, so <em>clean</em> disconnect is fundamentally unguaranteeable. Real systems accept this and add application-level confirmations when it matters. <a href="https://en.wikipedia.org/wiki/Two_Generals%27_Problem">Wikipedia has the classic write-up</a>.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Your read() returned 0. What happened, and is it an error?</summary>
+    <p class="answer">Peer closed. Not error.</p>
+    <p class="why">Zero bytes at EOF is TCP's designed signal that the peer sent a FIN. Treat it as "no more input ever", close your side, free the connection. A real failure shows up as −1 with errno.</p>
+  </details>
+  <details><summary>Client writes "A" then "B" in separate write() calls. What can the server read?</summary>
+    <p class="answer">"AB", or split.</p>
+    <p class="why">Nagle may coalesce the two writes into one segment (server reads "AB" at once); or network reordering/segmentation delivers them apart ("A", then "B"); or one read grabs "A" while "B" still sits in the kernel queue. All legal — the stream has no boundaries.</p>
+  </details>
+  <details><summary>You unplug the peer's cable. When does your write() fail?</summary>
+    <p class="answer">Not immediately.</p>
+    <p class="why">write() only copies into the local kernel send buffer — it returns success long before delivery. Retransmissions grind on for minutes (tcp_retries2), then the connection resets. To detect dead peers fast you need application timeouts or keepalives, never "rely on write failing".</p>
+  </details>
+  <details><summary>Why does TIME_WAIT exist, and who gets it?</summary>
+    <p class="answer">Prevents port confusion.</p>
+    <p class="why">The active closer lingers (2·MSL) so that delayed segments from the old connection can't be mistaken for data on a new connection using the same four-tuple. Servers that restart and can't rebind are usually hitting TIME_WAIT's remnant — hence SO_REUSEADDR.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — watch the state machine, 10 minutes</span>
+  <pre><code># terminal 1: a server that reads forever, never writes
+nc -l 7000
+# terminal 2: client, then press Ctrl-D (EOF) or Ctrl-C
+nc localhost 7000
+# terminal 3: watch states appear and age out
+watch -n1 'ss -tan | grep 7000'   # macOS: while true; do lsof -i :7000; sleep 1; done</code></pre>
+  <p>Then in terminal 2, type <span class="term">hello</span> + Enter, press <span class="term">Ctrl-D</span> (sends EOF = half-close of your write side), and watch: the client socket shows the half-closed state while the server can still send back. Type text <em>in terminal 1</em> and see it arrive at a client that already "ended". That is the half-close, visible.</p>
+  <p>On Linux (or a container), replace <span class="term">nc</span> with your Lesson-1 server, kill it mid-connection, restart it, and meet <span class="term">EADDRINUSE</span> personally — the TIME_WAIT lesson made flesh.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://man7.org/linux/man-pages/man7/tcp.1.html">man 7 tcp</a> — the kernel's own description of the TCP implementation: states, retransmission, TIME_WAIT, sysctls.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "show me a FIN in tcpdump", "what's MSL?", "why 2·MSL exactly?", "when is UDP the right answer?"</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 1: <a href="0001-socket-fd-and-five-syscalls.html">fd &amp; five syscalls</a></span>
+  <span>Lesson 3: <a href="0003-addresses-getaddrinfo.html">addresses &amp; getaddrinfo</a> ►</span>
+</div>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 3 — Addresses &amp; getaddrinfo</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 3</span><span>Foundations <a class="langbtn" href="0003-addresses-getaddrinfo.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Addresses &amp; <span class="term">getaddrinfo</span></h1>
+  <p class="dek"> sockaddr_in is a lie the kernel tolerates. The real address API is getaddrinfo: names, ports, IPv4-and-IPv6, resolved once and correctly.</p>
+</div>
+
+<p>Lesson 1 filled a <span class="term">sockaddr_in</span> by hand — fine for learning, wrong for real code. Real programs take a <em>host</em> and a <em>service</em> ("example.com", "http") and must work whatever the IP version. That's <span class="term">getaddrinfo()</span>'s job.</p>
+
+<h2>The struct zoo, tamed</h2>
+<ul>
+  <li><span class="term">struct sockaddr</span> — the generic "address blob" every syscall takes. You never fill one; you cast.</li>
+  <li><span class="term">struct sockaddr_in</span> — IPv4: family, port (network order), 4-byte address.</li>
+  <li><span class="term">struct sockaddr_in6</span> — IPv6: same idea, 16-byte address plus scope.</li>
+  <li><span class="term">struct sockaddr_storage</span> — a union big/aligned enough to hold either. Use it when you don't know which family arrives (e.g. <span class="term">accept</span>).</li>
+</ul>
+
+<p>And the byte-order rule that never goes away: anything crossing the sockets API in a struct field — ports, addresses — is <strong>big-endian network order</strong>. Convert every human integer with <span class="term">htons/htonl</span> in, <span class="term">ntohs/ntohl</span> out. Print real addresses with <span class="term">inet_ntop</span>, parse strings with <span class="term">inet_pton</span> — never <span class="term">inet_addr</span> (obsolete, can't express failure).</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>sockaddr is the currency; sockaddr_in/_in6 are just two dialects; getaddrinfo is the translator that fills them for you.</strong> Your code says "connect me to this name and service"; the resolver returns a linked list of ready-to-use <span class="term">struct addrinfo</span> — one per working address (possibly both IPv6 and IPv4) — and you try them in order.
+</div>
+
+<h2>The pattern (memorize this shape)</h2>
+<pre><code>struct addrinfo hints = {0}, *res;
+hints.ai_family   = AF_UNSPEC;      // IPv4 or IPv6 — let the resolver decide
+hints.ai_socktype = SOCK_STREAM;    // TCP
+
+if (getaddrinfo("example.com", "80", &amp;hints, &amp;res)) { /* fail */ }
+
+for (struct addrinfo *p = res; p; p = p-&gt;ai_next) {
+    int fd = socket(p-&gt;ai_family, p-&gt;ai_socktype, p-&gt;ai_protocol);
+    if (fd &lt; 0) continue;
+    if (connect(fd, p-&gt;ai_addr, p-&gt;ai_addrlen) == 0) break;  // connected
+    close(fd);                                                    // try next
+}
+freeaddrinfo(res);   // the list is malloc'd — always free it</code></pre>
+
+<p>For a <strong>server</strong>, the same call with <span class="term">hints.ai_flags = AI_PASSIVE</span> and host <span class="term">NULL</span> yields a bindable address (the IPv6 <span class="term">::</span> wildcard that also takes IPv4, on Linux, is the modern default). The three calls that eat an <span class="term">addrinfo</span> — socket, bind/connect — each take their family/protocol <em>from the node itself</em>, so one loop serves both IP versions. That's the whole point.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does getaddrinfo return a linked list rather than one address?</summary>
+    <p class="answer">Names map multiply.</p>
+    <p class="why">A hostname can resolve to several addresses — IPv6 and IPv4, or multiple interfaces. The list is the resolver saying "try these in preference order"; your loop attempts each until socket+connect/bind succeeds.</p>
+  </details>
+  <details><summary>Why must the port field go through htons()?</summary>
+    <p class="answer">Wire order differs.</p>
+    <p class="why">The struct field is copied onto the network as-is, and the network standard is big-endian — but your host (x86, ARM default) is little-endian. htons/htonl convert; forgetting it gives you a server on a very wrong port (5000 → 0x8813 → 34835).</p>
+  </details>
+  <details><summary>Which struct do you pass to accept() when clients may be IPv4 or IPv6?</summary>
+    <p class="answer">sockaddr_storage, cast.</p>
+    <p class="why">It's sized and aligned for any family, and <span class="term">accept</span> writes the real family into it; you then branch on <span class="term">ss.ss_family</span> before treating it as <span class="term">sockaddr_in</span> or <span class="term">_in6</span>. A plain <span class="term">sockaddr_in</span> would truncate IPv6.</p>
+  </details>
+  <details><summary>What does AI_PASSIVE change, and who uses it?</summary>
+    <p class="answer">Wildcards for bind.</p>
+    <p class="why">It tells the resolver you want an address to <em>listen on</em> (INADDR_ANY / <span class="term">::</span>) rather than connect to. Servers set it; clients never do. Forgetting it is why getaddrinfo(NULL, port) sometimes returns unusable answers.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — rewrite the client, 15 minutes</span>
+  <p>Replace the hand-filled struct in your Lesson-1 toolkit with a real client:</p>
+  <pre><code>// client.c — usage: ./client host port msg
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;netdb.h&gt;
+
+int main(int argc, char **argv) {
+    struct addrinfo hints = {0}, *res;
+    hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(argv[1], argv[2], &amp;hints, &amp;res)) { perror("resolve"); return 1; }
+
+    int fd = -1;
+    for (struct addrinfo *p = res; p; p = p-&gt;ai_next) {
+        fd = socket(p-&gt;ai_family, p-&gt;ai_socktype, p-&gt;ai_protocol);
+        if (fd &lt; 0) continue;
+        if (connect(fd, p-&gt;ai_addr, p-&gt;ai_addrlen) == 0) break;
+        close(fd); fd = -1;
+    }
+    freeaddrinfo(res);
+    if (fd &lt; 0) { perror("connect"); return 1; }
+
+    write(fd, argv[3], strlen(argv[3]));
+    char buf[256];
+    ssize_t n = read(fd, buf, sizeof buf - 1);
+    buf[n &gt; 0 ? n : 0] = 0;
+    printf("echo: %s\n", buf);
+    close(fd);
+}</code></pre>
+  <pre><code>cc -Wall client.c -o client
+./client localhost 5000 "via getaddrinfo"
+# now against a real internet host — resolve + see what happens:
+nc -l 7001 &amp;   ./client ::1 7001 "ipv6 works too"</code></pre>
+  <p>Print <span class="term">p-&gt;ai_family</span> inside the loop and see which families come back for <span class="term">localhost</span> on your machine — that's the list, live.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://man7.org/linux/man-pages/man3/getaddrinfo.3.html">man 3 getaddrinfo</a> — the full hint/flag semantics; <a href="https://beej.us/guide/bgnet/html/split/ip-addressses-structs-and-data-mation.html">Beej's "IP Addresses, Structs, and Data Munging"</a> for the friendly walkthrough.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "why does :: accept IPv4 on Linux?", "what is Happy Eyeballs?", "how do I set a resolve timeout?".</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 2: <a href="0002-two-armies-what-tcp-promises.html">TCP's promises</a></span>
+  <span>Lesson 4: <a href="0004-framing-short-reads.html">framing &amp; short reads</a> ►</span>
+</div>
+</body>
+</html>

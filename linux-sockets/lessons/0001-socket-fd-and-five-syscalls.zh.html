@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 1 课 — Socket 就是一个文件描述符</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 1 课</span><span>基础 <a class="langbtn" href="0001-socket-fd-and-five-syscalls.html" title="Switch to English">EN</a></span></div>
+  <h1>Socket 就是一个文件描述符</h1>
+  <p class="dek">在学习那些系统调用之前，先记住一个能让一切豁然开朗的观念：socket 就是内核持有的一个"打开的文件" —— 只不过带了个电话号码。</p>
+</div>
+
+<p>你的目标是写出真正的网络程序，同时<em>理解底层的机器</em>。所以我们先用一句话讲完理论，然后马上动手写、动手跑真实的代码。</p>
+
+<p>当你调用 <span class="term">socket()</span> 时，内核分配一个<strong>通信端点</strong>，并且 —— 就像文件的 <span class="term">open()</span> 一样 —— 返回给你一个小整数：<strong>文件描述符（fd）</strong>。你从不直接触碰端点本身，之后的每个系统调用（<span class="term">bind</span>、<span class="term">listen</span>、<span class="term">accept</span>、<span class="term">connect</span>、<span class="term">read</span>、<span class="term">write</span>、<span class="term">close</span>）都只是报出这个整数。这正是 socket 能与 <span class="term">select</span>/<span class="term">poll</span>/<span class="term">epoll</span> 协作的原因，也是它能跨 <span class="term">fork()</span> 继承的原因 —— Unix 的"一切皆文件"把网络也囊括了进来。</p>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>socket 是一个通过 fd 访问的内核对象；这些系统调用并不亲自把数据搬向网络 —— 它们只是请求内核去做，剩下的事由内核的队列完成。</strong>客户端和服务端从不共享内存；内核为每个 socket 维护一条接收队列。<span class="term">read()</span> 不过是"把我的队列倒出来"。
+</div>
+
+<h2>五个系统调用的舞蹈（TCP）</h2>
+
+<p>一次 TCP 对话中，服务端会涉及两个不同的 fd，而大家最容易晕的就是这段流程。注意其中的不对称性：</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 560 240" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">服务端</text>
+  <text x="420" y="16" class="mem-lbl">客户端</text>
+  <g class="mem-lbl" font-weight="400" font-size="12">
+    <text x="0" y="45">s = socket()</text>
+    <text x="0" y="75">bind(s, :5000)</text>
+    <text x="0" y="105">listen(s)</text>
+    <text x="0" y="135">c = accept(s) ── 阻塞等待</text>
+    <text x="0" y="180">read(c) / write(c)</text>
+    <text x="0" y="210">close(c)</text>
+    <text x="420" y="45">fd = socket()</text>
+    <text x="420" y="105">connect(fd, :5000)</text>
+    <text x="420" y="180">write(fd) / read(fd)</text>
+    <text x="420" y="210">close(fd)</text>
+  </g>
+  <path d="M235 112 C 320 112, 320 108, 415 108" stroke="var(--flow)" fill="none" stroke-width="1.5" marker-end="url(#arr)"/>
+  <path d="M415 128 C 320 128, 320 132, 235 132" stroke="var(--gain)" fill="none" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <text x="255" y="105" class="mem-sub">SYN（握手开始）</text>
+  <text x="255" y="150" class="mem-sub">内核完成握手 → accept 返回一个新 fd</text>
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6" fill="none" stroke="var(--flow)"/></marker>
+    <marker id="arr2" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6" fill="none" stroke="var(--gain)"/></marker>
+  </defs>
+</svg>
+</div>
+
+<p>拆解这段不对称：</p>
+<ul>
+  <li><span class="term">socket()</span> 创建了端点，但它还没有地址。<span class="term">bind()</span> 把它绑定到本地的 <strong>IP:端口</strong>。客户端通常跳过 <span class="term">bind</span> —— 内核会在 <span class="term">connect</span> 时自动挑一个临时端口。</li>
+  <li><span class="term">listen()</span> 把 socket 从"主动"翻转为"监听"：它将接受入站连接。内核会建<em>两条</em>队列：一条放进行到一半的握手（已收到 SYN），一条放已完成、正等待你的代码取走的连接。</li>
+  <li><span class="term">accept()</span> 从队列中弹出一个已完成的连接，并返回一个<strong>全新的 fd</strong>，专属于这一个对端。监听 socket 继续监听 —— 它是一扇门，而不是一场对话。</li>
+  <li><span class="term">connect()</span> 是客户端的唯一动作：它驱动 TCP 三次握手，连接建立后返回。</li>
+</ul>
+
+<p>再补一块理论，面试最爱考的那块：TCP <strong>没有消息边界</strong>。它是字节流。一次 100 字节的 <span class="term">write()</span> 可能以两次 <span class="term">read()</span>（40 + 60）到达 —— 也可能反过来。这个事实将主宰第 4 课（消息分帧）。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>哪个调用把一个新建的 socket 变成可以接受入站 TCP 连接的 socket？</summary>
+    <p class="answer">listen。</p>
+    <p class="why"><span class="term">bind</span> 只分配地址，socket 仍处于"主动"状态；<span class="term">listen</span> 把它标记为被动并分配 accept 队列。<span class="term">accept</span> 生效前两者缺一不可。</p>
+  </details>
+  <details><summary>一个服务端一次只服务一个客户端。对话期间有几个 fd 存活？</summary>
+    <p class="answer">两个。</p>
+    <p class="why">监听 socket 保持打开（它继续接纳新连接），加上 <span class="term">accept</span> 返回的那条连接专属的 fd。把二者搞混 —— 关掉监听者而不是连接 fd —— 是初写服务端的经典 bug。</p>
+  </details>
+  <details><summary>客户端一次 write 了 100 字节。服务端一次 read 会返回多少？</summary>
+    <p class="answer">不保证 100。</p>
+    <p class="why">TCP 是没有消息边界的字节流。内核把<em>目前已到达</em>的数据交给 <span class="term">read</span> —— 可能这次 40 字节，稍后再 60 字节。承诺只有"至少 1 字节、至多你要的字节数"。</p>
+  </details>
+  <details><summary>为什么客户端可以跳过 bind()，服务端却不行？</summary>
+    <p class="answer">没人会来连客户端。</p>
+    <p class="why">对端需要一个稳定、已知的地址去连接 —— 这是服务端的本分。而客户端的源端口只需唯一即可，所以内核在 <span class="term">connect</span> 时自动分配一个临时端口。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— C 语言，15 分钟</span>
+  <p>保存为 <span class="term">server.c</span> —— 一个约 30 行的完整 TCP 服务器：</p>
+  <pre><code>#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;arpa/inet.h&gt;
+
+int main(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+
+    struct sockaddr_in addr = {0};
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);  // 所有网卡
+    addr.sin_port        = htons(5000);        // 主机 → 网络字节序！
+    bind(s, (struct sockaddr *)&amp;addr, sizeof addr);
+    listen(s, 8);
+
+    puts("listening on :5000 ...");
+    for (;;) {
+        int c = accept(s, NULL, NULL);      // 阻塞，直到客户端到来
+        char buf[256];
+        ssize_t n = read(c, buf, sizeof buf - 1);
+        buf[n &gt; 0 ? n : 0] = 0;
+        printf("got: %s", buf);
+        write(c, buf, n);                   // 原样回显
+        close(c);                           // 一段对话，就此结束
+    }
+}</code></pre>
+  <p>运行它，然后零代码当一次客户端：</p>
+  <pre><code>cc -Wall server.c -o server &amp;&amp; ./server
+# 另开一个终端：
+printf 'hello sockets\n' | nc localhost 5000</code></pre>
+  <p>接着让理论变得肉眼可见：在一个终端跑 <span class="term">nc -l 9999</span>，在另一个终端跑 <span class="term">lsof -i :9999</span>（Linux 上可用 <span class="term">ss -tlnp</span>）—— 找到 LISTEN 那一行。再连一个客户端，重跑一遍，找到那条 ESTABLISHED 对。你正看到的，就是上面那幅"两个 fd"的图。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://beej.us/guide/bgnet/html/split/system-calls-or-bust.html">Beej 网络编程指南 "System Calls or Bust"</a> —— 同样的五个系统调用，配完整的 C 写法（还有我们第 3 课要用的 <span class="term">getaddrinfo</span>）。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 这一课离老师只有一个命令 —— 随时问 agent："为什么要 htons？"、"listen 的队列里到底装了什么？"、"用 tcpdump 给我抓个 SYN 看看"。</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a></span>
+  <span>第 2 课：<a href="0002-two-armies-what-tcp-promises.zh.html">TCP 到底承诺了什么</a> ►</span>
+</div>
+</body>
+</html>

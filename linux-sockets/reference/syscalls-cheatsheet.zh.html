@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets — 系统调用速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0 1.6rem;
+    font-family: var(--sans); font-size: 0.88rem; }
+  th, td { border: 1px solid var(--rule); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+  th { background: var(--accent-soft); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  code { font-family: var(--mono); font-size: 0.85em; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 参考</span><span><a class="langbtn" href="syscalls-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>系统调用速查表</h1>
+  <p class="dek">TCP 客户端/服务端的舞蹈、结构体、字节序规则、errno、socket 选项、调试命令 —— 全在一页。</p>
+</div>
+
+<h2>调用时序</h2>
+<table>
+  <tr><th>服务端</th><th>客户端</th><th>内核在做什么</th></tr>
+  <tr><td><code>s = socket(AF_INET, SOCK_STREAM, 0)</code></td><td><code>fd = socket(...)</code></td><td>分配端点，返回 fd。此时还没有地址。</td></tr>
+  <tr><td><code>bind(s, &amp;addr, len)</code></td><td>—（通常跳过）</td><td>把 fd 绑定到本地 IP:端口。客户端的临时端口由 connect 时分配。</td></tr>
+  <tr><td><code>listen(s, backlog)</code></td><td>—</td><td>转为被动；分配 SYN 队列 + accept 队列。</td></tr>
+  <tr><td><code>c = accept(s, ...)</code> <em>阻塞</em></td><td><code>connect(fd, &amp;srv, len)</code></td><td>三次握手；accept 弹出完成的连接，返回一个专属新 fd。</td></tr>
+  <tr><td><code>read(c, buf, n)</code> / <code>write(c, buf, n)</code></td><td><code>write</code> / <code>read</code></td><td>倾倒/填充每 socket 的内核队列。没有消息边界。</td></tr>
+  <tr><td><code>close(c)</code>（保留 <code>s</code>）</td><td><code>close(fd)</code></td><td>友好断开：FIN，随后进入拆除状态机（FIN_WAIT / TIME_WAIT…）。</td></tr>
+</table>
+
+<h2>地址结构体与字节序</h2>
+<table>
+  <tr><th>对象</th><th>写法</th><th>要点</th></tr>
+  <tr><td>IPv4 端点</td><td><code>struct sockaddr_in {sin_family, sin_port, sin_addr}</code></td><td>传入时强转 <code>(struct sockaddr *)</code>；那个类型只是通用的"字节袋"视图。</td></tr>
+  <tr><td>任意本地地址</td><td><code>addr.sin_addr.s_addr = htonl(INADDR_ANY)</code></td><td>即 0.0.0.0 —— 在所有网卡上接受连接。</td></tr>
+  <tr><td>端口 / IP 上线路</td><td><code>htons()</code> / <code>htonl()</code></td><td>网络序是大端；主机序未必。还原用 <code>ntohs/ntohl</code>。</td></tr>
+  <tr><td>字符串 ⇄ 地址</td><td><code>inet_pton()</code> / <code>inet_ntop()</code></td><td>取代已废弃的 <code>inet_addr</code> 一族。</td></tr>
+  <tr><td>域名 → 端点（可移植）</td><td><code>getaddrinfo()</code></td><td>解析主机+服务名，替你填结构体，天然支持 IPv6。优于 <code>gethostbyname</code>。</td></tr>
+</table>
+
+<h2>值得背下来的 errno</h2>
+<table>
+  <tr><th>errno</th><th>出自</th><th>含义</th></tr>
+  <tr><td><code>EADDRINUSE</code></td><td>bind</td><td>端口被占（或 TIME_WAIT 残留 —— 用 <code>SO_REUSEADDR</code> 解决，须在 bind 之前设置）。</td></tr>
+  <tr><td><code>ECONNREFUSED</code></td><td>connect</td><td>该 IP:端口没有监听者（对方回了 RST）。</td></tr>
+  <tr><td><code>EPIPE</code></td><td>write</td><td>对端早已关闭（而你忽略了 read 的 0 / <code>ECONNRESET</code>）。</td></tr>
+  <tr><td><code>EAGAIN</code></td><td>read/write</td><td>非阻塞 socket 此刻无数据 —— 不算错误。</td></tr>
+  <tr><td><code>EINTR</code></td><td>多数调用</td><td>被信号打断 —— 重试即可。</td></tr>
+</table>
+
+<h2>最先用得上的 socket 选项</h2>
+<table>
+  <tr><th>选项</th><th>为什么设它</th></tr>
+  <tr><td><code>SO_REUSEADDR</code></td><td>让服务端重启后立即重新绑定端口（躲开 TIME_WAIT）。SOL_SOCKET 层级，<code>bind</code> 之前设。</td></tr>
+  <tr><td><code>TCP_NODELAY</code></td><td>关闭 Nagle 算法 —— 降低小请求/响应的延迟。</td></tr>
+  <tr><td><code>SO_KEEPALIVE</code></td><td>内核主动探测静默连接；最终能发现死掉的对端。</td></tr>
+</table>
+
+<h2>用内核的视角看（调试命令）</h2>
+<table>
+  <tr><th>命令</th><th>能看到什么</th></tr>
+  <tr><td><code>ss -tlnp</code> / <code>lsof -i :端口</code></td><td>监听中的 socket 及属主进程；已建立的连接对。</td></tr>
+  <tr><td><code>strace -e trace=network ./server</code></td><td>你的程序真实发出的每一条 socket 系统调用。</td></tr>
+  <tr><td><code>tcpdump -i lo port 5000</code></td><td>数据包本身：SYN、ACK、FIN、RST、载荷。</td></tr>
+  <tr><td><code>nc 主机 端口</code> / <code>nc -l 端口</code></td><td>即时客户端 / 即时一次性服务器。</td></tr>
+</table>
+
+<div class="source">
+  <span class="label">权威依据</span>
+  <a href="https://man7.org/linux/man-pages/man7/socket.1.html">man 7 socket</a> 及其家族 —— 本表与 man 手册冲突时，以 man 手册为准。
+</div>
+</body>
+</html>

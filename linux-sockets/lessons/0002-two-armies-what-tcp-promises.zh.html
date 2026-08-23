@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 2 课 — TCP 到底承诺了什么</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 2 课</span><span>基础 <a class="langbtn" href="0002-two-armies-what-tcp-promises.html" title="Switch to English">EN</a></span></div>
+  <h1>TCP 到底承诺了什么</h1>
+  <p class="dek">一条字节流：有序、不损坏、尽力最终送达 —— 仅此而已。没有时序、没有边界、没有送达期限。你的协议必须恰好围绕这些承诺来设计。</p>
+</div>
+
+<p>第 1 课给了你机制。这一课讲合同 —— 因为一半的 socket bug，都是因为代码以为 TCP 承诺了它没承诺过的东西。</p>
+
+<h2>承诺清单</h2>
+<ul>
+  <li><strong>字节，不是消息。</strong>TCP 是一条双向<em>流</em>。它从不记录"这次 write 到此为止"。</li>
+  <li><strong>有序。</strong>字节按写入顺序到达。网络上重排随时发生（IP 对每个包独立路由）；TCP 负责重组。</li>
+  <li><strong>完整性。</strong>每个段都有校验和；损坏的段会被丢弃（并重传）。</li>
+  <li><strong>尽力而为的最终可靠。</strong>丢失的段会重传 —— <em>前提是连接还活着</em>。如果对端或路径长时间失效，TCP 会放弃并报错。"可靠"不等于"保证送达"，只等于"失败时它会告诉你"。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>TCP 承诺的是字节流的有序与完整 —— 从不承诺时序、边界或送达期限。</strong>你在其上构建的任何协议都必须自己补上消息分帧（第 4 课）和自己的"对端还活着吗"判断（应用层超时/心跳）。
+</div>
+
+<h2>连接生命周期：握手 → 数据 → 拆除</h2>
+
+<p>当你在 <span class="term">tcpdump</span> 里观察一条连接时，看到的就是这个状态机：</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg">
+  <g class="mem-lbl" font-weight="600">
+    <text x="0" y="16">建立</text>
+    <text x="0" y="78">数据</text>
+    <text x="0" y="140">关闭</text>
+  </g>
+  <g class="mem-lbl" font-weight="400" font-size="12">
+    <text x="70" y="16">客户端 SYN →</text>
+    <text x="200" y="16">← SYN+ACK</text>
+    <text x="330" y="16">→ ACK（三次握手完成）</text>
+    <text x="70" y="70">write() → 段，逐个被 ACK；丢段 ⇒ 重传；</text>
+    <text x="70" y="88">内核缓冲区把这一切对你的代码隐藏</text>
+    <text x="70" y="130">主动关闭：→ FIN，进入 TIME_WAIT（2·MSL，Linux 约 60 秒）</text>
+    <text x="70" y="148">被动关闭：← FIN，回 ACK → FIN —— 停在 CLOSE_WAIT</text>
+  </g>
+</svg>
+</div>
+
+<p>三个会咬到每个初学者的生命周期事实：</p>
+<ul>
+  <li><strong><span class="term">read()</span> 返回 0 就是 EOF。</strong>它表示对端调用了 <span class="term">close()</span>（或 <span class="term">shutdown()</span>）。零是信号，不是错误，也不是"暂时没数据"。</li>
+  <li><strong>关闭分两个方向。</strong><span class="term">close()</span> 双向全断。<span class="term">shutdown(fd, SHUT_WR)</span> 只关你的发送侧 —— 即"半关闭"：话说完了，但耳朵还开着。HTTP/1.0 和许多请求-响应协议正是这样结束请求的。</li>
+  <li><strong>TIME_WAIT 属于先关闭的一方。</strong>它的存在让迟到的重传包不至于污染同端口对的未来连接。这就是被杀掉的服务端有时一分钟内无法重新 bind 的原因 —— 解药是 <span class="term">SO_REUSEADDR</span>（第 9 课），而不是干等。</li>
+</ul>
+
+<h2>两军问题（为什么"保证送达"不可能）</h2>
+<p>两座山上的两支军队约好同时进攻，但信使可能被俘；无论确认链怎么加长都无法确知 —— 最后一次回执永远可能丢失。TCP 同构：最后的 <span class="term">FIN-ACK</span> 也可能丢，所以<em>干净的</em>断开在根本上无法保证。真实系统接受这一点，在要紧处加上应用层确认。<a href="https://en.wikipedia.org/wiki/Two_Generals%27_Problem">维基百科有经典论述</a>。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>read() 返回了 0。发生了什么？是错误吗？</summary>
+    <p class="answer">对端关闭。非错误。</p>
+    <p class="why">EOF 处的零字节是 TCP 设计好的信号：对端发了 FIN。把它当作"永无更多输入"处理，关掉你这侧、释放连接。真正的故障表现为 −1 加 errno。</p>
+  </details>
+  <details><summary>客户端分两次 write 了 "A" 和 "B"。服务端会读到什么？</summary>
+    <p class="answer">"AB"，或分开。</p>
+    <p class="why">Nagle 可能把两次 write 合并成一个段（服务端一次读到 "AB"）；也可能网络分/重排让它们分开到达；也可能一次 read 只拿到 "A" 而 "B" 还在内核队列里。全部合法 —— 流没有边界。</p>
+  </details>
+  <details><summary>拔掉对端的网线，你的 write() 什么时候失败？</summary>
+    <p class="answer">不会立刻失败。</p>
+    <p class="why">write() 只是把数据拷进本地内核发送缓冲 —— 远在送达之前就返回成功。重传会持续挣扎好几分钟（tcp_retries2），然后连接被复位。想快速发现死对端，要靠应用层超时或 keepalive，绝不能指望 write 报错。</p>
+  </details>
+  <details><summary>TIME_WAIT 为什么存在？落在谁头上？</summary>
+    <p class="answer">防止端口混淆。</p>
+    <p class="why">主动关闭方逗留 2·MSL，使旧连接的迟到报文不会被误认成同一四元组上新连接的数据。服务端重启后 bind 不上，多半撞上了 TIME_WAIT 残留 —— 所以有 SO_REUSEADDR。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— 观察状态机，10 分钟</span>
+  <pre><code># 终端 1：只收不发、永远读的服务端
+nc -l 7000
+# 终端 2：客户端，之后按 Ctrl-D（EOF）或 Ctrl-C
+nc localhost 7000
+# 终端 3：观察状态的诞生与消亡
+watch -n1 'ss -tan | grep 7000'   # macOS: while true; do lsof -i :7000; sleep 1; done</code></pre>
+  <p>然后在终端 2 输入 <span class="term">hello</span> 回车，按 <span class="term">Ctrl-D</span>（发送 EOF = 你的写侧半关闭），观察：客户端 socket 显示半关闭状态，而服务端仍能发数据。在<span class="term">终端 1</span> 输入文字，看它到达一个已经"结束"的客户端 —— 半关闭，肉眼可见。</p>
+  <p>在 Linux（或容器）上，用第 1 课的服务端替换 <span class="term">nc</span>，在连接中途杀掉它、重启它，亲自会见 <span class="term">EADDRINUSE</span> —— TIME_WAIT 的一课落到实处。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://man7.org/linux/man-pages/man7/tcp.1.html">man 7 tcp</a> —— 内核对自家 TCP 实现的描述：状态、重传、TIME_WAIT、sysctl 参数。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 问 agent："带我在 tcpdump 里看一个 FIN"、"MSL 是什么？"、"为什么恰好 2·MSL？"、"什么时候该用 UDP？"</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 1 课：<a href="0001-socket-fd-and-five-syscalls.zh.html">fd 与五个系统调用</a></span>
+  <span>第 3 课：<a href="0003-addresses-getaddrinfo.zh.html">地址与 getaddrinfo</a> ►</span>
+</div>
+</body>
+</html>

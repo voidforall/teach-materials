@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 8 — Non-blocking I/O</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 8</span><span>Practice <a class="langbtn" href="0008-nonblocking-io.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Non-blocking I/O</h1>
+  <p class="dek">Blocking says "wake me when it's done." Non-blocking says "do what's possible now, tell me the rest later." EAGAIN is not an error — it's the whole vocabulary.</p>
+</div>
+
+<p>Flip a socket out of blocking mode and every syscall becomes a <em>status probe</em>: read returns data if any, <span class="term">-1/EAGAIN</span> if none; write sends what fits, <span class="term">-1/EAGAIN</span> if the send buffer is full. Nothing ever sleeps. Combine that with readiness notifications (Lesson 6) and you get an event loop where slow clients can't stall fast ones.</p>
+
+<h2>Setting it, and the two-sided discipline</h2>
+<pre><code>// turn on O_NONBLOCK (both fcntl calls, not just the second — F_SETFL
+// overwrites flags, so you must read-modify-write)
+int fl = fcntl(fd, F_GETFL, 0);
+fcntl(fd, F_SETFL, fl | O_NONBLOCK);</code></pre>
+
+<p>Then every read/write must be treated as <strong>partial</strong>:</p>
+<ul>
+  <li><strong>Partial writes are normal.</strong> The kernel buffer fills when the peer reads slower than you write. Your <span class="term">write</span> sends 300 of 1000 bytes; you keep the remaining 700 in the connection's <em>output</em> buffer, subscribe to <span class="term">EPOLLOUT</span>, and flush when the kernel says there's room. That EPOLLOUT dance is the single most-skipped step in student event servers — without it you silently drop data.</li>
+  <li><strong>EAGAIN means "later", not "never".</strong> Standard loop: try read → if EAGAIN, return to the event loop; the next EPOLLIN will call you again.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Non-blocking turns I/O from waiting into polling: syscalls answer "how much <em>now</em>", and readiness events answer "when to ask again".</strong> Each connection therefore owns <em>two</em> buffers — an input buffer (Lesson 4 framing) and an output buffer (pending bytes the kernel couldn't take yet). An event server is bookkeeping around those two buffers.
+</div>
+
+<h2>Level-triggered vs edge-triggered (epoll's sharp edge)</h2>
+<ul>
+  <li><strong>Level-triggered (default):</strong> "report ready while data remains." If you read once and leave bytes behind, next <span class="term">epoll_wait</span> re-reports. Forgiving.</li>
+  <li><strong>Edge-triggered (<span class="term">EPOLLET</span>):</strong> "report only on each <em>new arrival</em>." You must drain in a loop until EAGAIN, or the un-drained remainder never triggers another event — and that connection hangs forever with data in queue. Faster (fewer wakeups), but demands the drain-until-EAGAIN discipline.</li>
+</ul>
+<p>Rule of thumb: start level-triggered; adopt edge-triggering only when you've internalized "always read until EAGAIN, always keep an output buffer, always handle EPOLLOUT".</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>write() returns 300 on a 1000-byte request. What do you do?</summary>
+    <p class="answer">Queue 700, wait EPOLLOUT.</p>
+    <p class="why">The send buffer filled — the peer isn't draining. Stash the rest in the connection's output buffer and subscribe for writability; on EPOLLOUT, flush more. Writing in a busy-loop wastes CPU; dropping bytes corrupts the protocol.</p>
+  </details>
+  <details><summary>Why must the F_SETFL call read flags first?</summary>
+    <p class="answer">F_SETFL overwrites.</p>
+    <p class="why">F_SETFL replaces the flag word. Passing only O_NONBLOCK would silently clear anything else set on the fd. F_GETFL, OR it in, then set — a read-modify-write, like any shared register.</p>
+  </details>
+  <details><summary>Edge-triggered epoll, you read once and leave bytes. Consequence?</summary>
+    <p class="answer">Connection hangs forever.</p>
+    <p class="why">ET only fires on transitions — no new arrival, no new event. Those stranded bytes sit in the kernel queue and never produce another EPOLLIN. Hence the law: with EPOLLET, read in a loop until read returns EAGAIN.</p>
+  </details>
+  <details><summary>What does a blocking read() on a non-blocking fd never do?</summary>
+    <p class="answer">Sleep waiting for data.</p>
+    <p class="why">That's the entire definition: O_NONBLOCK converts "wait for readiness" into "return EAGAIN immediately". Waiting is delegated upward — to select/poll/epoll in your event loop.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — meet EAGAIN and EPOLLOUT, 20 minutes</span>
+  <pre><code>nc -l 7005 > /dev/null &amp;          # a sink that never reads: the trap
+python3 - <<'EOF'
+import socket
+s = socket.create_connection(('localhost', 7005))
+s.setblocking(False)               # O_NONBLOCK
+payload = b'X' * (50 * 1024 * 1024)   # 50 MB — far beyond any buffer
+try:
+    while payload:
+        sent = s.send(payload)     # partial sends are now the norm
+        payload = payload[sent:]
+        print('sent', sent, 'left', len(payload))
+except BlockingIOError:            # that's EAGAIN
+    print('EAGAIN: kernel buffer full — peer must drain first')
+EOF</code></pre>
+  <p>You just watched the kernel say "I can't take more" — in a blocking socket this same loop would just sleep; here <em>you</em> get to decide policy. Now the kicker: kill the sink (<span class="term">kill %1</span>) — the peer that never reads makes your output buffer the bottleneck. Patch your Lesson-6 epoll skeleton with an output buffer + EPOLLOUT flush and replay this scenario through it: slow-reader clients stop stalling the loop, and no bytes are lost. That patch is the graduation exercise of the whole course.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://man7.org/linux/man-pages/man7/epoll.7.html">man 7 epoll</a>, "Example for level-triggered vs edge-triggered" — the kernel's own demonstration of the drain-until-EAGAIN loop.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "show me a correct output-buffer flush", "what's the thundering-herd issue?", "how does io_uring remove even these syscalls?"</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 7: <a href="0007-udp-datagrams.html">UDP</a></span>
+  <span>Lesson 9: <a href="0009-socket-options-knobs.html">socket options &amp; knobs</a> ►</span>
+</div>
+</body>
+</html>

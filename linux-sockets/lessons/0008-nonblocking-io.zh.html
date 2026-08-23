@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 8 课 — 非阻塞 I/O</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 8 课</span><span>实战 <a class="langbtn" href="0008-nonblocking-io.html" title="Switch to English">EN</a></span></div>
+  <h1>非阻塞 I/O</h1>
+  <p class="dek">阻塞说"做完了再叫醒我"。非阻塞说"现在能做多少做多少，剩下的以后再说"。EAGAIN 不是错误 —— 它就是全部词汇。</p>
+</div>
+
+<p>把 socket 拨到非阻塞模式后，每个系统调用都变成<em>状态探针</em>：有数据 read 就给数据，没有就 <span class="term">-1/EAGAIN</span>；内核发送缓冲一满，write 也 <span class="term">-1/EAGAIN</span>。任何调用都不再睡觉。与就绪通知（第 6 课）结合，就得到慢客户端拖不死快客户端的事件循环。</p>
+
+<h2>怎么设，以及两面的纪律</h2>
+<pre><code>// 打开 O_NONBLOCK（两步都要 —— F_SETFL 是整体覆盖，
+// 所以必须读-改-写）
+int fl = fcntl(fd, F_GETFL, 0);
+fcntl(fd, F_SETFL, fl | O_NONBLOCK);</code></pre>
+
+<p>此后每次 read/write 都要按<strong>部分完成</strong>对待：</p>
+<ul>
+  <li><strong>部分写是常态。</strong>对端读得比你写得慢时内核缓冲会满。你的 <span class="term">write</span> 发出 1000 字节中的 300；剩下的 700 留在该连接的<em>输出</em>缓冲里，订阅 <span class="term">EPOLLOUT</span>，内核一说有空间就续发。学生写事件服务端最常省略的就是这段 EPOLLOUT 舞步 —— 不写它，你就静默丢数据。</li>
+  <li><strong>EAGAIN 是"待会儿"，不是"永别"。</strong>标准循环：试 read → 遇 EAGAIN 就回到事件循环；下一次 EPOLLIN 自会再叫你。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>非阻塞把 I/O 从"等待"变成"轮询"：系统调用回答"现在能给多少"，就绪事件回答"什么时候再来问"。</strong>因此每条连接都拥有<em>两个</em>缓冲区 —— 输入缓冲（第 4 课的分帧）和输出缓冲（内核暂时吃不下、还欠着的字节）。事件服务端，就是围绕这两个缓冲区的记账。
+</div>
+
+<h2>水平触发 vs 边缘触发（epoll 的锋刃）</h2>
+<ul>
+  <li><strong>水平触发（默认）：</strong>"只要还有数据就一直报"。你只读一次、留下残余，下次 <span class="term">epoll_wait</span> 还会再报。宽容。</li>
+  <li><strong>边缘触发（<span class="term">EPOLLET</span>）：</strong>"只在每次<em>新到达</em>时报一次"。你必须循环读到 EAGAIN，否则读剩的部分永远不再触发事件 —— 那条连接带着一队列数据永久卡死。更快（唤醒更少），但要求"排空到 EAGAIN"的纪律。</li>
+</ul>
+<p>经验法则：先用水平触发；等"循环读到 EAGAIN、常备输出缓冲、处理 EPOLLOUT"刻进本能，再上边缘触发。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>write() 1000 字节只返回 300。你该怎么办？</summary>
+    <p class="answer">欠着 700，等 EPOLLOUT。</p>
+    <p class="why">发送缓冲满了 —— 对端不排水。把剩余字节存进连接的输出缓冲并订阅可写事件；EPOLLOUT 一到就续发。忙循环白烧 CPU；丢字节腐蚀协议。</p>
+  </details>
+  <details><summary>为什么 F_SETFL 之前必须先读标志？</summary>
+    <p class="answer">F_SETFL 是覆盖。</p>
+    <p class="why">F_SETFL 整体替换标志字。只传 O_NONBLOCK 会悄悄清掉该 fd 上已有的其他标志。F_GETFL、按位或、再设 —— 和任何共享寄存器一样，读-改-写。</p>
+  </details>
+  <details><summary>边缘触发下读了一次留下字节，后果？</summary>
+    <p class="answer">连接永久卡死。</p>
+    <p class="why">ET 只在状态跳变时报 —— 没有新到达就没有新事件。滞留的字节躺在内核队列里，永远等不来下一个 EPOLLIN。所以有此铁律：用 EPOLLET，就循环 read 直到 EAGAIN。</p>
+  </details>
+  <details><summary>非阻塞 fd 上的阻塞式 read() 永远不会做什么？</summary>
+    <p class="answer">睡觉等数据。</p>
+    <p class="why">这就是全部定义：O_NONBLOCK 把"等就绪"改写成"立刻返回 EAGAIN"。等待被上交 —— 交给你事件循环里的 select/poll/epoll。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— 会一会 EAGAIN 与 EPOLLOUT，20 分钟</span>
+  <pre><code>nc -l 7005 > /dev/null &amp;          # 一个永不读取的水槽：陷阱
+python3 - <<'EOF'
+import socket
+s = socket.create_connection(('localhost', 7005))
+s.setblocking(False)               # O_NONBLOCK
+payload = b'X' * (50 * 1024 * 1024)   # 50 MB —— 远超任何缓冲
+try:
+    while payload:
+        sent = s.send(payload)     # 部分发送从此是常态
+        payload = payload[sent:]
+        print('sent', sent, 'left', len(payload))
+except BlockingIOError:            # 这就是 EAGAIN
+    print('EAGAIN: 内核缓冲满 —— 得等对端排水')
+EOF</code></pre>
+  <p>你刚听到内核说"吃不下了" —— 同样的循环在阻塞 socket 上只会睡觉；在这里<em>你</em>有权决定策略。再补一刀：杀掉水槽（<span class="term">kill %1</span>）—— 不读的对端让你的输出缓冲成为瓶颈。给第 6 课的 epoll 骨架补上输出缓冲 + EPOLLOUT 续发，重演这个场景：慢读客户端拖不住循环，一个字节不丢。这个补丁，就是整个课程的毕业设计。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://man7.org/linux/man-pages/man7/epoll.7.html">man 7 epoll</a>，"水平触发与边缘触发示例"一节 —— 内核亲自示范排空到 EAGAIN 的循环。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 问 agent："给我看一个正确的输出缓冲续发"、"惊群问题是什么？"、"io_uring 怎么连这些系统调用也省了？"</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 7 课：<a href="0007-udp-datagrams.zh.html">UDP</a></span>
+  <span>第 9 课：<a href="0009-socket-options-knobs.zh.html">socket 选项与旋钮</a> ►</span>
+</div>
+</body>
+</html>

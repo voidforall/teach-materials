@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 9 课 — Socket 选项与内核旋钮</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 9 课</span><span>实战 <a class="langbtn" href="0009-socket-options-knobs.html" title="Switch to English">EN</a></span></div>
+  <h1>Socket 选项与内核旋钮</h1>
+  <p class="dek">setsockopt 是理论交房租的地方：不等就重启服务端、免掉 Nagle 的延迟税、发现死对端、扛住 fd 耗尽。</p>
+</div>
+
+<p>选项分两族，按你传的 level 命名：<span class="term">SOL_SOCKET</span>（通用，任何 socket）和 <span class="term">IPPROTO_TCP</span>（TCP 专属）。写法永远不变：</p>
+<pre><code>int one = 1;
+setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &amp;one, sizeof one);</code></pre>
+
+<h2>真正要紧的选项，按救你的频率排序</h2>
+<ul>
+  <li><strong><span class="term">SO_REUSEADDR</span>（SOL_SOCKET，bind 之前）。</strong>第 2 课的 TIME_WAIT 残留会挡住重新 bind。这个选项说"这个端口照给我用"。每个服务端都设；唯一的争论是要不要更进一步用 <span class="term">SO_REUSEPORT</span>（多个活跃监听者分摊负载，内核感知）。</li>
+  <li><strong><span class="term">TCP_NODELAY</span>（IPPROTO_TCP）。</strong>Nagle 算法延迟小包以图合并 —— 批量传输之福，请求-响应之祸。关掉它，"写请求、读应答"的往返就快到线路极限。交互式连接设它；大批量留给 Nagle。</li>
+  <li><strong><span class="term">SO_KEEPALIVE</span>（SOL_SOCKET）。</strong>内核每 <span class="term">tcp_keepalive_time</span>（默认 7200 秒 —— 毫无用处的默认值！）探测一次空闲连接。用 <span class="term">TCP_KEEPIDLE/TCP_KEEPINTVL/TCP_KEEPCNT</span> 调到约 60s/10s/3，或者更好：应用层心跳 —— 它连"系统活着但应用挂了"也能发现，不只是 OS 层面。</li>
+  <li><strong><span class="term">SO_SNDBUF / SO_RCVBUF</span>。</strong>内核缓冲大小。默认约 200KB；粗管道传输或突发接收方可能要加 —— 但大不是免费的（每连接内存 × 一万连接）。</li>
+  <li><strong><span class="term">SO_LINGER</span>。</strong>改变 close() 语义；臭名昭著的 <span class="term">l_onoff=1, timeout=0</span> 变体用 RST 中止而非 FIN —— 偶尔恰是你要的工具（立刻丢弃未发数据），通常是把冲锋枪。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>选项是针对单个 fd 向内核提的问题，而时机要紧：SO_REUSEADDR 必须先于 bind，keepalive 参数必须推翻 2 小时的默认，每个选项都在拿东西换东西（内存、合并、安全）。</strong>有意识地设置选项，并且知道自己选了天平的哪一端。
+</div>
+
+<h2>fd 耗尽求生包</h2>
+<p>第 5 课泄漏 fd；这里补运营侧。<span class="term">ulimit -n</span> 限制每进程打开的 fd（常为 1024 —— 远古值）。调高它（<span class="term">setrlimit</span> / systemd 的 <span class="term">LimitNOFILE</span>）。并且要优雅处理 accept 的 <span class="term">EMFILE</span>：经典技巧是启动时预留一个"应急 fd"，accept 失败时关掉它腾出一个名额，accept 进一个连接、立刻告知客户端稍后重试再关闭 —— 让监听者保持响应而不是空转。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>服务端崩溃重启后 bind 不上端口。第一招？</summary>
+    <p class="answer">设 SO_REUSEADDR。</p>
+    <p class="why">旧连接的 TIME_WAIT 拖着端口约 60 秒。SO_REUSEADDR（bind 之前）让新监听者共享通配绑定。干等、或用 sysctl 硬清 TIME_WAIT，都只是治标。</p>
+  </details>
+  <details><summary>快速局域网上，微型请求-响应为什么感觉慢？</summary>
+    <p class="answer">Nagle 拖延小包。</p>
+    <p class="why">Nagle 攒着小包等合并，还与延迟 ACK 相互作用，凭空加出几十毫秒。TCP_NODELAY 立刻发送 —— 对交互式协议吞吐几乎无损，感知延迟砍半。</p>
+  </details>
+  <details><summary>默认 keepalive 多久才发现对端死了？</summary>
+    <p class="answer">两个多小时。</p>
+    <p class="why">tcp_keepalive_time 默认 7200 秒才发第一个探测。生产环境必须把 TCP_KEEPIDLE 一族调低，或 —— 更稳 —— 发应用层心跳：它连"内核健康但应用卡死"也能查出来。</p>
+  </details>
+  <details><summary>SO_LINGER 超时为 0 时，close() 发什么？</summary>
+    <p class="answer">RST，硬中止。</p>
+    <p class="why">丢弃未发数据，直接复位连接：对端看到 ECONNRESET，没有 FIN 握手，也没有 TIME_WAIT。偶尔正确（代理甩负载、丢弃积压写）；多数时候只会把对端搞糊涂、跳过优雅关闭。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— 量一量 Nagle，15 分钟</span>
+  <pre><code># 服务端：来一个字节回一个字节（应用代码零延迟）
+nc -l 7006 -k            # macOS；Linux 上用五行循环服务端
+python3 - <<'EOF'
+import socket, time
+s = socket.create_connection(('localhost', 7006))
+for ndelay in (0, 1):
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, ndelay)
+    t0 = time.time()
+    for _ in range(100):
+        s.send(b'x'); s.recv(1)        # 乒乓
+    print('TCP_NODELAY =', ndelay, '→', round((time.time()-t0)*10, 1), 'ms / 100 乒乓')
+EOF</code></pre>
+  <p>环回上差距可能不大（什么都快）；换真实网络、或用 Linux 的 <span class="term">tc netem delay 30ms</span> 制造延迟，差距立刻拉开 —— 那就是 Nagle 与延迟 ACK 在相互作用。然后检视自己：<span class="term">ss -tino</span> 逐连接显示 nodelay、keepalive 定时器、缓冲大小 —— 你设的每个选项都看得见。设一个，看它出现。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://man7.org/linux/man-pages/man7/socket.1.html">man 7 socket</a>（SOL_SOCKET 选项）+ <a href="https://man7.org/linux/man-pages/man7/tcp.7.html">man 7 tcp</a>（TCP_* 选项与 sysctl）。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 问 agent："SO_REUSEPORT 与 SO_REUSEADDR 到底差在哪？"、"10Gbps 该怎么选 SNDBUF？"、"MPTCP 是什么？"</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 8 课：<a href="0008-nonblocking-io.zh.html">非阻塞 I/O</a></span>
+  <span>第 10 课：<a href="0010-debugging-capstone.zh.html">调试与毕业设计</a> ►</span>
+</div>
+</body>
+</html>

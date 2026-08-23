@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — select, poll, epoll</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 6</span><span>Practice <a class="langbtn" href="0006-select-poll-epoll.zh.html" title="切换到中文">中</a></span></div>
+  <h1>select, poll, epoll</h1>
+  <p class="dek">One thread, ten thousand clients, zero blocked syscalls. The trick isn't magic — it's asking the kernel one question: "which of these fds are ready <em>right now</em>?"</p>
+</div>
+
+<p>Lesson 5 bought concurrency with a process or thread per connection. At 10k mostly-idle connections (chat clients, proxies, IoT), that's 10k stacks and a scheduler thrash — the <a href="https://kegel.com/c10k.html">C10K problem</a>. The alternative: <strong>demultiplex</strong>. Register interest in many fds; sleep until <em>any</em> of them is ready; handle just those.</p>
+
+<h2>The three APIs, one idea at increasing efficiency</h2>
+<table style="width:100%; border-collapse:collapse; font-family:var(--sans); font-size:0.88rem;">
+  <tr style="background:var(--accent-soft);">
+    <th style="padding:.4rem .6rem; text-align:left;">API</th><th style="padding:.4rem .6rem; text-align:left;">You pass it</th><th style="padding:.4rem .6rem; text-align:left;">Cost per call</th><th style="padding:.4rem .6rem; text-align:left;">fd limit</th></tr>
+  <tr><td style="padding:.4rem .6rem; border:1px solid var(--rule);"><code>select</code></td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">three fd_set bitmaps, rebuilt every call</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">O(total fds) each way + full set copy</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">FD_SETSIZE = 1024</td></tr>
+  <tr><td style="padding:.4rem .6rem; border:1px solid var(--rule);"><code>poll</code></td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">array of struct pollfd</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">O(total fds) scan, no bitmap rebuild</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">none practical</td></tr>
+  <tr><td style="padding:.4rem .6rem; border:1px solid var(--rule);"><code>epoll</code> (Linux)</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">a persistent kernel registration (epoll_ctl)</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">O(ready fds) — kernel keeps the interest list</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">none practical</td></tr>
+</table>
+
+<p>Read the trend: select/poll are <em>stateless questions</em> — you re-describe your whole fd set every call, and the kernel scans all of it. epoll is a <em>standing subscription</em> — the kernel remembers what you care about and wakes you with just the ready list. That one architectural difference is why nginx, Redis, and every modern high-concurrency server on Linux is built on epoll (macOS/BSD equivalents: <span class="term">kqueue</span>; portable wrapper: <span class="term">libuv</span>, <span class="term">libevent</span>).</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>select/poll: you push the watch-list to the kernel every call. epoll: you set it up once, and the kernel pushes ready events to you.</strong> With 10k connections and 10 active, select scans 10k; epoll returns 10. Readiness-driven, never-blocking-per-fd, is the whole event-loop paradigm.
+</div>
+
+<h2>An epoll server's skeleton</h2>
+<pre><code>int ep = epoll_create1(0);
+struct epoll_event ev = { .events = EPOLLIN, .data.fd = s };
+epoll_ctl(ep, EPOLL_CTL_ADD, s, &amp;ev);          // subscribe: listener
+
+struct epoll_event ready[64];
+for (;;) {
+    int n = epoll_wait(ep, ready, 64, -1);       // sleep until SOMETHING is ready
+    for (int i = 0; i &lt; n; i++) {
+        if (ready[i].data.fd == s) {             // listener ready → new client
+            int c = accept(s, NULL, NULL);
+            set_nonblocking(c);                  // Lesson 8: essential here
+            ev.events = EPOLLIN; ev.data.fd = c;
+            epoll_ctl(ep, EPOLL_CTL_ADD, c, &amp;ev);
+        } else {                                 // client ready → read a chunk
+            int c = ready[i].data.fd;
+            ssize_t r = read(c, buf, sizeof buf);
+            if (r &lt;= 0) { epoll_ctl(ep, EPOLL_CTL_DEL, c, NULL); close(c); }
+            else append_to_conn_buffer(c, buf, r);   // Lesson 4 framing applies
+        }
+    }
+}</code></pre>
+
+<p>Notice what the loop <em>never</em> does: wait on one client. A slow client costs one iteration; ten thousand idle clients cost nothing until they speak. This loop is single-threaded — state lives in your connection structs, and Lesson 4's buffer-per-connection is now load-bearing, not optional.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does select cap you at 1024 fds?</summary>
+    <p class="answer">Fixed bitmap size.</p>
+    <p class="why">fd_set is a fixed array of FD_SETSIZE bits, compiled into libc. Raising it is a recompile-and-pray hack; poll (dynamic arrays) and epoll (no per-call set at all) remove the ceiling entirely.</p>
+  </details>
+  <details><summary>10k connections, 5 active. How many fds does each API examine per wakeup?</summary>
+    <p class="answer">10k, 10k, 5.</p>
+    <p class="why">select and poll must scan the full registered set on every call — active or not. epoll's ready list holds exactly the fds that became ready, so cost tracks <em>activity</em>, not <em>population</em>.</p>
+  </details>
+  <details><summary>Where does the event loop's per-connection buffer live?</summary>
+    <p class="answer">Userspace heap.</p>
+    <p class="why">"Readable" only means "at least one byte arrived". One event may carry half a frame; a frame may span many events. You own reassembly in a per-connection heap buffer — the kernel queues bytes, never messages.</p>
+  </details>
+  <details><summary>Why must client fds be non-blocking in an epoll server?</summary>
+    <p class="answer">Readiness isn't permanence.</p>
+    <p class="why">EPOLLIN promises data <em>now</em>; by the time you read, it may be gone (another thread drained it) — a blocking fd would then sleep the whole loop. Also writes: a full send buffer turns blocking write into an everyone-waits event. Details in Lesson 8.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — feel the O(n) vs O(active), 15 minutes (Linux/container)</span>
+  <pre><code># a select-based server that prints how many fds it scans per loop
+# (drop-in for your Lesson-1 server; strace shows the syscall churn)
+cc -Wall srv_select.c -o srv_select &amp;&amp; strace -e trace=select,accept4,read ./srv_select</code></pre>
+  <p>Open 5 <span class="term">nc localhost 5000</span> sessions, send a byte in one, and watch the strace: every wakeup is preceded by a full <span class="term">select</span> listing all fds. Now swap in the epoll skeleton and repeat — <span class="term">epoll_wait</span> returns only the one active fd. Same behavior, wildly different work. If you're on macOS, run both under a Linux container: <span class="term">docker run -it --rm -v $PWD:/w -w /w alpine sh</span> then <span class="term">apk add build-base strace</span>.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://man7.org/linux/man-pages/man7/epoll.7.html">man 7 epoll</a> — semantics, quirks (EPOLLOUT, starvation, level vs edge — teaser for Lesson 8).
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "what is EPOLLET?", "how does io_uring differ?", "why does Redis use epoll but also threads now?"</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 5: <a href="0005-concurrent-servers.html">concurrent servers</a></span>
+  <span>Lesson 7: <a href="0007-udp-datagrams.html">UDP datagrams</a> ►</span>
+</div>
+</body>
+</html>

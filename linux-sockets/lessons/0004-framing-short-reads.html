@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 4 — Framing &amp; Short Reads</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 4</span><span>Practice <a class="langbtn" href="0004-framing-short-reads.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Framing &amp; Short Reads</h1>
+  <p class="dek">TCP gives you a pipe, not a mailbox. If your server does one read per request, it is already broken — it just hasn't met the packet split yet.</p>
+</div>
+
+<p>This is the lesson that turns "I can open a connection" into "I can write a correct protocol." Two facts from Lesson 2 now demand payment:</p>
+<ul>
+  <li><strong>Short reads are legal.</strong> <span class="term">read()</span> may return fewer bytes than you asked for — whatever arrived so far is yours.</li>
+  <li><strong>No boundaries.</strong> Two <span class="term">write()</span>s can merge into one <span class="term">read()</span>, and one write can split across many reads.</li>
+</ul>
+
+<p>Therefore: a protocol must define where each message ends — <strong>framing</strong> — and your code must buffer until a full frame is present. The three classic framings:</p>
+<ul>
+  <li><strong>Delimiter:</strong> end on a marker byte (HTTP headers end at <span class="term">\r\n\r\n</span>, Redis at <span class="term">\r\n</span>, lines at <span class="term">\n</span>). Simple; must escape the marker inside payloads.</li>
+  <li><strong>Length-prefix:</strong> send <span class="term">uint32 len</span> then that many bytes. Binary protocols' default (and our exercise). Must validate <span class="term">len</span> — a corrupt or hostile length of 4 GB is a malloc bomb.</li>
+  <li><strong>Fixed size:</strong> every message the same width. Trivial, rigid; fine for棋牌-style binary structs and sensor telemetry.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Never read "a message" — read "whatever came", append to a per-connection buffer, and extract whole frames when they've assembled.</strong> The loop is: fill buffer → scan for complete frame(s) → process → shift leftovers → repeat. A connection without a buffer is a protocol waiting to corrupt.
+</div>
+
+<h2>The shape of correct code</h2>
+<pre><code>// read until buf holds at least need bytes; returns 0 on EOF, -1 on error
+int read_full(int fd, void *dst, size_t need) {
+    char *p = dst;
+    while (need &gt; 0) {
+        ssize_t n = read(fd, p, need);
+        if (n == 0) return 0;            // peer closed
+        if (n &lt; 0) { if (errno == EINTR) continue; return -1; }
+        p += n; need -= n;               // partial read: keep looping
+    }
+    return 1;
+}
+
+// one framed message: [uint32 len (network order)][len bytes]
+int recv_msg(int fd, char **out, uint32_t *len_out) {
+    uint32_t net_len;
+    if (read_full(fd, &amp;net_len, 4) != 1) return -1;
+    uint32_t len = ntohl(net_len);
+    if (len == 0 || len &gt; MAX_MSG) return -1;   // refuse absurd frames
+    char *m = malloc(len);
+    if (read_full(fd, m, len) != 1) { free(m); return -1; }
+    *out = m; *len_out = len;
+    return 0;
+}</code></pre>
+
+<p><span class="term">read_full</span> is the atom; framing strategy is the molecule. In an event-driven server (Lesson 6) you don't block like this — you keep the per-connection buffer and re-check it every time the kernel says "readable" — but the frame-extraction logic is identical.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Your protocol is "one line per request". Why does a single read() per request fail?</summary>
+    <p class="answer">Lines arrive split.</p>
+    <p class="why">A 200-byte line can arrive as 120 + 80 bytes; one read grabs 120, you process a torn "line", and the next 80 bytes poison the following request. You must accumulate until the <span class="term">\n</span> actually appears in the buffer.</p>
+  </details>
+  <details><summary>Why validate a length-prefix before malloc?</summary>
+    <p class="answer">Hostile header kills.</p>
+    <p class="why">The first 4 bytes are attacker-controlled until checked. Without a cap, a forged <span class="term">len = 0xFFFFFFFF</span> turns your malloc into instant memory exhaustion. Check <span class="term">len ≤ MAX_MSG</span>, then allocate.</p>
+  </details>
+  <details><summary>Client write()s a 1 KB frame. Did one syscall send one segment?</summary>
+    <p class="answer">Not necessarily one.</p>
+    <p class="why">The kernel may split it across segments (MSS ~1400 bytes), Nagle may hold small writes to coalesce, and the peer's reads are independent of segment boundaries anyway. write() size tells you nothing about read() sizes — only invariants do.</p>
+  </details>
+  <details><summary>Which framing does HTTP/1.1 use for its body, given Content-Length?</summary>
+    <p class="answer">Length prefix.</p>
+    <p class="why">Headers are delimiter-framed (blank line), but the body is length-prefixed by <span class="term">Content-Length</span> — precisely so binary bodies can contain anything, including <span class="term">\r\n</span>. Chunked mode turns into a stream of small length-prefixed pieces.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — catch a short read red-handed, 15 minutes</span>
+  <pre><code># server: netcat just prints what arrives, in one process
+nc -l 7002 > got.bin &
+# client: one big write, split by the loopback? Force the issue:
+python3 -c "
+import socket
+s = socket.create_connection(('localhost', 7002))
+s.sendall(b'A' * 100000)     # one send, 100 KB
+s.close()"
+wc -c got.bin</code></pre>
+  <p>All 100 KB arrives — the <em>kernel</em> reassembles for you. The split you must fear is on the <em>read</em> side: patch your Lesson-1 server to <span class="term">read(c, buf, 8)</span> once per connection and send it a 20-byte message twice — watch the second half vanish into the void. Then fix it with <span class="term">recv_msg</span> above and send framed messages with <span class="term">python3</span> or a small C client. Broken first, then correct: the lesson sticks.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://man7.org/linux/man-pages/man2/read.2.html">man 2 read</a> — the short-read semantics, in the kernel's own words; then Beej's <a href="https://beej.us/guide/bgnet/html/split/sockaddr_inetmanipulator.html">client-server chapter</a>.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "how does my buffer interact with epoll?", "show me a ring-buffer design", "what framing does HTTP/2 use instead?"</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 3: <a href="0003-addresses-getaddrinfo.html">getaddrinfo</a></span>
+  <span>Lesson 5: <a href="0005-concurrent-servers.html">concurrent servers</a> ►</span>
+</div>
+</body>
+</html>

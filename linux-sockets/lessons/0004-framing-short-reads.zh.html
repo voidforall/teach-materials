@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 4 课 — 分帧与短读</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 4 课</span><span>实战 <a class="langbtn" href="0004-framing-short-reads.html" title="Switch to English">EN</a></span></div>
+  <h1>分帧与短读</h1>
+  <p class="dek">TCP 给你的是水管，不是邮箱。如果你的服务端一个请求只 read 一次，它已经坏了 —— 只是还没撞上分包而已。</p>
+</div>
+
+<p>这一课把"我能建立连接"变成"我能写出正确的协议"。第 2 课的两个事实现在来收账：</p>
+<ul>
+  <li><strong>短读是合法的。</strong><span class="term">read()</span> 返回的字节数可能少于你要求的 —— 到了多少给你多少。</li>
+  <li><strong>没有边界。</strong>两次 <span class="term">write()</span> 可能并成一次 <span class="term">read()</span>，一次 write 也可能拆进多次 read。</li>
+</ul>
+
+<p>所以：协议必须定义每条消息在哪里结束 —— <strong>分帧（framing）</strong>—— 而你的代码必须缓冲，直到凑齐完整一帧。三种经典分帧：</p>
+<ul>
+  <li><strong>分隔符：</strong>遇到标记字节即结束（HTTP 头结束于 <span class="term">\r\n\r\n</span>，Redis 用 <span class="term">\r\n</span>，按行用 <span class="term">\n</span>）。简单；但载荷里的标记需要转义。</li>
+  <li><strong>长度前缀：</strong>先发 <span class="term">uint32 len</span>，再发这么多个字节。二进制协议的默认选择（也是我们的练习）。必须校验 <span class="term">len</span> —— 一个损坏或恶意的 4 GB 长度就是一颗 malloc 炸弹。</li>
+  <li><strong>定长：</strong>每条消息等宽。最简单也最僵硬；适合固定二进制结构和传感器遥测。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>永远不要 read "一条消息" —— 只 read "到了什么"，追加进每连接缓冲区，凑齐整帧再取出。</strong>循环是：填缓冲 → 扫描完整帧 → 处理 → 移走剩余 → 重复。没有缓冲区的连接，就是一条等着被腐蚀的协议。
+</div>
+
+<h2>正确代码的模样</h2>
+<pre><code>// 读到 buf 至少持有 need 字节为止；EOF 返回 0，出错返回 -1
+int read_full(int fd, void *dst, size_t need) {
+    char *p = dst;
+    while (need &gt; 0) {
+        ssize_t n = read(fd, p, need);
+        if (n == 0) return 0;            // 对端关闭
+        if (n &lt; 0) { if (errno == EINTR) continue; return -1; }
+        p += n; need -= n;               // 部分读取：继续循环
+    }
+    return 1;
+}
+
+// 一帧消息：[uint32 len（网络序）][len 字节]
+int recv_msg(int fd, char **out, uint32_t *len_out) {
+    uint32_t net_len;
+    if (read_full(fd, &amp;net_len, 4) != 1) return -1;
+    uint32_t len = ntohl(net_len);
+    if (len == 0 || len &gt; MAX_MSG) return -1;   // 拒绝离谱的帧
+    char *m = malloc(len);
+    if (read_full(fd, m, len) != 1) { free(m); return -1; }
+    *out = m; *len_out = len;
+    return 0;
+}</code></pre>
+
+<p><span class="term">read_full</span> 是原子，分帧策略是分子。在事件驱动服务端（第 6 课）里你不会这样阻塞 —— 而是保住每连接缓冲区，内核一说"可读"就重新检查 —— 但取帧逻辑一模一样。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>你的协议是"一行一请求"。为什么每请求一次 read() 会出事？</summary>
+    <p class="answer">行会分开到达。</p>
+    <p class="why">200 字节的行可能以 120 + 80 字节到达；一次 read 拿到 120，你处理了半截"行"，剩下的 80 字节再去毒害下一条请求。必须持续积累，直到缓冲区里真出现 <span class="term">\n</span>。</p>
+  </details>
+  <details><summary>长度前缀为什么必须先校验再 malloc？</summary>
+    <p class="answer">恶意头能杀人。</p>
+    <p class="why">开头 4 字节在校验前是攻击者可控的。不设上限，一个伪造的 <span class="term">len = 0xFFFFFFFF</span> 就把 malloc 变成瞬间内存耗尽。先查 <span class="term">len ≤ MAX_MSG</span>，再分配。</p>
+  </details>
+  <details><summary>客户端一次 write 了 1 KB。等于一次系统调用发了一个段吗？</summary>
+    <p class="answer">未必是一个。</p>
+    <p class="why">内核可能按段（MSS 约 1400 字节）切分，Nagle 可能攒小包合并，而对端的 read 大小与段边界本来无关。write 的尺寸对 read 的尺寸毫无承诺 —— 只有不变量可靠。</p>
+  </details>
+  <details><summary>有 Content-Length 的 HTTP/1.1 正文用哪种分帧？</summary>
+    <p class="answer">长度前缀。</p>
+    <p class="why">头部用分隔符（空行），正文却由 <span class="term">Content-Length</span> 长度前缀框住 —— 正是为了让二进制正文可以包含任何字节，包括 <span class="term">\r\n</span>。chunked 模式则是一串小长度前缀块。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— 当场抓住一次短读，15 分钟</span>
+  <pre><code># 服务端：netcat 只是把到达的东西收进文件
+nc -l 7002 > got.bin &
+# 客户端：一次大 write，会不会被环回拆开？主动制造问题：
+python3 -c "
+import socket
+s = socket.create_connection(('localhost', 7002))
+s.sendall(b'A' * 100000)     # 一次 send，100 KB
+s.close()"
+wc -c got.bin</code></pre>
+  <p>100 KB 全数到达 —— <em>内核</em>替你重组了。真正要怕的拆分发生在<em>读</em>侧：把第 1 课的服务端改成每连接只 <span class="term">read(c, buf, 8)</span> 一次，再连发两次 20 字节消息 —— 看后半截如何消失在虚空。然后用上面的 <span class="term">recv_msg</span> 修好它，用 <span class="term">python3</span> 或一个小 C 客户端发分帧消息。先看坏，再看好：这课就长在骨头上了。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://man7.org/linux/man-pages/man2/read.2.html">man 2 read</a> —— 内核亲自讲的短读语义；然后是 Beej 的 <a href="https://beej.us/guide/bgnet/html/split/sockaddr_inetmanipulator.html">client-server 章</a>。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 问 agent："我的缓冲区怎么跟 epoll 配合？"、"给我讲讲环形缓冲区设计"、"HTTP/2 改用了什么分帧？"</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 3 课：<a href="0003-addresses-getaddrinfo.zh.html">getaddrinfo</a></span>
+  <span>第 5 课：<a href="0005-concurrent-servers.zh.html">并发服务端</a> ►</span>
+</div>
+</body>
+</html>

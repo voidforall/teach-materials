@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 7 课 — UDP：数据报</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 7 课</span><span>基础 <a class="langbtn" href="0007-udp-datagrams.html" title="Switch to English">EN</a></span></div>
+  <h1>UDP：数据报</h1>
+  <p class="dek">TCP 是打电话；UDP 是寄明信片。消息保住了 —— 送达、顺序、连接，全没了。</p>
+</div>
+
+<p>一个标志改变世界：<span class="term">socket(AF_INET, SOCK_DGRAM, 0)</span>。没有握手、没有 listen/accept、没有连接 —— 你把一个个自包含的<strong>数据报（datagram）</strong>发往地址，每个都自带回信地址。API 与模型同构：<span class="term">sendto(fd, buf, len, 0, &amp;dest, dstlen)</span> 与 <span class="term">recvfrom(fd, buf, len, 0, &amp;src, &amp;srclen)</span> —— 发送者地址随每个包一起到达，因为根本没有"连接"来记住它。</p>
+
+<h2>明信片带什么、不带什么</h2>
+<ul>
+  <li><strong>边界保留。</strong>一次 <span class="term">sendto</span> = 一个数据报 = 一次 <span class="term">recvfrom</span>。不需要分帧（第 4 课大部分作废 —— 注意：比你的读缓冲还大的数据报会被<em>静默截断</em>）。</li>
+  <li><strong>没有顺序。</strong>2 号包可能在网络上跑赢 1 号。</li>
+  <li><strong>没有送达。</strong>丢了就是丢了；没人重传，甚至没人通知。</li>
+  <li><strong>没有拥塞控制。</strong>UDP 从不退让 —— 这既是它快的原因，也是它反社会的危险。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>TCP 把复杂性外包给内核；UDP 把它外包给你的应用。</strong>在 UDP 上要有序、可靠，就得<em>你自己</em>造重传、序号、流控 —— QUIC 和各种游戏协议正是这样的定制可靠层。当单条消息价值低、延迟胜过完整性、或需要 multicast 时，选 UDP。
+</div>
+
+<h2>什么时候 UDP 是正确答案</h2>
+<ul>
+  <li><strong>DNS</strong> —— 一个查询装进一个数据报；丢了就重问。重问 60 字节，比握手便宜。</li>
+  <li><strong>游戏 / 直播媒体</strong> —— 200 毫秒前的位置更新毫无价值，重传它反而污染现在。实时有损胜过迟到完美。</li>
+  <li><strong>本地发现 / 日志</strong> —— 广播/组播、发完不管的 syslog、DHCP、mDNS。TCP 根本不能广播。</li>
+  <li><strong>QUIC / HTTP/3</strong> —— 现代变奏：在 UDP <em>之上</em>的用户态可靠层，绕开中间盒和僵化的 TCP 栈。</li>
+</ul>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>两次 sendto 先后发出。第二次 recvfrom 会返回什么？</summary>
+    <p class="answer">第二个整报。</p>
+    <p class="why">UDP 保留消息边界：每次 recvfrom 恰好交出一个完整数据报，绝不两报混合。但"第二个发送"可能先到 —— 你丢掉的是顺序，不是分帧。</p>
+  </details>
+  <details><summary>数据报比 recvfrom 缓冲还大会怎样？</summary>
+    <p class="answer">静默截断。</p>
+    <p class="why">内核拷贝装得下的部分，丢弃其余 —— 没有错误、没有重试标记（除非设了 MSG_TRUNC，Linux 会据此报告）。UDP 缓冲必须按协议最大报文来开。</p>
+  </details>
+  <details><summary>UDP 代码为什么还常调 connect()？</summary>
+    <p class="answer">钉住对端。</p>
+    <p class="why">UDP 的 connect 不发任何包；它记录对端地址，于是可以只用 send/recv，且内核代为过滤 —— 别的来源的数据报直接丢弃。还解锁 ICMP 错误回传：对端不可达终于在下次 send 时以 ECONNREFUSED 现身。</p>
+  </details>
+  <details><summary>你的 UDP 洪流灌满了链路。谁会退让？</summary>
+    <p class="answer">谁也不退。</p>
+    <p class="why">TCP 有拥塞控制（cwnd、丢包退避）；UDP 一无所有，会毫不客气地挤掉包括自己在内的一切。所以负责任的 UDP 应用要自己限速 —— 也是运营商限流重度 UDP 用户的原因。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— 10 分钟寄明信片</span>
+  <pre><code># 终端 1：UDP 收件槽，给每个发送者+载荷盖戳
+nc -ul 7003
+# 终端 2：发两个数据报（每跑一次 nc = 一张独立明信片）
+printf 'first\n'  | nc -u -w1 localhost 7003
+printf 'second\n' | nc -u -w1 localhost 7003</code></pre>
+  <p>再做 TCP 做不到的丢包实验：在容器里开 UDP 监听（<span class="term">docker run -it --rm -p 7004:7004/udp alpine sh</span>，容器内：<span class="term">nc -ul 7004</span>），宿主机用三行 Python 循环轰一万个微型数据报，数数到了几个。有丢的？很好 —— 你刚亲眼看到 UDP 在负载下丢流量，正是它又快又不可靠的那个性质。再用 TCP 重跑同样的计数对比。</p>
+  <p>然后用 C 写一遍 —— 就是第 1 课服务端减去 listen/accept，加上 <span class="term">recvfrom/sendto</span> 和一个 <span class="term">sockaddr_storage</span> 出参，原地址回发。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://man7.org/linux/man-pages/man7/udp.7.html">man 7 udp</a> —— Linux 的 UDP 语义，含上面的截断与 connect() 细节。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 问 agent："QUIC 怎么在这上面造出可靠？"、"UDP 打洞是什么？"、"DNS 为什么又回到 TCP？"</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 6 课：<a href="0006-select-poll-epoll.zh.html">epoll</a></span>
+  <span>第 8 课：<a href="0008-nonblocking-io.zh.html">非阻塞 I/O</a> ►</span>
+</div>
+</body>
+</html>

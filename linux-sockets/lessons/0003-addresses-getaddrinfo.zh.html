@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 3 课 — 地址与 getaddrinfo</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 3 课</span><span>基础 <a class="langbtn" href="0003-addresses-getaddrinfo.html" title="Switch to English">EN</a></span></div>
+  <h1>地址与 <span class="term">getaddrinfo</span></h1>
+  <p class="dek"> sockaddr_in 是内核勉强容忍的一种说法。真正的地址 API 是 getaddrinfo：域名、端口、IPv4 与 IPv6，一次解析、处处正确。</p>
+</div>
+
+<p>第 1 课里我们手填了 <span class="term">sockaddr_in</span> —— 学习可以，实战不行。真实程序拿到的是<em>主机名</em>和<em>服务名</em>（"example.com"、"http"），而且不论 IP 版本都得能跑。这就是 <span class="term">getaddrinfo()</span> 的职责。</p>
+
+<h2>驯服结构体动物园</h2>
+<ul>
+  <li><span class="term">struct sockaddr</span> —— 所有系统调用都收的通用"地址块"。你从不填写它，只做强转。</li>
+  <li><span class="term">struct sockaddr_in</span> —— IPv4：family、端口（网络序）、4 字节地址。</li>
+  <li><span class="term">struct sockaddr_in6</span> —— IPv6：同构，16 字节地址外加 scope。</li>
+  <li><span class="term">struct sockaddr_storage</span> —— 一个足够大、对齐正确的联合体，两种 family 都装得下。不知道对面是什么版本时（比如 <span class="term">accept</span>）用它。</li>
+</ul>
+
+<p>还有那条永不消失的字节序规则：凡是通过 socket API 进出结构体字段的东西 —— 端口、地址 —— 一律是<strong>大端网络序</strong>。人类可读的整数入参用 <span class="term">htons/htonl</span>，出参用 <span class="term">ntohs/ntohl</span>。打印地址用 <span class="term">inet_ntop</span>，解析字符串用 <span class="term">inet_pton</span> —— 永别用 <span class="term">inet_addr</span>（已废弃，无法表达失败）。</p>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>sockaddr 是通用货币；sockaddr_in/_in6 只是两种方言；getaddrinfo 是替你填表的翻译官。</strong>你的代码说"把我连到这个域名和服务"；解析器返回一条由现成的 <span class="term">struct addrinfo</span> 组成的链表 —— 每个可用地址一项（可能 IPv6 和 IPv4 并存）—— 你按序试连即可。
+</div>
+
+<h2>记忆这个模式</h2>
+<pre><code>struct addrinfo hints = {0}, *res;
+hints.ai_family   = AF_UNSPEC;      // IPv4 或 IPv6 —— 交给解析器决定
+hints.ai_socktype = SOCK_STREAM;    // TCP
+
+if (getaddrinfo("example.com", "80", &amp;hints, &amp;res)) { /* 失败 */ }
+
+for (struct addrinfo *p = res; p; p = p-&gt;ai_next) {
+    int fd = socket(p-&gt;ai_family, p-&gt;ai_socktype, p-&gt;ai_protocol);
+    if (fd &lt; 0) continue;
+    if (connect(fd, p-&gt;ai_addr, p-&gt;ai_addrlen) == 0) break;  // 连上了
+    close(fd);                                                    // 试下一个
+}
+freeaddrinfo(res);   // 链表是 malloc 出来的 —— 必须释放</code></pre>
+
+<p>对<strong>服务端</strong>，同一个调用加上 <span class="term">hints.ai_flags = AI_PASSIVE</span>、主机传 <span class="term">NULL</span>，就得到可 bind 的地址（Linux 上默认给 IPv6 的 <span class="term">::</span> 通配，同时也能收 IPv4）。消费 <span class="term">addrinfo</span> 的三个调用 —— socket、bind/connect —— 的 family/protocol <em>都取自节点本身</em>，所以一个循环服务两个 IP 版本。这正是它的意义所在。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>为什么 getaddrinfo 返回链表而不是单个地址？</summary>
+    <p class="answer">名字多址映射。</p>
+    <p class="why">一个主机名可能解析出多个地址 —— IPv6 与 IPv4 并存，或多个网卡。链表是解析器在说"按优先序试这些"；你的循环逐个尝试，直到 socket+connect/bind 成功。</p>
+  </details>
+  <details><summary>端口字段为什么必须过 htons()？</summary>
+    <p class="answer">线上序不相同。</p>
+    <p class="why">结构体字段会被原样拷上网络，而网络标准是大端 —— 可你的主机（x86、默认 ARM）是小端。htons/htonl 负责转换；忘掉它，你的服务端就开在一个离谱的端口上（5000 → 0x8813 → 34835）。</p>
+  </details>
+  <details><summary>客户端可能是 IPv4 也可能是 IPv6 时，accept() 该用什么结构体？</summary>
+    <p class="answer">sockaddr_storage 强转。</p>
+    <p class="why">它的大小和对齐适配任何 family，<span class="term">accept</span> 会把真实 family 写进去；你先判 <span class="term">ss.ss_family</span> 再当 <span class="term">sockaddr_in</span> 或 <span class="term">_in6</span> 用。用普通 <span class="term">sockaddr_in</span> 会截断 IPv6。</p>
+  </details>
+  <details><summary>AI_PASSIVE 改变什么？谁用它？</summary>
+    <p class="answer">给 bind 的通配。</p>
+    <p class="why">它告诉解析器你要的是用来<em>监听</em>的地址（INADDR_ANY / <span class="term">::</span>）而不是去连接的地址。服务端设它；客户端从不设。忘掉它，getaddrinfo(NULL, port) 有时会给出没法用的答案。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— 重写客户端，15 分钟</span>
+  <p>把你第 1 课工具箱里手填结构体的做法换成真客户端：</p>
+  <pre><code>// client.c — 用法: ./client 主机 端口 消息
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;netdb.h&gt;
+
+int main(int argc, char **argv) {
+    struct addrinfo hints = {0}, *res;
+    hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(argv[1], argv[2], &amp;hints, &amp;res)) { perror("resolve"); return 1; }
+
+    int fd = -1;
+    for (struct addrinfo *p = res; p; p = p-&gt;ai_next) {
+        fd = socket(p-&gt;ai_family, p-&gt;ai_socktype, p-&gt;ai_protocol);
+        if (fd &lt; 0) continue;
+        if (connect(fd, p-&gt;ai_addr, p-&gt;ai_addrlen) == 0) break;
+        close(fd); fd = -1;
+    }
+    freeaddrinfo(res);
+    if (fd &lt; 0) { perror("connect"); return 1; }
+
+    write(fd, argv[3], strlen(argv[3]));
+    char buf[256];
+    ssize_t n = read(fd, buf, sizeof buf - 1);
+    buf[n &gt; 0 ? n : 0] = 0;
+    printf("echo: %s\n", buf);
+    close(fd);
+}</code></pre>
+  <pre><code>cc -Wall client.c -o client
+./client localhost 5000 "via getaddrinfo"
+# 再连一次真实网络主机；也试试 IPv6 回环：
+nc -l 7001 &amp;   ./client ::1 7001 "ipv6 也可以"</code></pre>
+  <p>在循环里打印 <span class="term">p-&gt;ai_family</span>，看看你机器上 <span class="term">localhost</span> 解析出了哪些 family —— 链表，活生生。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://man7.org/linux/man-pages/man3/getaddrinfo.3.html">man 3 getaddrinfo</a> —— 完整的 hints/标志语义；<a href="https://beej.us/guide/bgnet/html/split/ip-addressses-structs-and-data-mation.html">Beej 的 "IP Addresses, Structs, and Data Munging"</a> 是亲切版。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 问 agent："Linux 上为什么 :: 能收 IPv4？"、"Happy Eyeballs 是什么？"、"怎么设解析超时？"</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 2 课：<a href="0002-two-armies-what-tcp-promises.zh.html">TCP 的承诺</a></span>
+  <span>第 4 课：<a href="0004-framing-short-reads.zh.html">分帧与短读</a> ►</span>
+</div>
+</body>
+</html>

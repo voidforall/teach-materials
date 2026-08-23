@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets — Syscall Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0 1.6rem;
+    font-family: var(--sans); font-size: 0.88rem; }
+  th, td { border: 1px solid var(--rule); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+  th { background: var(--accent-soft); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  code { font-family: var(--mono); font-size: 0.85em; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Reference</span><span><a class="langbtn" href="syscalls-cheatsheet.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Syscall Cheat Sheet</h1>
+  <p class="dek">The TCP client/server dance, the structs, the byte-order rules, the errnos, the socket options, the debug commands — one page.</p>
+</div>
+
+<h2>The sequence</h2>
+<table>
+  <tr><th>Server</th><th>Client</th><th>What the kernel does</th></tr>
+  <tr><td><code>s = socket(AF_INET, SOCK_STREAM, 0)</code></td><td><code>fd = socket(...)</code></td><td>Allocates the endpoint; returns an fd. No address yet.</td></tr>
+  <tr><td><code>bind(s, &amp;addr, len)</code></td><td>—（usually skipped）</td><td>Pins fd to local IP:port. Client gets an ephemeral port at connect.</td></tr>
+  <tr><td><code>listen(s, backlog)</code></td><td>—</td><td>Marks passive; allocates SYN queue + accept queue.</td></tr>
+  <tr><td><code>c = accept(s, ...)</code> <em>blocks</em></td><td><code>connect(fd, &amp;srv, len)</code></td><td>Three-way handshake; accept pops it and returns a NEW fd for that peer.</td></tr>
+  <tr><td><code>read(c, buf, n)</code> / <code>write(c, buf, n)</code></td><td><code>write</code> / <code>read</code></td><td>Drain/fill per-socket kernel queues. No message boundaries.</td></tr>
+  <tr><td><code>close(c)</code>（keep <code>s</code>）</td><td><code>close(fd)</code></td><td>Friendly disconnect: FIN, then the teardown state machine (FIN_WAIT / TIME_WAIT…).</td></tr>
+</table>
+
+<h2>Address structs &amp; byte order</h2>
+<table>
+  <tr><th>Thing</th><th>Incantation</th><th>Note</th></tr>
+  <tr><td>IPv4 endpoint</td><td><code>struct sockaddr_in {sin_family, sin_port, sin_addr}</code></td><td>Pass as <code>(struct sockaddr *)</code>; that type is just a generic "bag of bytes" view.</td></tr>
+  <tr><td>Any local address</td><td><code>addr.sin_addr.s_addr = htonl(INADDR_ANY)</code></td><td>0.0.0.0 — accepts connections on every interface.</td></tr>
+  <tr><td>Port / IP to wire</td><td><code>htons()</code> / <code>htonl()</code></td><td>Network order is big-endian; host may not be. Back with <code>ntohs/ntohl</code>.</td></tr>
+  <tr><td>String ⇄ address</td><td><code>inet_pton()</code> / <code>inet_ntop()</code></td><td>Modern replacements for the deprecated <code>inet_addr</code> family.</td></tr>
+  <tr><td>Name → endpoint (portable)</td><td><code>getaddrinfo()</code></td><td>Resolves host+service, fills the struct for you, IPv6-ready. Preferred over <code>gethostbyname</code>.</td></tr>
+</table>
+
+<h2>Errnos worth memorizing</h2>
+<table>
+  <tr><th>errno</th><th>From</th><th>Meaning</th></tr>
+  <tr><td><code>EADDRINUSE</code></td><td>bind</td><td>Port taken (or a TIME_WAIT remnant — fix with <code>SO_REUSEADDR</code>, set before bind).</td></tr>
+  <tr><td><code>ECONNREFUSED</code></td><td>connect</td><td>Nothing listening at that IP:port (RST came back).</td></tr>
+  <tr><td><code>EPIPE</code></td><td>write</td><td>Peer already closed (and you ignored read's 0 / <code>ECONNRESET</code>).</td></tr>
+  <tr><td><code>EAGAIN</code></td><td>read/write</td><td>Non-blocking socket, nothing ready right now — not an error.</td></tr>
+  <tr><td><code>EINTR</code></td><td>most</td><td>A signal interrupted the call — just retry it.</td></tr>
+</table>
+
+<h2>Socket options that matter first</h2>
+<table>
+  <tr><th>Option</th><th>Why you set it</th></tr>
+  <tr><td><code>SO_REUSEADDR</code></td><td>Lets a server rebind its port immediately after restart (TIME_WAIT survival). Level SOL_SOCKET, before <code>bind</code>.</td></tr>
+  <tr><td><code>TCP_NODELAY</code></td><td>Disables Nagle's algorithm — small request/response latency.</td></tr>
+  <tr><td><code>SO_KEEPALIVE</code></td><td>Kernel probes a silent connection; detects dead peers eventually.</td></tr>
+</table>
+
+<h2>See the kernel's view (debug commands)</h2>
+<table>
+  <tr><th>Command</th><th>Shows</th></tr>
+  <tr><td><code>ss -tlnp</code> / <code>lsof -i :PORT</code></td><td>Listening sockets + owning processes; established pairs.</td></tr>
+  <tr><td><code>strace -e trace=network ./server</code></td><td>Every socket syscall your program actually makes.</td></tr>
+  <tr><td><code>tcpdump -i lo port 5000</code></td><td>The packets themselves: SYN, ACK, FIN, RST, payload.</td></tr>
+  <tr><td><code>nc HOST PORT</code> / <code>nc -l PORT</code></td><td>Instant client / instant throwaway server.</td></tr>
+</table>
+
+<div class="source">
+  <span class="label">Ground truth</span>
+  <a href="https://man7.org/linux/man-pages/man7/socket.1.html">man 7 socket</a> and friends — when this sheet and the man page disagree, the man page wins.
+</div>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 10 课 — 调试与毕业设计</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 10 课</span><span>毕业 <a class="langbtn" href="0010-debugging-capstone.html" title="Switch to English">EN</a></span></div>
+  <h1>调试与毕业设计</h1>
+  <p class="dek">socket bug 是一个关于系统的断言。三件工具让你在三个层面核对断言：你的代码要求了什么、内核做了什么、线上跑的是什么。</p>
+</div>
+
+<p>整个课程浓缩成一句话：<em>你的代码对内核队列说话；内核把包送上线路。</em>调试就是逐层核对。</p>
+
+<h2>三棱镜法</h2>
+<ul>
+  <li><strong>你的代码做了什么 —— <span class="term">strace</span>。</strong><span class="term">strace -e trace=network -p PID</span> 显示每条 socket 系统调用、参数、errno。"我们从没调 accept"、"read 返回的是 ECONNRESET 而不是 0" —— 在这里都是十秒钟的答案。</li>
+  <li><strong>内核持有什么 —— <span class="term">ss</span> / <span class="term">lsof</span>。</strong><span class="term">ss -tino</span>：每条连接的状态、队列（Recv-Q/Send-Q —— 等着被读/发的字节！）、选项、定时器。"数据卡在 Send-Q" 意味着对端不读 —— 第 8 课输出缓冲的场景，从外部确诊。</li>
+  <li><strong>线上实际发了什么 —— <span class="term">tcpdump</span>。</strong><span class="term">tcpdump -i any -nn port 5000</span>：SYN、重传（重复 ACK）、RST、FIN、载荷。终极事实。当 strace 和 ss 与现实争执时，线路说了算。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>自上而下诊断：症状 → ss（内核状态）→ strace（你的调用）→ tcpdump（线路）。</strong>多数 socket bug 是被<em>定位</em>的，不是被猜中的：卡住的 Recv-Q 控诉读者；重传风暴控诉路径或对端；write 上的 ECONNRESET 控诉你忽略了的已关闭对端。先读证据，再读代码。
+</div>
+
+<h2>毕业设计：一台服务器，汇集全部所学</h2>
+<p>从零写起，凭记忆，不翻课程文件。规格：</p>
+<ul>
+  <li>TCP 服务端，地址来自 <span class="term">getaddrinfo</span>（AI_PASSIVE），<span class="term">SO_REUSEADDR</span> 在 bind <em>之前</em>设好（第 3、9 课）。</li>
+  <li>单线程 <span class="term">epoll</span> 循环、非阻塞 fd（第 6、8 课）。</li>
+  <li>长度前缀分帧、校验上限（第 4 课）；每连接输入<em>和</em>输出双缓冲（第 8 课）。</li>
+  <li>行为：把每一帧<strong>倒序</strong>回显 —— 一个肉眼可验的真往返。</li>
+  <li>优雅关闭：read()==0 → 释放连接；write EAGAIN → 进 EPOLLOUT 队列（第 2、8 课）。</li>
+  <li>100 个并发客户端、其中 3 个从不读取的情况下，fd 记账依然正确（第 5 课的教训，事件循环版）。</li>
+</ul>
+<p>验收：用一小段 Python asyncio 脚本起 <span class="term">100</span> 个客户端；慢读者挂着不动；所有守规矩的客户端都拿到正确的倒序帧；<span class="term">ss -tn</span> 显示队列有界；<span class="term">strace</span> 里没有空转的 accept 循环。通过之时，你亲手写出的，就是 Redis 与 nginx 核心里的那套架构。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>客户端说服务端"卡住"。ss 显示该连接 Recv-Q 持续增长。谁的锅？</summary>
+    <p class="answer">客户端，一直不读。</p>
+    <p class="why">Recv-Q 是内核<em>替这条连接的用户</em>暂存的数据 —— 到了，没人读。服务端的写也可能在下游被 Send-Q 背压憋住。增长的队列永远控诉读者。</p>
+  </details>
+  <details><summary>tcpdump 里同一段数据被发了 5 次。这是什么？</summary>
+    <p class="answer">重传，ACK 没回。</p>
+    <p class="why">重复段意味着 ACK 没回来 —— 丢包、回程断了、或对端收到却不 ACK（应用卡死、缓冲塞满）。次数与间隔（退避节奏）会告诉你是哪一种。</p>
+  </details>
+  <details><summary>"我的代码到底有没有用正确的端口调过 connect" —— 哪个工具能答？</summary>
+    <p class="answer">strace，带参数。</p>
+    <p class="why">strace 打印每条系统调用的参数与返回：connect(3, {sa_family=AF_INET, sin_port=htons(5000)...}) —— 看得见、核得对，失败还带 errno。ss/tcpdump 看后果；strace 看意图。</p>
+  </details>
+  <details><summary>毕业设计在客户端慢时丢字节。你忘了什么？</summary>
+    <p class="answer">输出缓冲区。</p>
+    <p class="why">部分写剩下的字节总得有地方住，等 EPOLLOUT 再续发。没有这个缓冲，下一轮循环一到，残余帧数据就凭空蒸发 —— 恰是第 8 课毕业一步要防的那个 bug。</p>
+  </details>
+</div>
+
+<h2>路往何处去</h2>
+<p>课程完结 —— 前面的地图：unix-domain socket（同一套 API，不走网络，IPC 级快）、<span class="term">io_uring</span>（异步系统调用，越过 epoll）、QUIC（用户空间对 TCP 的挑战者）、OpenSSL/BoringSSL 的 TLS，以及读一个真实代码库 —— <a href="https://github.com/redis/redis">Redis</a> 的网络层写得相当可读，并且用上了本课的每一样东西。想要哪扇门，开口便是 —— 老师仍然只有一个命令之遥。</p>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://www.tcpdump.org/manpages/tcpdump.1.html">tcpdump 手册</a> 加 <a href="https://man7.org/linux/man-pages/man8/ss.8.html">man 8 ss</a> —— 两页文档，把你从猜谜者变成观察者。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 课程有终点，教学没有。让 agent 审你的毕业设计、陪你追一个 bug、或推开上面任何一扇门。</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 9 课：<a href="0009-socket-options-knobs.zh.html">socket 选项</a></span>
+  <span>—— 全课完 ——</span>
+</div>
+</body>
+</html>

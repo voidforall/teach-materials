@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 1 — A Socket Is a File Descriptor</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 1</span><span>Foundations <a class="langbtn" href="0001-socket-fd-and-five-syscalls.zh.html" title="切换到中文">中</a></span></div>
+  <h1>A Socket Is a File Descriptor</h1>
+  <p class="dek">Before the syscalls, the single idea that makes everything else click: a socket is just an open file the kernel owns — with a phone number attached.</p>
+</div>
+
+<p>Your mission is to write real network programs <em>and</em> understand the machine underneath. So we start with the theory in one sentence, then immediately write and run real code.</p>
+
+<p>When you call <span class="term">socket()</span>, the kernel allocates a <strong>communication endpoint</strong> and — like <span class="term">open()</span> for files — hands you back a small integer: a <strong>file descriptor</strong>. You never touch the endpoint directly. Every later syscall (<span class="term">bind</span>, <span class="term">listen</span>, <span class="term">accept</span>, <span class="term">connect</span>, <span class="term">read</span>, <span class="term">write</span>, <span class="term">close</span>) just names that integer. This is why sockets play with <span class="term">select</span>/<span class="term">poll</span>/<span class="term">epoll</span>, why they're inheritable across <span class="term">fork()</span>, and why "everything is a file" on Unix extends to the network.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A socket is a kernel object reached through an fd; the syscalls don't move data to the network — they ask the kernel to, and the kernel's queues do the rest.</strong> Client and server never share memory; the kernel holds one receive queue per socket. <span class="term">read()</span> is just "drain my queue".
+</div>
+
+<h2>The five-syscall dance (TCP)</h2>
+
+<p>A TCP conversation takes two different fd's on the server side, and the sequence is where everyone gets lost. Watch the asymmetry:</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 560 240" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">Server</text>
+  <text x="420" y="16" class="mem-lbl">Client</text>
+  <g class="mem-lbl" font-weight="400" font-size="12">
+    <text x="0" y="45">s = socket()</text>
+    <text x="0" y="75">bind(s, :5000)</text>
+    <text x="0" y="105">listen(s)</text>
+    <text x="0" y="135">c = accept(s) ── blocks</text>
+    <text x="0" y="180">read(c) / write(c)</text>
+    <text x="0" y="210">close(c)</text>
+    <text x="420" y="45">fd = socket()</text>
+    <text x="420" y="105">connect(fd, :5000)</text>
+    <text x="420" y="180">write(fd) / read(fd)</text>
+    <text x="420" y="210">close(fd)</text>
+  </g>
+  <path d="M235 112 C 320 112, 320 108, 415 108" stroke="var(--flow)" fill="none" stroke-width="1.5" marker-end="url(#arr)"/>
+  <path d="M415 128 C 320 128, 320 132, 235 132" stroke="var(--gain)" fill="none" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <text x="255" y="105" class="mem-sub">SYN (handshake starts)</text>
+  <text x="255" y="150" class="mem-sub">kernel handshake completes → accept returns a NEW fd</text>
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6" fill="none" stroke="var(--flow)"/></marker>
+    <marker id="arr2" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6" fill="none" stroke="var(--gain)"/></marker>
+  </defs>
+</svg>
+</div>
+
+<p>Decode the asymmetry:</p>
+<ul>
+  <li><span class="term">socket()</span> creates the endpoint, but it has no address. <span class="term">bind()</span> pins it to a local <strong>IP:port</strong>. The client usually skips <span class="term">bind</span> — the kernel picks an ephemeral port at <span class="term">connect</span> time.</li>
+  <li><span class="term">listen()</span> flips the socket from "active" to "listening": it will accept inbound connections. The kernel builds <em>two</em> queues: one for half-open handshakes (SYN received), one for finished handshakes waiting for your code.</li>
+  <li><span class="term">accept()</span> pops a completed connection off that queue and returns a <strong>brand-new fd</strong> for that one peer. The listening socket stays listening — it is a door, not a conversation.</li>
+  <li><span class="term">connect()</span> is the client's one move: it drives the TCP three-way handshake and returns when the connection is established.</li>
+</ul>
+
+<p>One more theory bite, the one interviewers love: TCP gives you <strong>no message boundaries</strong>. It is a byte stream. One <span class="term">write()</span> of 100 bytes can arrive as two <span class="term">read()</span>s of 40 + 60 — or vice versa. This fact will dominate Lesson 4 (framing).</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Which call turns a fresh socket into one that can receive inbound TCP connections?</summary>
+    <p class="answer">listen.</p>
+    <p class="why"><span class="term">bind</span> only assigns an address; the socket is still "active". <span class="term">listen</span> marks it passive and allocates the accept queues. Both are needed before <span class="term">accept</span> works.</p>
+  </details>
+  <details><summary>A server handles one client at a time. How many fds are alive during the conversation?</summary>
+    <p class="answer">Two.</p>
+    <p class="why">The listening socket stays open (it keeps admitting new connections), plus the per-connection fd returned by <span class="term">accept</span>. Confusing the two — closing the listener instead of the connection fd — is a classic first-server bug.</p>
+  </details>
+  <details><summary>The client sends one 100-byte write. What does the server's single read return?</summary>
+    <p class="answer">Not guaranteed 100.</p>
+    <p class="why">TCP is a byte stream with no message boundaries. The kernel hands <span class="term">read</span> whatever has arrived so far — could be 40 bytes now, 60 later. Only "at least 1, at most requested" is promised.</p>
+  </details>
+  <details><summary>Why can the client skip bind() while the server cannot?</summary>
+    <p class="answer">Nobody calls clients.</p>
+    <p class="why">The peer needs a stable, known address to connect <em>to</em> — that's the server's job. The client's source port just needs to be unique, so the kernel auto-assigns an ephemeral one during <span class="term">connect</span>.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — C, 15 minutes</span>
+  <p>Save as <span class="term">server.c</span> — a complete TCP server in ~30 lines:</p>
+  <pre><code>#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;arpa/inet.h&gt;
+
+int main(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+
+    struct sockaddr_in addr = {0};
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);  // all interfaces
+    addr.sin_port        = htons(5000);        // host → network byte order!
+    bind(s, (struct sockaddr *)&amp;addr, sizeof addr);
+    listen(s, 8);
+
+    puts("listening on :5000 ...");
+    for (;;) {
+        int c = accept(s, NULL, NULL);      // blocks until a client arrives
+        char buf[256];
+        ssize_t n = read(c, buf, sizeof buf - 1);
+        buf[n &gt; 0 ? n : 0] = 0;
+        printf("got: %s", buf);
+        write(c, buf, n);                   // echo it back
+        close(c);                           // one conversation, then done
+    }
+}</code></pre>
+  <p>Run it, then be the client with zero extra code:</p>
+  <pre><code>cc -Wall server.c -o server &amp;&amp; ./server
+# in another terminal:
+printf 'hello sockets\n' | nc localhost 5000</code></pre>
+  <p>Then watch the theory become visible: run <span class="term">nc -l 9999</span> in one terminal and <span class="term">lsof -i :9999</span> (or <span class="term">ss -tlnp</span> on Linux) in another — find the LISTEN entry. Connect a client, run it again, and find the ESTABLISHED pair. You are looking straight at the two-fd picture above.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://beej.us/guide/bgnet/html/split/system-calls-or-bust.html">Beej's Guide, "System Calls or Bust"</a> — the same five syscalls, with the full C incantations (and <span class="term">getaddrinfo</span>, which we'll adopt in Lesson 3).
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> This lesson is one command away from a teacher — ask the agent anything: "why htons?", "what exactly sits in the listen queues?", "show me the SYN with tcpdump".</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a></span>
+  <span>Lesson 2: <a href="0002-two-armies-what-tcp-promises.html">what TCP actually promises</a> ►</span>
+</div>
+</body>
+</html>

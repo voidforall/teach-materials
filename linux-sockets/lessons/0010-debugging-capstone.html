@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 10 — Debugging &amp; Capstone</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 10</span><span>Capstone <a class="langbtn" href="0010-debugging-capstone.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Debugging &amp; Capstone</h1>
+  <p class="dek">A socket bug is a claim about the system. Three tools let you check the claim at three layers: what your code asked for, what the kernel did, and what went on the wire.</p>
+</div>
+
+<p>The whole course in one sentence: <em>your code talks to kernel queues; the kernel talks packets onto the wire.</em> Debugging is just checking each layer in turn.</p>
+
+<h2>The three-lens method</h2>
+<ul>
+  <li><strong>What your code did — <span class="term">strace</span>.</strong> <span class="term">strace -e trace=network -p PID</span> shows every socket syscall, arguments, and errno. "We never called accept" and "read returns ECONNRESET, not 0" are both ten-second answers here.</li>
+  <li><strong>What the kernel holds — <span class="term">ss</span> / <span class="term">lsof</span>.</strong> <span class="term">ss -tino</span>: every connection's state, queues (Recv-Q/Send-Q — bytes waiting!), options, timers. "The data is stuck in Send-Q" means the peer isn't reading — Lesson 8's output buffer scenario, diagnosed from outside.</li>
+  <li><strong>What actually shipped — <span class="term">tcpdump</span>.</strong> <span class="term">tcpdump -i any -nn port 5000</span>: SYNs, retransmissions (dup ACKs), RSTs, FINs, payload. The ground truth. When strace and ss disagree with reality, the wire settles it.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Diagnose top-down: symptom → ss (kernel state) → strace (your calls) → tcpdump (the wire).</strong> Most socket bugs are located, not guessed: a stuck Recv-Q indicts the reader; a retransmit storm indicts the path or the peer; an ECONNRESET on write indicts a closed peer you ignored. Read evidence before reading code.
+</div>
+
+<h2>The capstone: one server, everything earned</h2>
+<p>Build it from scratch, from memory, no lesson files open. Specification:</p>
+<ul>
+  <li>TCP server on an address from <span class="term">getaddrinfo</span> (AI_PASSIVE), <span class="term">SO_REUSEADDR</span> set <em>before</em> bind (Lessons 3, 9).</li>
+  <li>Single-threaded <span class="term">epoll</span> loop, non-blocking fds (Lessons 6, 8).</li>
+  <li>Length-prefixed framing with a validated maximum (Lesson 4); per-connection input <em>and</em> output buffers (Lesson 8).</li>
+  <li>Behavior: echo each frame back <strong>reversed</strong> — a real round-trip you can verify by eye.</li>
+  <li>Graceful close: read()==0 → free the connection; write EAGAIN → EPOLLOUT queue (Lessons 2, 8).</li>
+  <li>Correct fd accounting under 100 simultaneous clients, three of which never read (Lesson 5's lesson, event-loop edition).</li>
+</ul>
+<p>Acceptance test: <span class="term">100</span> clients via a small Python asyncio script; slow readers connected and idle; all well-behaved clients still get correct reversed frames; <span class="term">ss -tn</span> shows bounded queues; <span class="term">strace</span> shows no busy accept loop. When that passes, you have written — with your own hands — the architecture inside Redis and nginx's core.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Client says server "hangs". ss shows Recv-Q growing on the connection. Who's at fault?</summary>
+    <p class="answer">The client, reading nothing.</p>
+    <p class="why">Recv-Q is data the kernel holds <em>for that connection's user</em> — it arrived; nobody read it. The server's writes may also be blocked downstream by Send-Q backpressure. A growing queue indicts the reader, always.</p>
+  </details>
+  <details><summary>tcpdump shows the same data segment sent 5 times. What's that?</summary>
+    <p class="answer">Retransmit, missing ACK.</p>
+    <p class="why">Duplicate segments mean the ACK never came back — packet loss, a broken return path, or a peer that received but stopped ACKing (hung app with full buffers). The count and spacing (backoff) tell you which story.</p>
+  </details>
+  <details><summary>Which tool answers "did my code ever call connect() with the right port"?</summary>
+    <p class="answer">strace, arguments shown.</p>
+    <p class="why">strace prints each syscall's arguments and return: connect(3, {sa_family=AF_INET, sin_port=htons(5000)...}) — visible, checkable, with errno on failure. ss/tcpdump see consequences; strace sees intent.</p>
+  </details>
+  <details><summary>Your capstone drops bytes when a client is slow. What did you forget?</summary>
+    <p class="answer">The output buffer.</p>
+    <p class="why">Partial writes leave unsent bytes that must live somewhere and retry on EPOLLOUT. Without that buffer, the leftover frame data is simply lost on the next loop iteration — the exact bug Lesson 8's graduation step exists to prevent.</p>
+  </details>
+</div>
+
+<h2>Where the road continues</h2>
+<p>Course complete — the map onward: unix-domain sockets (same APIs, no network, IPC-fast), <span class="term">io_uring</span> (async syscalls, past epoll), QUIC (userspace TCP's rival), TLS with OpenSSL/BoringSSL, and reading a real codebase — <a href="https://github.com/redis/redis">Redis</a>'s networking layer is genuinely readable and uses everything from this course. When you want any of these, ask — the teacher is still one command away.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://www.tcpdump.org/manpages/tcpdump.1.html">the tcpdump man page</a> plus <a href="https://man7.org/linux/man-pages/man8/ss.8.html">man 8 ss</a> — two pages that turn you from a guesser into an observer.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> The course is finished; the teaching isn't. Ask the agent to review your capstone, trace a bug with you, or open any door above.</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 9: <a href="0009-socket-options-knobs.html">socket options</a></span>
+  <span>— end of course —</span>
+</div>
+</body>
+</html>

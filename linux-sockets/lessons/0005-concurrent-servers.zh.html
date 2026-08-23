@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 5 课 — 并发服务端：fork 与线程</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 5 课</span><span>实战 <a class="langbtn" href="0005-concurrent-servers.html" title="Switch to English">EN</a></span></div>
+  <h1>并发服务端：<span class="term">fork</span> 与线程</h1>
+  <p class="dek">第 1 课的服务端一次只能服务一个客户端。客户端 #2 一连上，就只能排在内核的 accept 队列里，等你陪 #1 聊完。现在解决它。</p>
+</div>
+
+<p>第 1 课的循环是<em>迭代式</em>的：accept → 服务 → close → 再来。它诚实、正确，而且一旦两个客户端时间重叠就崩塌。经典的升级路线，按出现顺序：</p>
+<ul>
+  <li><strong>每连接一进程</strong> —— <span class="term">fork()</span>。子进程继承所有 fd（这正是第 1 课"socket 即文件"的分红），服务完它的客户端就退出。隔离极稳；规模巨大时开销大（一整套进程映像）。</li>
+  <li><strong>每连接一线程</strong> —— <span class="term">pthread_create</span>。栈很便宜、地址空间共享（既方便又危险），代码仍是阻塞式。</li>
+  <li><strong>事件循环</strong> —— 一个线程、一大把 fd、从不阻塞。第 6–8 课。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>并发来自"谁拥有这条连接 fd"，每种模型只是给出不同答案。</strong>fork：你的一个副本拥有它。线程：你的一个兄弟拥有它。事件循环：谁也不拥有 —— 谁就绪循环就借用谁。所有设计决策（隔离、共享状态、调度）都从这一个选择推演而出。
+</div>
+
+<h2>fork 模式（最短的正确版）</h2>
+<pre><code>for (;;) {
+    int c = accept(s, NULL, NULL);
+    if (c &lt; 0) { perror("accept"); continue; }
+
+    pid_t pid = fork();
+    if (pid == 0) {              // 子进程
+        close(s);                //   不需要那扇监听的门
+        serve(c);                //   阻塞式读写，第 4 课的分帧
+        close(c);
+        _exit(0);
+    }
+    close(c);                    // 父进程：交出 fd，转身就忘
+}</code></pre>
+
+<p>两行 <span class="term">close</span> 就是本课的课眼。<span class="term">fork</span> 之后，两个进程<em>都</em>握着两套 fd —— 监听者和连接。子进程必须关掉监听者（它不去 accept），父进程必须关掉连接 fd（现在归子进程）。漏掉任何一个，每条连接都会泄漏 fd，直到进程上限干掉你的服务端。还有一处悄悄必需的：<span class="term">signal(SIGCHLD, SIG_IGN)</span>（或一个 <span class="term">waitpid</span> 的处理器），免得退出的子进程变成僵尸滞留。</p>
+
+<p>线程版同构：新线程概念上关掉监听者（线程共享 fd —— 直接把 <span class="term">c</span> 传进去就行），而主线程<em>不</em>关 <span class="term">c</span>；新线程要么 detach 要么被 join，否则这次泄漏的是线程对象。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>fork() 刚返回时，一个客户端的连接 fd 有几个？</summary>
+    <p class="answer">两个，各进程一个。</p>
+    <p class="why">fork 复制 fd 表：父子各持一个描述符指向同一个内核 socket。只有最后一个引用关闭，socket 才真正关闭 —— 所以那两行 close 都不能省。</p>
+  </details>
+  <details><summary>父进程忘了 close 已 accept 的 fd 会怎样？</summary>
+    <p class="answer">服务端漏 fd。</p>
+    <p class="why">每条连接都在父进程里永久留下一个活 fd。连接数过了 "ulimit -n"（常为 1024），accept 就报 <span class="term">EMFILE</span>，服务端对所有人关门 —— 经典的慢性死亡生产事故。</p>
+  </details>
+  <details><summary>SIGCHLD 为什么要 SIG_IGN？</summary>
+    <p class="answer">防子进程成僵尸。</p>
+    <p class="why">退出的子进程会以僵尸态滞留，直到父进程收割。<span class="term">SIG_IGN</span> 让内核自动收割；另一条路是在处理器里循环 <span class="term">waitpid(-1, ..., WNOHANG)</span>。僵尸不耗内存，但耗 fd/PID 资源，且会累积。</p>
+  </details>
+  <details><summary>两个线程同时 write() 同一个 socket，有交错风险吗？</summary>
+    <p class="answer">整写乱序。</p>
+    <p class="why">单次 write() 对 socket 缓冲是原子的（不会字节级穿插），但两个线程写<em>谁先谁后</em>是竞态。如果顺序要紧，用一个写线程或加锁 —— 别指望运气。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— 两个客户端同时在线，20 分钟</span>
+  <p>把第 1 课服务端的主循环换成上面的 fork 模式，再加 <span class="term">signal(SIGCHLD, SIG_IGN)</span>（包含 <span class="term">&lt;signal.h&gt;</span>）。然后：</p>
+  <pre><code>cc -Wall server5.c -o server5 &amp;&amp; ./server5
+# 终端 2 —— 慢客户端：连上就干坐着
+nc localhost 5000        # 什么都不输入；保持打开
+# 终端 3 —— 并发证明：这个立刻被服务
+printf 'still fast\n' | nc localhost 5000
+# 终端 4 —— 两个都在线时看进程树
+ps -o pid,ppid,command | grep server5</code></pre>
+  <p>终端 2 闲坐着，终端 3 却秒回 —— 这就是并发。<span class="term">ps</span> 输出里是一个父进程（负责 accept）加每个在线客户端一个子进程。接着轮流删掉那两行 <span class="term">close()</span>，循环重连，看 <span class="term">lsof -p $(pgrep server5)</span> 里泄漏的 fd 越积越多。故意弄坏它一次，就再也不会无意弄坏它。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://beej.us/guide/bgnet/html/split/simple-server.html">Beej 的 fork 服务端走读</a>，以及 <a href="https://man7.org/linux/man-pages/man2/fork.2.html">man 2 fork</a>（fd 继承规则）。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 问 agent："fork 什么时候优于线程？"、"prefork 进程池是什么？"、"systemd socket activation 怎么掺和进来？"</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 4 课：<a href="0004-framing-short-reads.zh.html">分帧</a></span>
+  <span>第 6 课：<a href="0006-select-poll-epoll.zh.html">select、poll、epoll</a> ►</span>
+</div>
+</body>
+</html>

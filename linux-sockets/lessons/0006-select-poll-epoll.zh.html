@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Linux Sockets · 第 6 课 — select、poll、epoll</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · 第 6 课</span><span>实战 <a class="langbtn" href="0006-select-poll-epoll.html" title="Switch to English">EN</a></span></div>
+  <h1>select、poll、epoll</h1>
+  <p class="dek">一个线程、一万客户端、零次无谓阻塞。诀窍不是魔法 —— 只是向内核问一个问题："这些 fd 里，<em>现在</em>哪些就绪了？"</p>
+</div>
+
+<p>第 5 课用"每连接一个进程/线程"换来并发。到一万条绝大多数时间闲着的连接（聊天、代理、物联网），就是一万个栈外加调度器抖动 —— 即<a href="https://kegel.com/c10k.html">C10K 问题</a>。替代方案：<strong>多路复用</strong>。登记对一批 fd 的兴趣；睡到<em>其中任何一个</em>就绪；只处理那几个。</p>
+
+<h2>三个 API，同一个思想的效率三级跳</h2>
+<table style="width:100%; border-collapse:collapse; font-family:var(--sans); font-size:0.88rem;">
+  <tr style="background:var(--accent-soft);">
+    <th style="padding:.4rem .6rem; text-align:left;">API</th><th style="padding:.4rem .6rem; text-align:left;">你要传什么</th><th style="padding:.4rem .6rem; text-align:left;">每次调用成本</th><th style="padding:.4rem .6rem; text-align:left;">fd 上限</th></tr>
+  <tr><td style="padding:.4rem .6rem; border:1px solid var(--rule);"><code>select</code></td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">三个 fd_set 位图，每次重建</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">双向 O(全部 fd) + 整表拷贝</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">FD_SETSIZE = 1024</td></tr>
+  <tr><td style="padding:.4rem .6rem; border:1px solid var(--rule);"><code>poll</code></td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">struct pollfd 数组</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">O(全部 fd) 扫描，免重建位图</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">实际无上限</td></tr>
+  <tr><td style="padding:.4rem .6rem; border:1px solid var(--rule);"><code>epoll</code>（Linux）</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">常驻内核的注册表（epoll_ctl）</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">O(就绪 fd) —— 内核保存兴趣表</td><td style="padding:.4rem .6rem; border:1px solid var(--rule);">实际无上限</td></tr>
+</table>
+
+<p>看趋势：select/poll 是<em>无状态提问</em> —— 每次调用都要重新描述整个 fd 集合，内核全量扫。epoll 是<em>常驻订阅</em> —— 内核记住你在乎什么，醒来时把就绪列表递给你。就这一处架构差异，解释了为什么 nginx、Redis 和 Linux 上一切现代高并发服务端都建在 epoll 之上（macOS/BSD 对应物：<span class="term">kqueue</span>；跨平台封装：<span class="term">libuv</span>、<span class="term">libevent</span>）。</p>
+
+<div class="keystone">
+  <span class="label">关键认知</span>
+  <strong>select/poll：每次调用把监看名单推给内核。epoll：注册一次，内核把就绪事件推给你。</strong>一万连接、十个活跃时，select 扫一万，epoll 返回十。就绪驱动、绝不为单个 fd 阻塞 —— 这就是事件循环范式的全部。
+</div>
+
+<h2>epoll 服务端骨架</h2>
+<pre><code>int ep = epoll_create1(0);
+struct epoll_event ev = { .events = EPOLLIN, .data.fd = s };
+epoll_ctl(ep, EPOLL_CTL_ADD, s, &amp;ev);          // 订阅：监听者
+
+struct epoll_event ready[64];
+for (;;) {
+    int n = epoll_wait(ep, ready, 64, -1);       // 睡到"某个东西"就绪
+    for (int i = 0; i &lt; n; i++) {
+        if (ready[i].data.fd == s) {             // 监听者就绪 → 新客户端
+            int c = accept(s, NULL, NULL);
+            set_nonblocking(c);                  // 第 8 课：此处必不可少
+            ev.events = EPOLLIN; ev.data.fd = c;
+            epoll_ctl(ep, EPOLL_CTL_ADD, c, &amp;ev);
+        } else {                                 // 客户端就绪 → 读一块
+            int c = ready[i].data.fd;
+            ssize_t r = read(c, buf, sizeof buf);
+            if (r &lt;= 0) { epoll_ctl(ep, EPOLL_CTL_DEL, c, NULL); close(c); }
+            else append_to_conn_buffer(c, buf, r);   // 第 4 课分帧在此生效
+        }
+    }
+}</code></pre>
+
+<p>注意这个循环<em>从不</em>做的事：等某一个客户端。慢客户端只花一次迭代；一万个闲连接不说话就不花钱。这个循环是单线程的 —— 状态都放在你的连接结构体里，而第 4 课的"每连接一缓冲"现在成了承重墙，不再是可选项。</p>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>select 为什么把 fd 卡在 1024？</summary>
+    <p class="answer">位图是定长。</p>
+    <p class="why">fd_set 是编译进 libc 的 FD_SETSIZE 位固定数组。调高它属于重编译碰运气；poll（动态数组）与 epoll（根本不传集合）彻底拆掉了天花板。</p>
+  </details>
+  <details><summary>一万连接、5 个活跃。三种 API 每次醒来各查多少 fd？</summary>
+    <p class="answer">一万、一万、5。</p>
+    <p class="why">select 和 poll 每次调用都要全量扫注册集 —— 活不活跃都得扫。epoll 的就绪列表恰好只含变为就绪的 fd，成本跟着<em>活跃度</em>走，而不是跟着<em>规模</em>走。</p>
+  </details>
+  <details><summary>事件循环的每连接缓冲区放在哪里？</summary>
+    <p class="answer">用户态堆上。</p>
+    <p class="why">"可读"只意味着"至少到了一个字节"。一个事件可能只带来半帧；一帧也可能横跨多次事件。重组是你自己的事 —— 内核只排队字节，从不排队消息。</p>
+  </details>
+  <details><summary>epoll 服务端里客户端 fd 为什么必须非阻塞？</summary>
+    <p class="answer">就绪不等于一直在。</p>
+    <p class="why">EPOLLIN 只保证"当时有数据"；等你真去 read，可能已被别人读走 —— 阻塞 fd 会把整个循环睡死。写侧同理：发送缓冲一满，阻塞 write 就变成"所有人陪等"。细节在第 8 课。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 —— 体会 O(n) 对 O(活跃)，15 分钟（Linux/容器）</span>
+  <pre><code># 一个 select 版服务端，每个循环打印自己扫了多少 fd
+# （可直接替换第 1 课的服务端；strace 能看到系统调用风暴）
+cc -Wall srv_select.c -o srv_select &amp;&amp; strace -e trace=select,accept4,read ./srv_select</code></pre>
+  <p>开 5 个 <span class="term">nc localhost 5000</span> 会话，在其中一个发一个字节，看 strace：每次醒来前都有一场全量 <span class="term">select</span>。再换成 epoll 骨架重演 —— <span class="term">epoll_wait</span> 只返回那一个活跃 fd。行为相同，工作量天壤之别。macOS 用户请进 Linux 容器：<span class="term">docker run -it --rm -v $PWD:/w -w /w alpine sh</span>，然后 <span class="term">apk add build-base strace</span>。</p>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <a href="https://man7.org/linux/man-pages/man7/epoll.7.html">man 7 epoll</a> —— 语义与陷阱（EPOLLOUT、饥饿、水平触发对边缘触发 —— 第 8 课的预告）。
+</div>
+
+<div class="ask"><b>卡住了？好奇了？</b> 问 agent："EPOLLET 是什么？"、"io_uring 有何不同？"、"Redis 用了 epoll 为什么如今还有线程？"</div>
+
+<div class="nav">
+  <span>课程 · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.zh.html">速查表</a> · 第 5 课：<a href="0005-concurrent-servers.zh.html">并发服务端</a></span>
+  <span>第 7 课：<a href="0007-udp-datagrams.zh.html">UDP 数据报</a> ►</span>
+</div>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 7 — UDP: Datagrams</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 7</span><span>Foundations <a class="langbtn" href="0007-udp-datagrams.zh.html" title="切换到中文">中</a></span></div>
+  <h1>UDP: Datagrams</h1>
+  <p class="dek">TCP was a phone call; UDP is a postcard. You keep the message — you lose the delivery, the order, and the connection.</p>
+</div>
+
+<p>One flag changes the world: <span class="term">socket(AF_INET, SOCK_DGRAM, 0)</span>. No handshake, no listen/accept, no connection — you send self-contained <strong>datagrams</strong> to an address, and each carries its own return address. The API mirrors the model: <span class="term">sendto(fd, buf, len, 0, &amp;dest, dstlen)</span> and <span class="term">recvfrom(fd, buf, len, 0, &amp;src, &amp;srclen)</span> — the sender's address arrives with every packet, because there is no "connection" to remember it.</p>
+
+<h2>What the postcard does and doesn't carry</h2>
+<ul>
+  <li><strong>Boundaries preserved.</strong> One <span class="term">sendto</span> = one datagram = one <span class="term">recvfrom</span>. No framing needed (Lesson 4 dissolves — mostly: a datagram larger than your read buffer is <em>silently truncated</em>).</li>
+  <li><strong>No order.</strong> Datagram #2 can beat #1 across the network.</li>
+  <li><strong>No delivery.</strong> Lost is lost; nobody retransmits, nobody is even told.</li>
+  <li><strong>No congestion control.</strong> UDP never backs off — which is both its speed and its antisocial danger.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>TCP exports complexity into the kernel; UDP exports it into your application.</strong> If you need ordering or reliability on UDP, <em>you</em> build retransmission, sequence numbers, and flow control — that's what QUIC, DNS-over-reliant-UDP designs, and game protocols are: bespoke reliability layers. Choose UDP when per-message value is low, latency beats completeness, or you multicast.
+</div>
+
+<h2>When UDP is the right answer</h2>
+<ul>
+  <li><strong>DNS</strong> — a query fits in one datagram; if it's lost, just ask again. Retrying a 60-byte question is cheaper than a handshake.</li>
+  <li><strong>Games / live media**</strong> — a 200 ms-old position update is worthless; retransmitting it would poison the present. Lossy-realtime beats late-perfect.</li>
+  <li><strong>Local discovery / logging</strong> — broadcast/multicast, fire-and-forget syslog, DHCP, mDNS. TCP literally cannot broadcast.</li>
+  <li><strong>QUIC / HTTP/3</strong> — the modern twist: user-space reliability <em>on top of</em> UDP, dodging middleboxes and TCP's ossified stacks.</li>
+</ul>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Two sendto() calls arrive. What does the second recvfrom() return?</summary>
+    <p class="answer">Second whole datagram.</p>
+    <p class="why">UDP preserves message boundaries: each recvfrom yields exactly one intact datagram, never a blend of two. But "second to be sent" may arrive first — order is the property you lost, not framing.</p>
+  </details>
+  <details><summary>A datagram is bigger than your recvfrom buffer. What happens?</summary>
+    <p class="answer">Truncated, silently.</p>
+    <p class="why">The kernel copies what fits and discards the rest — no error, no retry flag (unless you set MSG_TRUNC, which Linux then reports). Buffers for UDP must be sized for the protocol's max datagram, or use recvmmsg-style big reads.</p>
+  </details>
+  <details><summary>Why does UDP code often still call connect()?</summary>
+    <p class="answer">Pins the peer.</p>
+    <p class="why">UDP's connect sends nothing; it records the peer address so you can use plain send/recv, and the kernel then filters — datagrams from other sources are dropped instead of delivered. Also unlocks ICMP error delivery: an unreachable peer finally surfaces as ECONNREFUSED on the next send.</p>
+  </details>
+  <details><summary>Your UDP flood saturates the link. What backs off?</summary>
+    <p class="answer">Nothing at all.</p>
+    <p class="why">TCP has congestion control (cwnd, backing off on loss); UDP has none and will happily crowd out everything including itself. That's why responsible UDP apps rate-limit themselves — and why ISPs throttle heavy UDP users.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — postcards in 10 minutes</span>
+  <pre><code># terminal 1: a UDP sink that stamps each sender + payload
+nc -ul 7003
+# terminal 2: send two datagrams (each nc run = separate postcard)
+printf 'first\n'  | nc -u -w1 localhost 7003
+printf 'second\n' | nc -u -w1 localhost 7003</code></pre>
+  <p>Now the loss experiment TCP made impossible: start a UDP listener in a container (<span class="term">docker run -it --rm -p 7004:7004/udp alpine sh</span>, inside: <span class="term">nc -ul 7004</span>), then from the host blast 10,000 tiny datagrams with a 3-line Python loop and count arrivals. Missing? Good — you just watched UDP drop traffic under load, the very property that makes it both fast and unreliable. Re-run the same count over TCP and compare.</p>
+  <p>Then write it in C — it's the Lesson-1 server, minus listen/accept, plus <span class="term">recvfrom/sendto</span> with a <span class="term">sockaddr_storage</span> out-param you echo back into.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://man7.org/linux/man-pages/man7/udp.7.html">man 7 udp</a> — Linux's UDP semantics, including the truncation and connect() details above.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "how does QUIC build reliability on this?", "what's a UDP hole punch?", "why is DNS moving back to TCP?"</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 6: <a href="0006-select-poll-epoll.html">epoll</a></span>
+  <span>Lesson 8: <a href="0008-nonblocking-io.html">non-blocking I/O</a> ►</span>
+</div>
+</body>
+</html>

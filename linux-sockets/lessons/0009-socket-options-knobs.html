@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 9 — Socket Options &amp; Kernel Knobs</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 9</span><span>Practice <a class="langbtn" href="0009-socket-options-knobs.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Socket Options &amp; Kernel Knobs</h1>
+  <p class="dek">setsockopt is where theory pays rent: restart a server without waiting, kill Nagle's latency tax, detect dead peers, and survive fd exhaustion.</p>
+</div>
+
+<p>Options come in two families, named by the level you pass: <span class="term">SOL_SOCKET</span> (generic, any socket type) and <span class="term">IPPROTO_TCP</span> (TCP-specific). The pattern never changes:</p>
+<pre><code>int one = 1;
+setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &amp;one, sizeof one);</code></pre>
+
+<h2>The options that matter, in order of how often they save you</h2>
+<ul>
+  <li><strong><span class="term">SO_REUSEADDR</span> (SOL_SOCKET, before bind).</strong> Lesson 2's TIME_WAIT remnant blocks rebinding. This option says "let me take this port anyway". Every server sets it; the only debate is whether to also allow two live listeners (<span class="term">SO_REUSEPORT</span> — load-balancing across processes, kernel-aware).</li>
+  <li><strong><span class="term">TCP_NODELAY</span> (IPPROTO_TCP).</strong> Nagle's algorithm delays small writes so they can coalesce — great for batch, terrible for request/response. Disabling it makes "write request, read reply" round-trips as fast as the wire allows. Set it on interactive connections; keep Nagle for bulk.</li>
+  <li><strong><span class="term">SO_KEEPALIVE</span> (SOL_SOCKET).</strong> Kernel probes an idle connection every <span class="term">tcp_keepalive_time</span> (default 7200s — useless!). Tune with <span class="term">TCP_KEEPIDLE/TCP_KEEPINTVL/TCP_KEEPCNT</span> to ~60s/10s/3, or better: application-level heartbeats, which travel when the app is hung too, not just the OS.</li>
+  <li><strong><span class="term">SO_SNDBUF / SO_RCVBUF</span>.</strong> Kernel buffer sizes. Default ~200KB; fat-pipe transfers or bursty receivers may need more — but bigger isn't free (memory per connection × 10k connections).</li>
+  <li><strong><span class="term">SO_LINGER</span>.</strong> Changes close() semantics; the notorious <span class="term">l_onoff=1, timeout=0</span> variant aborts with RST instead of FIN — occasionally exactly the tool you need (discard unsent data now), usually a footgun.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Options are per-fd questions to the kernel, and timing matters: SO_REUSEADDR must precede bind, keepalive tunables must override the 2-hour default, and every option trades something (memory, coalescing, safety) for what it buys.</strong> Set options deliberately, and know which side of each trade you chose.
+</div>
+
+<h2>The fd-exhaustion survival kit</h2>
+<p>Lesson 5 leaked fds; here's the operational side. <span class="term">ulimit -n</span> caps open fds per process (often 1024 — ancient). Raise it (<span class="term">setrlimit</span> / systemd <span class="term">LimitNOFILE</span>). And handle <span class="term">EMFILE</span> from accept <em>gracefully</em>: the classic trick is a reserved "emergency fd" opened at startup, closed to make room for one more accept, which then gets closed immediately with the client told to retry — keeping the listener responsive instead of spinning.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Your server can't rebind its port after a crash-restart. First move?</summary>
+    <p class="answer">Set SO_REUSEADDR.</p>
+    <p class="why">The old connection's TIME_WAIT lingers ~60s holding the port. SO_REUSEADDR (before bind) lets the new listener share the wildcard binding. Waiting, or killing TIME_WAIT via sysctl, is treating the symptom.</p>
+  </details>
+  <details><summary>Why does a tiny request/response feel slow on default TCP over a fast LAN?</summary>
+    <p class="answer">Nagle delays smalls.</p>
+    <p class="why">Nagle holds a small write hoping to merge with the next one, and interacts with delayed ACK to add tens of ms. TCP_NODELAY sends immediately — for interactive protocols it's effectively free throughput-wise and halves perceived latency.</p>
+  </details>
+  <details><summary>Default keepalive takes how long to notice a dead peer?</summary>
+    <p class="answer">Two-plus hours.</p>
+    <p class="why">tcp_keepalive_time defaults to 7200 seconds before the first probe. Production must tune TCP_KEEPIDLE & friends down, or — more robust — send application pings, which also detect an app that's hung while the kernel is fine.</p>
+  </details>
+  <details><summary>SO_LINGER with timeout 0 — what does close() send?</summary>
+    <p class="answer">RST, aborting.</p>
+    <p class="why">It discards unsent data and slams the connection with a reset: peer sees ECONNRESET, no FIN handshake, no TIME_WAIT. Occasionally right (proxy shedding load, discarding backlogged writes); mostly a way to confuse peers and skip graceful shutdown.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — measure Nagle, 15 minutes</span>
+  <pre><code># a server that answers each byte with a byte (no delay in app code)
+nc -l 7006 -k            # macOS; on Linux use a 5-line loop server
+python3 - <<'EOF'
+import socket, time
+s = socket.create_connection(('localhost', 7006))
+for ndelay in (0, 1):
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, ndelay)
+    t0 = time.time()
+    for _ in range(100):
+        s.send(b'x'); s.recv(1)        # ping-pong
+    print('TCP_NODELAY =', ndelay, '→', round((time.time()-t0)*10, 1), 'ms / 100 pongs')
+EOF</code></pre>
+  <p>Over loopback the gap may be small (everything's fast); over a real network or a <span class="term">tc netem delay 30ms</span>-shaped link (Linux) it widens dramatically — that's Nagle+delayed-ACK interacting. Then inspect yourself: <span class="term">ss -tino</span> shows nodelay, keepalive timers, and buffer sizes per live connection — every option you set is visible there. Set one, watch it appear.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://man7.org/linux/man-pages/man7/socket.1.html">man 7 socket</a> (SOL_SOCKET options) + <a href="https://man7.org/linux/man-pages/man7/tcp.7.html">man 7 tcp</a> (TCP_* options and the sysctls).
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "SO_REUSEPORT vs SO_REUSEADDR exactly?", "how do I pick SNDBUF for 10Gbps?", "what's MPTCP?"</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 8: <a href="0008-nonblocking-io.html">non-blocking I/O</a></span>
+  <span>Lesson 10: <a href="0010-debugging-capstone.html">debugging &amp; capstone</a> ►</span>
+</div>
+</body>
+</html>

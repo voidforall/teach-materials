@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 5 — Concurrent Servers: fork &amp; threads</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Linux Sockets · Lesson 5</span><span>Practice <a class="langbtn" href="0005-concurrent-servers.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Concurrent Servers: <span class="term">fork</span> &amp; threads</h1>
+  <p class="dek">Lesson 1's server serves one client at a time. The moment client #2 connects, it waits in the kernel's accept queue while you chat with client #1. Fix that.</p>
+</div>
+
+<p>The Lesson-1 loop is <em>iterative</em>: accept → serve → close → repeat. It is honest and correct, and it collapses the instant two clients overlap. The classic escalation, in order of historical appearance:</p>
+<ul>
+  <li><strong>Process per connection</strong> — <span class="term">fork()</span>. The child inherits every fd (that's Lesson 1's "sockets are files" dividend), serves its client, exits. Rock solid isolation; expensive (a full process image) at huge scale.</li>
+  <li><strong>Thread per connection</strong> — <span class="term">pthread_create</span>. Cheap stacks, shared address space (convenient and dangerous), same blocking style of code.</li>
+  <li><strong>Event loop</strong> — one thread, many fds, never blocks. Lessons 6–8.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Concurrency comes from who owns the per-connection fd, and each model just answers that differently.</strong> fork: a copy of you owns it. Thread: a sibling of you owns it. Event loop: nobody owns anything — the loop borrows each fd when it's ready. Every design decision (isolation, shared state, scheduling) falls out of that one choice.
+</div>
+
+<h2>The fork pattern (shortest correct version)</h2>
+<pre><code>for (;;) {
+    int c = accept(s, NULL, NULL);
+    if (c &lt; 0) { perror("accept"); continue; }
+
+    pid_t pid = fork();
+    if (pid == 0) {              // child
+        close(s);                //   doesn't need the listening door
+        serve(c);                //   blocking reads/writes, Lesson 4 framing
+        close(c);
+        _exit(0);
+    }
+    close(c);                    // parent: hands the fd over, forgets it
+}</code></pre>
+
+<p>The two <span class="term">close</span> lines are the lesson. After <span class="term">fork</span> both processes hold <em>both</em> fds — the listener and the connection. The child must close the listener (it's not accepting) and the parent must close the connection fd (the child owns it now). Miss either and fds leak per connection until the process limit kills your server. Also required, quietly: <span class="term">signal(SIGCHLD, SIG_IGN)</span> (or a handler that <span class="term">waitpid</span>s) so finished children don't linger as zombies.</p>
+
+<p>Same shape with threads: the spawned thread closes the listener copy conceptually (threads share fds — you just pass <span class="term">c</span>), and — the part everyone forgets — the main thread does <em>not</em> close <span class="term">c</span>, and the new thread <em>detaches</em> or is joined, or you leak thread objects instead of zombies.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Right after fork(), how many connection fds exist for one client?</summary>
+    <p class="answer">Two, one per process.</p>
+    <p class="why">fork duplicates the fd table: parent and child each hold a descriptor pointing at the same kernel socket. The socket truly closes only when the last reference closes — hence both close()s matter.</p>
+  </details>
+  <details><summary>What goes wrong if the parent forgets to close the accepted fd?</summary>
+    <p class="answer">Server leaks fds.</p>
+    <p class="why">Every connection leaves one live fd in the parent forever. After "ulimit -n" (often 1024) connections, accept fails with <span class="term">EMFILE</span> and the server stops admitting anyone — a classic slow-death production bug.</p>
+  </details>
+  <details><summary>Why SIG_IGN for SIGCHLD?</summary>
+    <p class="answer">Prevents zombie children.</p>
+    <p class="why">Finished children stay as zombies until the parent reaps them. <span class="term">SIG_IGN</span> tells the kernel to auto-reap; the alternative is a <span class="term">waitpid(-1, ..., WNOHANG)</span> loop in a handler. Zombies cost fd/PID resources, not memory — but they accumulate.</p>
+  </details>
+  <details><summary>Two threads write() to the same socket. Interleaving risk?</summary>
+    <p class="answer">Whole writes, shuffled.</p>
+    <p class="why">A single write() is atomic with respect to the socket buffer (POSIX guarantees no byte-level interleaving for writes ≤ PIPE_BUF on pipes, and sockets serialize at the protocol layer), but the <em>order</em> of two threads' writes is a race. If order matters, use one writer thread or a lock — don't rely on luck.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — two clients at once, 20 minutes</span>
+  <p>Patch the Lesson-1 server's main loop with the fork pattern above, plus <span class="term">signal(SIGCHLD, SIG_IGN)</span> (include <span class="term">&lt;signal.h&gt;</span>). Then:</p>
+  <pre><code>cc -Wall server5.c -o server5 &amp;&amp; ./server5
+# terminal 2 — a slow client: connect and just sit
+nc localhost 5000        # type nothing; keep it open
+# terminal 3 — proof of concurrency: this one is served instantly
+printf 'still fast\n' | nc localhost 5000
+# terminal 4 — watch the process tree while both are connected
+ps -o pid,ppid,command | grep server5</code></pre>
+  <p>Terminal 3 answered immediately while terminal 2 sat idle — that's concurrency. The <span class="term">ps</span> output shows one parent (accepting) and one child per open client. Now delete each of the two <span class="term">close()</span> lines in turn, reconnect in a loop, and watch <span class="term">lsof -p $(pgrep server5)</span> fill with leaked fds. Break it on purpose once; never on accident again.</p>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://beej.us/guide/bgnet/html/split/simple-server.html">Beej's fork server walkthrough</a>, and <a href="https://man7.org/linux/man-pages/man2/fork.2.html">man 2 fork</a> for the fd-inheritance rules.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "when does fork beat threads?", "what's a pre-forked pool?", "how does systemd socket activation fit here?"</div>
+
+<div class="nav">
+  <span>Course · <a href="../MISSION.md">Mission</a> · <a href="../reference/syscalls-cheatsheet.html">Cheat sheet</a> · Lesson 4: <a href="0004-framing-short-reads.html">framing</a></span>
+  <span>Lesson 6: <a href="0006-select-poll-epoll.html">select, poll, epoll</a> ►</span>
+</div>
+</body>
+</html>
