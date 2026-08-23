@@ -1,0 +1,123 @@
+<meta charset="utf-8">
+<title>GT · 第 5 课 — 拍卖与机制设计</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>博弈论 · 第 5 课</span><span>≈16 分钟 · <a href="0005-auctions-mechanism-design.html">English</a></span></div>
+  <h1>拍卖与机制设计</h1>
+  <p class="dek">设计规则，就是设计行为。为什么一种拍卖让诚实成为聪明棋 —— 而另一种让赢变成坏消息。</p>
+</header>
+
+<p>拍卖是一种<strong>规则本身就是设计选择</strong>的博弈。广告交易所、国债、频谱拍卖、订单簿里的撮合逻辑，全是拍卖。本课交付这个领域最美的实用结果 —— 一个让<strong>说真话成为 dominant strategy</strong> 的规则 —— 然后把整个学科倒转过来，进入 <span class="term">mechanism design</span>（机制设计）：反着跑的博弈论，靠选择收益让自利产生你想要的结果。</p>
+
+<h2>设定：private values（私人价值）</h2>
+
+<p>一件东西对你值 <em>v</em>（你的 <span class="term">private value</span> —— 只有你知道）。你出价 <em>b</em>。赢则<strong>剩余（surplus）</strong>为 <em>v −（你付的钱）</em>，否则 0。两种经典密封拍卖规则的差别只在<em>赢家付多少</em>：</p>
+
+<ul>
+  <li><strong>First-price（第一价格）：</strong>出价最高者赢，付<em>自己的报价</em>。</li>
+  <li><strong>Second-price（第二价格 / Vickrey）：</strong>出价最高者赢，付<em>第二高</em>的报价。</li>
+</ul>
+
+<h2>宝石：second-price 拍卖里，报真实价值</h2>
+
+<div class="keystone">
+  <span class="label">说真话是 dominant strategy</span>
+  在 second-price 拍卖里，恰好出 <em>b = v</em> 是<strong>弱占优（weakly dominant）</strong>的 —— 无论别人出什么都最优。原因是一次干净的切分：<strong>你的报价只决定你<em>赢不赢</em>；别人出多少才决定你<em>付多少</em>。</strong>于是你恰好想在价格（对手最高报价）低于你的价值时赢 —— 而报你的价值自动做到这一点。
+</div>
+
+<p>完整证明如下，用的还是第 1 课 dominance 的逐情形检查。设 <em>m</em> = <em>对手中</em>的最高报价（你赢时付的价格）。把"报真实价值 <em>v</em>"与任何偏离比较：</p>
+
+<ul>
+  <li><strong>报得比价值高（b &gt; v）。</strong>只有当 <em>v &lt; m &lt; b</em> 时改变结果：你赢了，但付 <em>m &gt; v</em> → <em>负</em>剩余。你花钱买了个亏。说真话本会让你输 —— 那才是对的。永远不会更好。</li>
+  <li><strong>报得比价值低（b &lt; v）。</strong>只有当 <em>b &lt; m &lt; v</em> 时改变结果：你<em>输了</em> —— 但你本来乐意付 <em>m &lt; v</em>、赚剩余 <em>v − m &gt; 0</em>。你扔掉了一次有利可图的赢。永远不会更好。</li>
+  <li><strong>其余所有情形</strong>偏离不改变任何东西（输赢相同、付的 <em>m</em> 相同）。</li>
+</ul>
+
+<p>所以没有任何偏离有帮助、有些偏离有害：<strong>报 <em>v</em>。</strong>注意是设计在干活 —— 规则让诚实个体理性，你根本不需要建模对手。这就是好机制设计的意义。</p>
+
+<h2>First-price：现在你必须压价</h2>
+
+<p>把规则改成"付自己的报价"，说真话就成了错误：报 <em>v</em> 赢了剩余为零。你必须<strong>压价（shade）</strong> —— 报得比价值低。但压多少？压太低会输；压太高赢了剩余也薄。甜蜜点取决于<em>你认为对手会怎么报</em> —— 所以与 second-price 不同，这里<strong>没有 dominant strategy</strong>，只有关于信念的 Nash equilibrium。<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<div class="keystone">
+  <span class="label">Revenue equivalence（收入等价）—— 结论</span>
+  你会以为"付自己的报价"对卖家更赚。并不。在标准假设（独立私人价值、对称竞拍者）下，<strong>first-price 与 second-price 拍卖的期望收入相同</strong>。竞拍者在 first-price 里的压价恰好抵消卖家表面的优势。这条<em>收入等价定理</em>是基础而非显然的结果 —— 选格式往往是在选稳健与简单，不是在选毛收入。
+</div>
+
+<h2>陷阱：winner's curse（赢者的诅咒）</h2>
+
+<p>以上全部假设<em>私人</em>价值。换成 <span class="term">common value</span>（共同价值）—— 对所有人值同一个未知数的资产（一块油田、一个定价错误的大宗股份），每个竞拍者只有带噪声的估计。糟糕的东西出现了：</p>
+
+<div class="keystone">
+  <span class="label">Winner's curse</span>
+  若人人都报自己的估计，<strong>赢家就是<em>高估</em>最狠的那位</strong> —— 于是赢本身就是坏消息：它告诉你，你的估计是全场最乐观的。理性竞拍者会用<strong>向下修正</strong>来纠偏，按"我已经是最高的"这个条件来出价。无视它，你就会系统性地多付。（对竞拍不确定价值资产直接相关 —— 非常有交易味道的失败模式。）
+</div>
+
+<h2>拉远：mechanism design</h2>
+
+<p>至此每一课都在<em>分析</em>给定的博弈。机制设计问反问题：<strong>"我要某个结果 —— 什么规则能让自利的玩家产出它？"</strong>Vickrey 拍卖是图腾：设计者想要有效配置与真实报价，靠巧妙选支付规则两者兼得。它的推广（<strong>VCG 机制</strong>）是真实广告拍卖与组合配置的底座 —— 本学科的 CS/市场前沿。<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<div class="keystone">
+  <span class="label">与第 2 课闭环</span>
+  还记得审计博弈的教训 —— <em>要改变谁的行为，就改变谁面对的收益，而不是你自己的。</em>机制设计就是这条原理的工业化：选好规则，让收益把诚实、努力或效率变成<em>自私</em>的选择。分析找均衡；设计挑博弈，让均衡恰好是你想要的那个。
+</div>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. second-price 拍卖里，为什么报真实价值最优？</summary>
+    <p class="answer">你的报价只决定输赢；价格由别人的最高报价决定。</p>
+    <p class="why">于是你恰好想在价格低于价值时赢 —— 报价值即可。</p>
+  </details>
+  <details>
+    <summary>Q2. 一句话：什么是 winner's curse？</summary>
+    <p class="answer">赢下共同价值标的，多半说明你高估了它。</p>
+    <p class="why">最高出价者是最乐观的估计者，赢本身就意味着多付。</p>
+  </details>
+  <details>
+    <summary>Q3. <em>（间隔回忆 —— 第 4 课）</em>同质品两家公司打价格战，价格落哪？</summary>
+    <p class="answer">落在边际成本，利润为零 —— Bertrand 悖论。</p>
+    <p class="why">互相压价，直到再压就无利可图。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">试一试 —— 展开前先论证</span>
+  <p style="margin-top:0">一场 <strong>second-price</strong> 拍卖。你的真实价值是 <strong>50</strong>。你想"捡便宜"报 <strong>40</strong>。检查两个场景 —— 对手最高报价为 <strong>30</strong>、为 <strong>45</strong> —— 证明报真实价值 50 <em>弱占优</em>于报 40。</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开解答</summary>
+      <p class="answer"><strong>报 50 永远不差、有时严格更好 —— 所以报 50。</strong></p>
+      <p class="why">
+      <strong>对手报 30：</strong>报 50 → 赢、付 30、剩余 <strong>20</strong>。报 40 → 照样赢、付 30、剩余 <strong>20</strong>。平。<br>
+      <strong>对手报 45：</strong>报 50 → 赢、付 45、剩余 <strong>5</strong>。报 40 → <em>输</em>、剩余 <strong>0</strong>。报 40 白白丢掉一次有利的赢。<br>
+      压到 40 只在"赢本来就不划算"的情形（对手高于 50）"保护"你 —— 而那种情形报 50 也会输。所以它一无所获，还可能让你损失 45 场景的剩余。这正是通用证明的具体化：你的报价应该等于你的价值。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选材料 —— 读/看</span>
+  <strong>Open Yale ECON 159</strong> 有一场极佳的拍卖与 winner's curse 讲座（课堂上现场玩）—— <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>。机制设计/CS 深度（VCG、收入）见 <strong><em>Algorithmic Game Theory</em></strong> 第 9–13 章 —— <a href="https://www.cs.cmu.edu/~sandholm/cs15-892F13/algorithmic-game-theory.pdf">免费 PDF</a>。
+</div>
+
+<h3 id="s1">注释与引用</h3>
+<ol class="note">
+  <li id="s1">价值独立均匀分布于 [0,1]、<em>n</em> 个竞拍者时，对称均衡的 first-price 报价为 <em>b = (n−1)/n · v</em> —— 人越多压得越少：竞争把你逼向自己的价值。</li>
+  <li id="s2">Vickrey（1961）因此获诺贝尔奖；VCG（Vickrey–Clarke–Groves）机制把"为你强加给他人的损害付费"推广到复杂多物品场景。现代广告拍卖是这些思想的直系后代。</li>
+</ol>
+
+<div class="ask">
+  <b>我是你的老师 —— 随便问。</b> 想看订单簿怎样（以及怎样不）是一场 double auction？想推 first-price 均衡报价？或者 VCG 怎么具体算每个赢家的支付？问。
+</div>
+
+<nav class="nav">
+  <a href="0004-cournot-bertrand.zh.html">← 第 4 课</a>
+  <a href="../reference/glossary.zh.html">词汇表</a>
+  <span>课程篇目：基础 ✓ · 市场 ✓ —— 接下来你选</span>
+</nav>

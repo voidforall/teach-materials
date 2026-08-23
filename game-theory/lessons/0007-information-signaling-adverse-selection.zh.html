@@ -1,0 +1,114 @@
+<meta charset="utf-8">
+<title>GT · 第 7 课 — 信息：Signaling 与逆向选择</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>博弈论 · 第 7 课</span><span>≈16 分钟 · <a href="0007-information-signaling-adverse-selection.html">English</a></span></div>
+  <h1>信息：Signaling 与逆向选择</h1>
+  <p class="dek">当一方知道另一方不知道的事，市场会悄悄塌掉 —— 而解药是一个只有诚实者付得起的信号。</p>
+</header>
+
+<p>之前每一课都假设双方知道收益。现在丢掉它：让一方持有关于自己"类型"的<strong>私人信息</strong> —— 二手车的质量、工人的能力、交易者关于价格走向的私有信号。这种 <span class="term">asymmetric information</span>（信息不对称）正是市场变得诡异的地方：好产品被挤走，而可信的解药是一个只有好类型才会理性采取的昂贵行动。这是迄今最贴<em>交易</em>的一课 —— 它是买卖价差背后的理论。</p>
+
+<h2>逆向选择：柠檬市场</h2>
+
+<p>卖家知道自己那台车是 <strong>Peach</strong>（好车）还是 <strong>Lemon</strong>（柠檬）；买家分不出来。假设<em>两类</em>车都存在交易利得 —— 有效市场应该每台都成交：</p>
+
+<ul>
+  <li><strong>好车：</strong>卖家低于 <strong>8</strong> 不卖；买家认为值 <strong>10</strong>。</li>
+  <li><strong>柠檬：</strong>卖家底线 <strong>2</strong>；买家认为值 <strong>4</strong>。</li>
+  <li>车场 <strong>50/50</strong>，买家只知道这个比例。</li>
+</ul>
+
+<p>什么价格 <em>p</em> 能让市场出清？看"选择"怎么发作：</p>
+<ul>
+  <li><em>p</em> 在 2 到 8 之间时，<strong>只有柠檬卖家肯卖</strong>（好车卖家低于 8 不卖）。买家实际买到的只有柠檬 —— 值 4 —— 于是不肯付超过 4。自洽的交易：只有柠檬，价约 2–4。</li>
+  <li>想把好车吸进来需要 <em>p</em> ≥ 8。但那样买家面对 50/50 的期望价值 <strong>0.5·10 + 0.5·4 = 7</strong> —— 而 <strong>7 &lt; 8</strong>。没有买家会为期望 7 付 8。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">逆向选择（adverse selection）</span>
+  好车<strong>从市场上消失</strong>，尽管交易它们本可有效。任何高到能吸引好车的价格，都是让买家为平均车多付的钱 —— 因为"愿意以这个价卖"这件事本身被柠檬主导。隐藏的质量让<em>坏</em>类型挤走好类型。Akerlof 的"柠檬市场" —— 经济学中影响最深远的想法之一。<sup class="cite"><a href="#s1">1</a></sup>
+</div>
+
+<h2>交易连接：买卖价差</h2>
+
+<div class="keystone">
+  <span class="label">为什么做市商要挂价差</span>
+  同时挂 bid 和 ask 的做市商面对的正是这个问题：某些对手是<em>知情的</em>（他们知道价格要动 —— 现在的"Peach/Lemon"是<em>你</em>对<em>他们</em>）。若做市商报真实的中间价，知情交易者每次都能把他挑落。<strong>买卖价差（bid–ask spread）就是做市商对逆向选择的防御</strong> —— 是向"可能在跟知道更多的人交易"收的保费。有毒（知情）订单流拉宽价差；良性订单流收窄它。<sup class="cite"><a href="#s2">2</a></sup>
+</div>
+
+<h2>Signaling（信号传递）：用付代价来证明类型</h2>
+
+<p>好车卖家怎么逃出柠檬陷阱？做一个柠檬卖家<em>不会理性模仿</em>的行动。提供<strong>质保</strong>：对真正的好车便宜，对柠檬是灾难。质保于是<em>可信地</em>揭示质量。劳动力市场上，Michael Spence 的经典例子是<strong>教育作为信号</strong> —— 一张对高能力者更便宜的文凭，雇主把它读作能力，哪怕它什么都没教。<sup class="cite"><a href="#s3">3</a></sup></p>
+
+<div class="keystone">
+  <span class="label">信号什么时候可信 —— 单交叉条件（single-crossing）</span>
+  一个信号要能分开类型，必须<strong>差异化地昂贵</strong>：对发信号的类型比对模仿的类型严格更便宜。若两类人发它同样便宜，它什么也不揭示（那就是"cheap talk"空谈）。信号必须让撒谎者比诚实者更痛。
+</div>
+
+<p>由此产生两类你该能叫出名字的均衡：</p>
+<ul>
+  <li><strong>分离均衡（separating equilibrium）：</strong>不同类型选不同信号，行为<em>揭示</em>类型（只有好车提供质保）。</li>
+  <li><strong>混同均衡（pooling equilibrium）：</strong>所有类型发同一信号（或不发），什么也没揭示，信念停在先验。</li>
+</ul>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 一句话：什么是逆向选择？</summary>
+    <p class="answer">隐藏质量把好类型挤出去，因为坏类型模仿他们的报价。</p>
+    <p class="why">任何吸引好类型的价格，都在为被逆向选坏的平均值多付。</p>
+  </details>
+  <details>
+    <summary>Q2. 什么让一个昂贵信号真正可信？</summary>
+    <p class="answer">它对诚实类型必须比模仿者严格更便宜。</p>
+    <p class="why">等成本的信号是空谈，什么都分不开 —— 撒谎者照抄即可。</p>
+  </details>
+  <details>
+    <summary>Q3. <em>（间隔回忆 —— 第 6 课）</em>为什么重复关系能维持一次性博弈维持不了的合作？</summary>
+    <p class="answer">未来的惩罚可以压过今天背叛的一次性收益。</p>
+    <p class="why">玩家足够耐心时成立 —— 标准囚徒困境例如 δ ≥ ½。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">试一试 —— 展开前先求分离条件</span>
+  <p style="margin-top:0">一个工人是<strong>高</strong>或<strong>低</strong>生产率（只有他自己知道）。公司按信念付工资：对有文凭者（读作高）付 <strong>10</strong>，对无文凭者（读作低）付 <strong>4</strong>。拿文凭对高类型成本 <strong>c<sub>H</sub></strong>、对低类型成本 <strong>c<sub>L</sub></strong>。<strong>成本满足什么条件时存在<em>分离</em>均衡 —— 只有高类型去拿文凭？</strong></p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开解答</summary>
+      <p class="answer"><strong>需要 c<sub>H</sub> ≤ 6 <em>且</em> c<sub>L</sub> ≥ 6。</strong></p>
+      <p class="why">两个激励条件必须同时成立：<br>
+      • <strong>高类型愿意发信号：</strong>10 − c<sub>H</sub> ≥ 4 ⟹ c<sub>H</sub> ≤ 6。<br>
+      • <strong>低类型<em>不</em>愿模仿：</strong>4 ≥ 10 − c<sub>L</sub> ⟹ c<sub>L</sub> ≥ 6。<br>
+      所以文凭恰好在高类型"付得起、值得付"、低类型"装不起"时分开类型 —— 即 c<sub>H</sub> ≤ 6 ≤ c<sub>L</sub>，单交叉条件的数字化。例：c<sub>H</sub> = 4、c<sub>L</sub> = 8 可行（分离）；c<sub>H</sub> = 4、c<sub>L</sub> = 5 失败 —— 低类型模仿，得到混同。注意文凭可以社会性浪费却仍是均衡 —— 它的全部职责是<em>难以伪造</em>，不是增加技能。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选材料 —— 读/看</span>
+  <strong>Open Yale ECON 159</strong> 后段讲逆向选择与 signaling —— <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>。奠基论文短且可读：<strong>Akerlof《The Market for "Lemons"》（1970）</strong>、<strong>Spence《Job Market Signaling》（1973）</strong>。交易角度去查买卖价差的 <strong>Glosten–Milgrom</strong> 模型。
+</div>
+
+<h3 id="s1">注释与引用</h3>
+<ol class="note">
+  <li id="s1">George Akerlof 因此共享 2001 年诺贝尔奖；这个"拆解"逻辑反复出现在保险（病人才多买）、信贷与线上市场。</li>
+  <li id="s2">这是市场微观结构 Glosten–Milgrom（1985）与 Kyle（1985）模型背后的直觉 —— 价差是对"与知情订单流交易"的风险补偿。直接关系到订单簿设计。</li>
+  <li id="s3">Spence 与 Akerlof、Stiglitz 同享 2001 年诺奖。惊人的主张：昂贵的信号可以分开类型，<em>哪怕它不产生任何真实价值</em>，纯粹因为成本因类型而异。</li>
+</ol>
+
+<div class="ask">
+  <b>我是你的老师 —— 随便问。</b> 想看 <em>screening（信息甄别）</em> —— 不知情一方摆出菜单（免赔额、版本划分）让类型自选？或者把 Glosten–Milgrom 完整推一遍、直接接上你的订单簿工作？问。
+</div>
+
+<nav class="nav">
+  <a href="0006-repeated-games.zh.html">← 第 6 课</a>
+  <a href="../reference/glossary.zh.html">词汇表</a>
+  <span>下一课（你清单上的）：订单簿作为 double auction / 算法博弈论</span>
+</nav>

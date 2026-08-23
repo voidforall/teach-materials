@@ -1,0 +1,154 @@
+<meta charset="utf-8">
+<title>MQ · 词汇表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>事件驱动系统 · 参考 <a href="glossary.html">English</a></span><span>持续更新</span></div>
+  <h1>词汇表</h1>
+  <p class="dek">课程的权威词表。所有课文遵循这里的定义。</p>
+</header>
+
+<style>
+  dl.gloss dt { font-family: var(--sans); font-weight: 700; margin-top: 1.1rem; }
+  dl.gloss dd { margin: 0.25rem 0 0 0; }
+  dl.gloss dd .aka { font-family: var(--sans); font-size: 0.8rem; color: var(--muted); }
+</style>
+
+<dl class="gloss">
+
+<dt>Producer（生产者 / publisher 发布者）</dt>
+<dd>调用 <span class="term">publish</span> 把消息发<strong>给 exchange</strong> 的客户端。它从不直接寻址队列（default exchange 的"名字即 routing key"特例除外）。</dd>
+
+<dt>Exchange（交换机）</dt>
+<dd>broker 内部的一张路由表。接收 publish 来的消息和它的 <em>routing key</em>，把消息复制进每一条 <em>binding</em> 匹配的队列。类型：<span class="term">direct</span>、<span class="term">fanout</span>、<span class="term">topic</span>、<span class="term">headers</span>。</dd>
+
+<dt>Routing key</dt>
+<dd>发布者附加在消息上的任意字符串。它的含义完全由 exchange 类型的匹配规则定义；<span class="term">topic</span> 用点分隔的词（<code>order.paid</code>）。</dd>
+
+<dt>Binding（绑定）</dt>
+<dd>把队列挂到 exchange 上的规则 —— 对 topic exchange 而言是一个含 <code>*</code>（恰好一个词）与 <code>#</code>（零个或多个词）的模式。不匹配任何 binding 的消息会被丢弃。</dd>
+
+<dt>Queue（队列）</dt>
+<dd>一个准持久的 FIFO 缓冲，保存消息直到消费者确认。竞争消费者共享一条队列；pub/sub 给每个消费者一条自己的队列。</dd>
+
+<dt>Consumer（消费者）</dt>
+<dd>订阅某条队列的客户端，收到的每条投递都必须 <span class="term">ack</span>（第 2 课）。</dd>
+
+<dt>Default exchange（默认交换机）</dt>
+<dd>每个 broker 都有的无名 <span class="term">direct</span> exchange：routing key = 队列名。"往队列里发消息"这个民间模型的来源。</dd>
+
+<dt>Competing consumers（竞争消费者 / work queue）</dt>
+<dd>许多消费者监听一条队列；每条消息恰好被其中一个处理一次。<em>干活</em>的形状。<span class="aka">EIP 名称：Competing Consumers。</span></dd>
+
+<dt>Pub/sub（发布订阅）</dt>
+<dd>一个 exchange，每个消费者组一条队列，每组拿到自己的拷贝。<em>对事实做反应</em>的形状。<span class="aka">EIP 名称：Publish-Subscribe Channel。</span></dd>
+
+<dt>Ack（basic.ack）</dt>
+<dd>消费者的裁决"处理完了 —— 删吧"。手动 ack 模式下<strong>唯一</strong>能从队列删除消息的动作。ack 调用的位置（处理成功之后，而非收到之时）就是消费者的持久化策略。</dd>
+
+<dt>Nack / reject</dt>
+<dd>"处理不了。"<span class="term">requeue=true</span> 时消息回到队列（小心：立即重投、死循环）；为 <code>false</code> 时被丢弃或 dead-letter（第 4 课）。</dd>
+
+<dt>Unacked</dt>
+<dd>悬置状态：已投递给消费者、等待裁决。对竞争者不可见但未删除。channel/连接断掉时，所有 unacked 的都会重新入队。</dd>
+
+<dt>At-least-once delivery（至少一次投递）</dt>
+<dd>手动 ack 买来的保证：一条消息投递一次或多次，绝不零次。推论：消费者必须<strong>幂等（idempotent）</strong>（同一条消息跑两遍也安全）。</dd>
+
+<dt>Auto-ack</dt>
+<dd>broker 发送消息的同时就删除它们的模式 —— at-most-once。处理中途崩溃即丢工作。只用于可容忍丢失的流量（指标、行情）。</dd>
+
+<dt>Prefetch（QoS）</dt>
+<dd>每个消费者 channel 上 unacked 在途消息的上限。生产环境永远别用 0（无限）；要严格公平/顺序用 1；通常 10–100。同时也是竞争消费者的公平机制。</dd>
+
+<dt>Redelivered flag</dt>
+<dd>broker 对投递过的消息设置的标记。重试逻辑的信号，不能替代幂等。</dd>
+
+<dt>Publisher confirms（发布确认）</dt>
+<dd>针对 publish 的 broker 侧 ack：broker 对每条已接受（队列 durable 时也已持久化）的消息回确认。没 confirm → 重试 → 可能重复。与消费者 ack 互补，使 at-least-once 成为全系统属性。</dd>
+
+<dt>Mandatory / returns</dt>
+<dd>发布标志：不可路由（没有 binding 匹配）的消息以 <code>basic.return</code> 退回发布者，而不是被静默丢弃。生产环境里，不可路由的消息应当触发告警。</dd>
+
+<dt>Idempotency（幂等）</dt>
+<dd>handler 的性质：同一条消息跑两遍的效果等于跑一遍。靠天然幂等（设终态而非算增量）、去重键（唯一消息 ID + 已处理表）、或状态/版本守卫达成。</dd>
+
+<dt>Deduplication key（去重键）</dt>
+<dd>消息创建时分配的唯一 ID；消费者原子地记录已处理的 ID（<code>ON CONFLICT DO NOTHING</code>）以识别重投。</dd>
+
+<dt>Dual-write problem（双写问题）</dt>
+<dd>在一个代码路径里既写 DB 又向 broker 发布 —— 没有共享事务，崩溃会产生幽灵事件或丢事件。由 transactional outbox 解决（状态与事件同一事务写入、独立转发）。</dd>
+
+<dt>Outbox（transactional outbox，事务发件箱）</dt>
+<dd>模式：在与状态变更同一个 DB 事务里把事件持久化到 <code>outbox</code> 表；独立的 relay 带 confirms 发布并标记已发。完整课程：第 6 课。</dd>
+
+<dt>Dead-letter exchange（DLX，死信交换机）</dt>
+<dd>队列的属性，命名一个接收本队列死信消息的 exchange。触发条件：<span class="term">rejected</span>（requeue=false 的 nack）、<span class="term">expired</span>（TTL 到期）、<span class="term">overflow</span>（超长）。死信消息带 <code>x-death</code> header，经 DLX 以普通路由重新发布。</dd>
+
+<dt>x-death header</dt>
+<dd>broker 附加在死信消息上的数组：来源队列、原因、计数、时间戳。计数支撑重试上限（"死满 3 次进停车场"）。</dd>
+
+<dt>Retry ladder（重试阶梯）</dt>
+<dd>退避模式：一串 TTL 队列（10s → 1m → 5m……），每条到期把消息 dead-letter 回工作 exchange。退避期间 broker 持有消息；消费者从不 sleep。一条队列一个 TTL —— 混用按消息 TTL 会队头阻塞。</dd>
+
+<dt>Poison message（毒消息）</dt>
+<dd>永远无法成功的消息（载荷损坏、引用悬空、handler bug）。靠封顶的 <code>x-death</code> 计数机械化识别；路由进停车场队列交给人。停车场要接告警/ticket，否则是黑洞。</dd>
+
+<dt>Parking lot（停车场）</dt>
+<dd>重试耗尽后的终点队列。没有消费者；被监控。它不是 bug 追踪器 —— 要喂一个。</dd>
+
+<dt>TTL（time to live）</dt>
+<dd>按队列（推荐）或按消息的过期。过期即 dead-letter —— 这正是把"TTL 队列 + DLX"变成定时器的机制。</dd>
+
+<dt>Durability trinity（持久性三件套）</dt>
+<dd>durable exchange + durable（quorum）queue + persistent 消息（<code>delivery_mode=2</code>）—— 三者齐备，否则被 confirm 的消息也会在 broker 重启时消失。默认值<em>不是</em>这个组合。</dd>
+
+<dt>Quorum queue</dt>
+<dd>带复制、基于共识的队列类型；重要数据的现代默认。对应用代码的影响 ≈ 零；是对 classic queue 的持久性/运维升级。</dd>
+
+<dt>Consistent-hash exchange</dt>
+<dd>exchange 类型（内置插件），按 routing key 的哈希在绑定的队列间路由 —— 并行前提下的实体级顺序。RabbitMQ 版的 Kafka partition。</dd>
+
+<dt>Tolerant reader（宽容读者）</dt>
+<dd>忽略未知字段、对缺失可选字段取默认值的消费者 —— 使增量 schema 变更无需协调。破坏性变更配合带版本的 routing key（<code>order.placed.v2</code>）。</dd>
+
+<dt>Transactional outbox（含 relay）</dt>
+<dd>让"提交状态 + 发布事件"安全的模式：两行记录在同一个 DB 事务里提交；独立 relay 把待发的 outbox 行带 confirms 发布并标记已发。relay 可能重复发布 —— 消费者保持幂等。relay 实现：轮询器或 CDC（Debezium）。</dd>
+
+<dt>Saga</dt>
+<dd>跨服务的业务流程，建模为一串<em>本地</em>事务，每步带自己的 outbox。没有原子性跨服务；取而代之，每个正向步骤配<strong>补偿动作（compensating action）</strong>（reserve ↔ release、charge ↔ refund）。故障被恢复，不被预防。</dd>
+
+<dt>Choreography（编舞）</dt>
+<dd>纯事件驱动的 saga 协调：服务互相响应对方的事实；流程从 binding 中涌现。低耦合，但步骤一多流程逻辑就散落。经验法则：≤3 步。</dd>
+
+<dt>Orchestration（编排）</dt>
+<dd>由一台状态机协调 saga：发命令、收结果，显式拥有失败分支与补偿。流程集中可审计。步骤 ≥4、有分支、超时、涉及钱时用它。败法：orchestrator 长成上帝服务。</dd>
+
+<dt>Compensating action（补偿动作）</dt>
+<dd>已完成 saga 步骤的撤销（退款、释放、取消）。失败时按倒序执行。有些步骤没有有意义的补偿 —— 交给人，不交给自动化。</dd>
+
+<dt>Eventual consistency（最终一致性）</dt>
+<dd>跨服务状态异步收敛。技术上由幂等 + 版本守卫兜住；剩下的负担在 UX —— 建模 pending 状态、不伪造同步应答、把 lag 当 SLA 监控。</dd>
+
+<dt>Log of record（记录日志，相对任务队列）</dt>
+<dd>选 broker 的那根轴：处理之后怎么办？<em>任务队列</em>ack 即删（做完即弃的工作 —— RabbitMQ、SQS）；<em>记录日志</em>保留、可从任意 offset 重读（历史 —— Kafka）。成熟系统常常两者都用：Kafka 做记录流，接缝处配 RabbitMQ 工作队列。</dd>
+
+<dt>Offset（Kafka）</dt>
+<dd>消费者组在每个 partition 上的读取位置 —— ack 的对应物，按批提交、从不按消息。失败处理与重试都在应用层（retry topic）。</dd>
+
+<dt>Consumer group（Kafka）</dt>
+<dd>Kafka 的竞争消费者：成员共享一个组，partition 在成员间分配 —— 并行度以 partition 数为上限，partition 内严格有序。独立组各自读全量日志（pub/sub 形状）。</dd>
+
+<dt>Visibility timeout（SQS）</dt>
+<dd>SQS 版的 ack：消息被取走后隐藏 N 秒；未按时删除就重新出现。at-least-once 换了衣服，幂等账单照付；调这个计时器替代调 prefetch。</dd>
+
+<dt>Redrive policy（SQS）</dt>
+<dd>SQS 内置的停车场：<code>maxReceiveCount</code> 之后消息转入 dead-letter queue。第 4 课阶梯的最省心版本。</dd>
+
+<dt>Event（事件 / 事实 fact）</dt>
+<dd>对已发生之事的通知（<code>order.created</code>）。与<em>命令（command）</em>（<code>charge.card</code>，请求某事发生）相对。决定谁拥有命名与载荷。</dd>
+
+</dl>
+
+<p class="note">条目随课程推进（ack、confirm、DLX、prefetch 与各模式）持续扩充。</p>

@@ -1,0 +1,148 @@
+<meta charset="utf-8">
+<title>MQ · 第 1 课 — AMQP 路由模型</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>事件驱动系统 · 第 1 课</span><span>≈12 分钟 · <a href="0001-amqp-routing-model.html">English</a></span></div>
+  <h1>生产者从不直接碰队列</h1>
+  <p class="dek">RabbitMQ 全部挂在一张图上 —— 以及它要纠正的那个民间模型。</p>
+</header>
+
+<p>你已经发布和消费过消息，所以其实<em>用过</em>这个模型 —— 但大多数"懂 RabbitMQ 基础"的人脑中装的其实是一个更接近 SQS 的民间模型：<em>把消息发到队列，再从队列收</em>。RabbitMQ 的模型更丰富，而这层丰富性恰恰是你在设计真实系统时要利用的东西。本课装上正确的心智图。<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>标准通路</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 210" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <rect class="fl-box" x="10" y="75" width="110" height="50"/>
+  <text class="fl-name" x="65" y="96" text-anchor="middle">Producer</text>
+  <text class="fl-sub" x="65" y="112" text-anchor="middle">publish()</text>
+  <rect x="150" y="15" width="410" height="180" fill="none" stroke="#b8560f" stroke-width="1.2" stroke-dasharray="6 4" rx="10"/>
+  <text class="fl-sub" x="355" y="32" text-anchor="middle" style="fill:#b8560f">RabbitMQ broker</text>
+  <rect class="fl-box broker hot" x="175" y="75" width="120" height="50"/>
+  <text class="fl-name" x="235" y="96" text-anchor="middle">Exchange</text>
+  <text class="fl-sub" x="235" y="112" text-anchor="middle">+ routing key</text>
+  <rect class="fl-box broker" x="400" y="25" width="130" height="44"/>
+  <text class="fl-name" x="465" y="44" text-anchor="middle">Queue A</text>
+  <text class="fl-sub" x="465" y="60" text-anchor="middle">binding: key = X</text>
+  <rect class="fl-box broker" x="400" y="140" width="130" height="44"/>
+  <text class="fl-name" x="465" y="159" text-anchor="middle">Queue B</text>
+  <text class="fl-sub" x="465" y="175" text-anchor="middle">binding: key = Y</text>
+  <rect class="fl-box" x="590" y="28" width="115" height="38"/>
+  <text class="fl-name" x="647" y="51" text-anchor="middle">Consumer</text>
+  <rect class="fl-box" x="590" y="143" width="115" height="38"/>
+  <text class="fl-name" x="647" y="166" text-anchor="middle">Consumer</text>
+  <line class="fl-edge msg" x1="120" y1="100" x2="170" y2="100"/>
+  <path class="fl-edge msg2" d="M 295 95 C 340 80, 360 55, 396 47"/>
+  <path class="fl-edge dashed" d="M 295 105 C 340 120, 360 145, 396 160"/>
+  <line class="fl-edge" x1="530" y1="47" x2="585" y2="47"/>
+  <line class="fl-edge" x1="530" y1="162" x2="585" y2="162"/>
+  <text class="fl-lbl" x="330" y="62">routed ✔</text>
+  <text class="fl-lbl o" x="330" y="152">no match ✘</text>
+</svg>
+<p class="flowlegend">消息是发布<strong>给 exchange（交换机）</strong>的，从不直接给 queue（队列）。exchange 把它复制进每一个 <strong>binding（绑定）</strong>匹配 routing key 的队列。</p>
+</div>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>生产者寻址 exchange；消费者读取 queue；连接两者的是 <em>binding</em>。</strong>生产者和消费者之间不共享任何名字 —— 消息落在哪里完全由 exchange 的路由规则决定。这层间接性正是全部意义所在：它让你能在不动生产者代码的情况下新增一个消费者（审计日志、新服务）。
+</div>
+
+<div class="antipattern">
+  <span class="label">要抛弃的民间模型</span>
+  "我把消息发到 <code>orders</code> 队列。" 在 AMQP 里你发布到一个 <em>exchange</em>。常见的逃生舱 —— 按队列名路由的 <span class="term">default exchange</span>（<code>""</code>）—— 正是民间模型得以存活的原因：教程看起来就像"队列到队列"的消息传递。但那是特例，不是模型本身。
+</div>
+
+<h2>消息的命运，在 exchange 处决定</h2>
+
+<p>一条<strong>不匹配任何 binding</strong> 的消息会被<strong>直接丢弃</strong> —— 默认悄无声息，除非发布者另有要求（mandatory 标志 / publisher returns，第 3 课）。这是"丢消息"系统里排名第一的意外：什么都没崩，只是 routing key 没匹配上任何东西。</p>
+
+<h2>四种你会真正用到的 exchange 类型</h2>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>exchange 类型 —— binding 拿什么去匹配 routing key</caption>
+  <tr><th>类型</th><th>匹配规则</th><th>适用场景</th></tr>
+  <tr><td>direct</td><td>完全相等</td><td>单一类别的事件（<code>order.created</code>）</td></tr>
+  <tr><td>fanout</td><td>忽略 key，复制到所有绑定的队列</td><td>广播（缓存失效、配置刷新）</td></tr>
+  <tr><td class="match">topic</td><td>通配模式：<code>*</code> = 一个词，<code>#</code> = 零个或多个</td><td>大多数真实系统（<code>order.*</code>、<code>#.failed</code>）</td></tr>
+  <tr><td>headers</td><td>匹配消息 header 而非 key</td><td>少见；按结构化属性路由时</td></tr>
+</table>
+</div>
+
+<p><strong>默认选 <code>topic</code>。</strong>它涵盖了 <code>direct</code>（精确 key），又不额外付出什么代价。多数生产拓扑最终都是每个领域一个持久化的 <code>topic</code> exchange，每个消费者组一条队列，按自己关心的事件绑定。<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<h2>一切系统都由两种形状构成</h2>
+
+<p>同一条通路，相反的队列共享纪律。把这个区分弄清楚，正是第 5 课拓扑设计的基础：</p>
+
+<ul>
+  <li><strong>work queue（竞争消费者 / competing consumers）：</strong>多个消费者共享<em>一条</em>队列；每条消息由其中<em>恰好一个</em>处理。用于<em>干活</em> —— "处理这笔支付"。扩容 = 加消费者。</li>
+  <li><strong>pub/sub（发布订阅）：</strong>每个消费者有自己的<em>独立</em>队列绑定到 exchange；每个消费者拿到每条消息的<em>一份拷贝</em>。用于<em>对事实做反应</em> —— "订单创建了：发邮件、更新分析、记审计日志"。</li>
+</ul>
+
+<p>模式长在<em>拓扑</em>里，不在代码里：绑 N 条队列就是 pub/sub，一条队列挂 N 个消费者就是 work queue。两者可以同时挂在同一个 exchange 上。</p>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 一个 producer 要把每条订单事件都复制给三个服务。用什么拓扑？</summary>
+    <p class="answer">一个 exchange；每个服务一条队列；各自绑定上去。</p>
+    <p class="why">三条独立队列 = pub/sub：每个服务按自己的节奏、带自己的 ack 消费自己的拷贝。</p>
+  </details>
+  <details>
+    <summary>Q2. 一条消息的 routing key 在 exchange 上没匹配到任何 binding。会怎样？</summary>
+    <p class="answer">broker 直接丢弃这条消息，无声无息。</p>
+    <p class="why">默认不会有任何错误到达生产者。发布侧的检测（mandatory/returns）第 3 课讲。</p>
+  </details>
+  <details>
+    <summary>Q3. 已有 <code>order.*</code> 和 <code>#.failed</code> 两个 binding。<code>order.failed</code> 匹配谁？</summary>
+    <p class="answer">两个都匹配 —— 消息进入两条队列。</p>
+    <p class="why">topic exchange 会复制到<em>每一个</em>匹配的 binding。<code>*</code> 恰好一个点分隔词；<code>#</code> 零个或多个。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">动手设计 —— 先别展开</span>
+  <p style="margin-top:0">你的结账服务发布 <code>order.created</code>、<code>order.paid</code>、<code>order.cancelled</code>。要求：<strong>(a)</strong> 支付必须由 worker 池处理（每条订单事件恰好一个 worker 处理）；<strong>(b)</strong> 分析服务想要所有订单事件；<strong>(c)</strong> 一个"失败"服务只要 <code>order.cancelled</code>。</p>
+  <p>画出：exchange（几个、什么类型）、队列、binding。一共几条队列？</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开一个好答案</summary>
+      <p class="answer"><strong>三条队列，一个 topic exchange</strong>（比如 <code>orders</code>）：</p>
+      <ul>
+        <li><span class="term">q.payments</span> 绑 <code>order.*</code> → worker 池<em>共享这一条队列</em>消费（竞争消费者 ⇒ 每条事件恰好一个 worker，要求 a）。</li>
+        <li><span class="term">q.analytics</span> 绑 <code>order.#</code> → 分析服务的私有拷贝（b）。</li>
+        <li><span class="term">q.failures</span> 绑 <code>order.cancelled</code> → 只收取消事件（c）。</li>
+      </ul>
+      <p class="why">注意这些手法：要求 (a) 是 work queue，(b) 和 (c) 是 pub/sub —— 同一个 exchange，每条队列不同的绑定纪律。还要注意我们<em>没做</em>的事：任何地方都没有过滤代码；路由是声明式的。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <strong>RabbitMQ 官方教程 1–5</strong>，按顺序 —— 每篇约 10 分钟，与今天的模型一一对应：<a href="https://rabbitmq.com/getstarted.html">rabbitmq.com/getstarted.html</a>。用你的工作语言做一遍；看着路由真实发生胜过读十遍。
+</div>
+
+<div class="ask"><b>随时问我。</b> 纠结于"为什么要有 binding 这层东西"，或者"什么时候该用两个 exchange 而不是一个"？这正是我存在的意义 —— 追问就说明这课起作用了。</div>
+
+<div class="nav">
+  <span>◄ 课程起点</span>
+  <span><a href="../reference/glossary.zh.html">词汇表</a> · 下一课：消费者 ack 与 prefetch ►</span>
+</div>
+
+<h2 id="sources">参考来源</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — AMQP 0-9-1 model: <a href="https://rabbitmq.com/tutorials/amqp-concepts">rabbitmq.com/tutorials/amqp-concepts</a></li>
+  <li id="s2">RabbitMQ — Tutorial 5 (Topics): <a href="https://rabbitmq.com/getstarted.html">rabbitmq.com/getstarted.html</a>；模式词汇来自 <a href="https://www.enterpriseintegrationpatterns.com">Enterprise Integration Patterns</a>（Hohpe &amp; Woolf）—— "Publish-Subscribe Channel" 与 "Competing Consumers"。</li>
+</ol>

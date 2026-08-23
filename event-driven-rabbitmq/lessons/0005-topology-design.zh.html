@@ -1,0 +1,131 @@
+<meta charset="utf-8">
+<title>MQ · 第 5 课 — 真实服务的拓扑设计</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>事件驱动系统 · 第 5 课</span><span>≈14 分钟 · <a href="0005-topology-design.html">English</a></span></div>
+  <h1>拓扑即 API</h1>
+  <p class="dek">持久性、顺序、扩容与 schema 演进 —— 每个生产拓扑都要做的四个决定，主动或被动。</p>
+</header>
+
+<p>第 1–4 课给了你机制。现在是设计工作：你铺下的 exchange、queue 和 binding 是一份<strong>公共契约</strong> —— 你不拥有的服务会向你的 exchange 发布、从你的 queue 消费。把命名、持久性、顺序、版本化当作 API 设计决定来对待，因为上线之后它们就是。<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>先把持久性做实：三件套</h2>
+
+<p>第 3 课的 confirm 承诺"已接受并已持久化" —— 但前提是底下的存储配合。一条消息要挺过 broker 重启，<strong>三者缺一不可</strong>：</p>
+
+<ol>
+  <li><span class="term">durable exchange</span> —— 挺过重启；</li>
+  <li><span class="term">durable queue</span> —— 挺过重启（重要的东西用 <span class="term">quorum queue</span>：带复制，现代默认）；</li>
+  <li><span class="term">persistent message</span>（<code>delivery_mode=2</code>）—— 消息本身写盘。</li>
+</ol>
+
+<div class="antipattern">
+  <span class="label">无声的谎言</span>
+  默认值<strong>不是</strong>持久组合。向非 durable 队列发布并得到 confirm，确认的是一条重启即蒸发的队列。什么都不会报错；confirm 只是告诉了你错误的东西。把三件套一次性写进 topology-as-code 的清单里，之后就不用再按消息操心了。
+</div>
+
+<h2>顺序：你没有的保证</h2>
+
+<p>精确的陈述如下，比人们以为的弱：RabbitMQ 按 FIFO 投递，<em>按队列、按发布 channel</em>。但配上<strong>竞争消费者</strong>（第 1 课），先投递的 A 仍可能后于 B <em>完成</em> —— 慢消费者的消息最后落定。再加上重试（第 4 课），A 可能失败、在 TTL 队列里转一圈、一分钟后才被处理。跨消息的顺序永远是 best-effort。<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>不要为全局顺序设计 —— 把顺序限定到真正要紧的粒度：按<em>实体</em>。</strong>两个工具：<strong>(1) 按 routing key 分片</strong> —— consistent-hash exchange 对 key 做哈希、把消息摊到 N 条队列，于是 <code>customer-42</code> 的所有事件都落到同一条队列、同一个消费者：既有序又并行（Kafka 的 partition 套路，RabbitMQ 版）。<strong>(2) 让消费者与顺序无关</strong> —— 事件携带状态版本，用第 3 课的状态守卫忽略过期事件。多数真实系统两者混用：序列要紧的地方分片（每账户账本），其余处处版本守卫。
+</div>
+
+<h2>扩容：一条队列不够时</h2>
+
+<ul>
+  <li><strong>第一档杠杆 —— 给队列加消费者</strong>（竞争消费者）。能走很远：单队列每秒几万条消息。</li>
+  <li><strong>第二档 —— consistent-hash exchange 分片队列</strong>，当你需要有序并行或超出单队列吞吐时。</li>
+  <li><strong>看指标，别靠猜：</strong>队列深度和消费者 ack 速率告诉你何时拉杆。深度涨而消费者闲着 → prefetch 太小；深度涨且消费者全忙 → 加消费者或分片。</li>
+</ul>
+
+<h2>Schema 演进：事件一定会变</h2>
+
+<p>你的 <code>order.created</code> 载荷会加字段，总有一天会破坏形状。两层防御：</p>
+
+<ul>
+  <li><strong>宽容读者（tolerant reader）为默认：</strong>消费者必须忽略未知字段、把缺失的可选字段当默认值。这样增量变更完全无需协调。</li>
+  <li><strong>破坏性变更用带版本的 routing key：</strong>发布 <code>order.created.v2</code>。老消费者继续绑 <code>order.created.v1</code> —— 两个版本并行跑，迁移消费者，然后撤掉旧 binding。没人需要步调一致地升级。</li>
+</ul>
+
+<p>和 REST 版本化同一套纪律，还多一份礼物：不像请求/响应 API，旧版本在你迁移期间一直可用 —— broker 同时扛两股流量，互不冲突。</p>
+
+<h2>门面样式 —— 一套默认拓扑</h2>
+
+<p>一个多数领域都够用的起点，偏离要有理由：</p>
+
+<ul>
+  <li><strong>每个领域一个 durable topic exchange</strong>（<code>orders</code>、<code>payments</code>）—— 不要全局一个大 exchange，也不要每个服务一个。</li>
+  <li><strong>每个消费者组一条 durable quorum queue</strong>，命名 <code>&lt;service&gt;.&lt;purpose&gt;</code>（<code>email.retries</code>、<code>analytics.orders</code>）：所有者一目了然。</li>
+  <li><strong>routing key 是带版本的事件：</strong><code>order.created.v1</code> —— 点分隔、命名发生了什么（该用事实的地方用事件，不用命令）。</li>
+  <li><strong>拓扑即代码、集中声明</strong> —— 定义放仓库里、声明式应用；客户端临时 declare 只限开发环境。</li>
+  <li><strong>每个领域一套重试阶梯 + 停车场</strong>（第 4 课），挂在每条工作队列上。</li>
+</ul>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 哪三个设置让一条被 confirm 的消息挺过重启？</summary>
+    <p class="answer">Durable exchange、durable quorum queue、persistent 投递模式。</p>
+    <p class="why">缺任何一个，confirm 在技术上诚实、实际上撒谎 —— 队列或消息重启即消失。</p>
+  </details>
+  <details>
+    <summary>Q2. 两个竞争消费者：A 先于 B 投递。谁先完成？</summary>
+    <p class="answer">都行 —— 投递顺序从不绑定完成顺序。</p>
+    <p class="why">慢消费者的消息无论投递多早都最后落定。重试会把差距拉得更大。</p>
+  </details>
+  <details>
+    <summary>Q3. 扩容消费者的同时怎么保住"每客户"的顺序？</summary>
+    <p class="answer">对 routing key 做哈希分片到多条队列，各配一个消费者。</p>
+    <p class="why">同一客户 → 同一队列 → 同一消费者 → 有序；不同客户仍然并行。这就是 Kafka 的 partition 行为。</p>
+  </details>
+  <details>
+    <summary>Q4. 一次破坏性载荷变更上线。老消费者怎么活下来？</summary>
+    <p class="answer">发布到新的带版本 key；消费者按版本绑定。</p>
+    <p class="why">迁移期间两股流量并行。没有步调一致的升级，没有一刀切的切换。</p>
+  </details>
+</div>
+
+<h2>现在你来开车 —— 毕业设计</h2>
+
+<div class="task">
+  <span class="label">把整套设计画出来 —— 先别展开</span>
+  <p style="margin-top:0">外卖平台。事件：<code>order.placed</code>、<code>order.accepted</code>、<code>order.delivered</code>、<code>restaurant.menu_changed</code>。消费者：<strong>(a)</strong> 支付 worker 池（恰好一次处理、不稳定的 PSP —— 暂时性 500）；<strong>(b)</strong> 骑手调度服务，要求<em>按订单</em>有序，扩到 3 个实例；<strong>(c)</strong> 分析服务要所有订单事件；<strong>(d)</strong> 菜单缓存服务，<code>menu_changed</code> 绝不能丢但可以延迟。设计 exchange、队列、binding、持久性、重试，以及日后如何给 <code>order.placed</code> 做版本化。</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开一个好答案</summary>
+      <p class="answer"><strong>exchange：</strong>订单事件一个 <code>orders</code>（topic、durable）；菜单事件一个 <code>restaurants</code>（topic、durable）；每个领域一套 <code>retry</code> + 停车场。</p>
+      <ul>
+        <li><strong>(a)</strong> <code>payments.orders</code> quorum 队列绑 <code>order.placed</code>，worker 池做竞争消费者，挂第 4 课的重试阶梯（PSP 500 = 暂时性）。恰好一次 = work-queue 形状 + 幂等 handler（第 3 课）。</li>
+        <li><strong>(b)</strong> 前面放 <strong>consistent-hash exchange</strong>，3 条队列 <code>dispatch.shard-0/1/2</code>，对 routing key 里的 <code>order_id</code> 做哈希（<code>order.&lt;event&gt;.&lt;order-id&gt;</code>）—— 每个订单的事件进同一分片、同一消费者：按订单有序、跨订单并行。三种订单事件都绑上。</li>
+        <li><strong>(c)</strong> <code>analytics.orders</code> quorum 队列绑 <code>order.#</code> —— 自己的拷贝、自己的节奏（pub/sub）。</li>
+        <li><strong>(d)</strong> <code>restaurants</code> 上的 <code>menu.cache</code> quorum 队列绑 <code>restaurant.menu_changed</code>；刷新失败就走长 TTL 的重试阶梯 —— 延迟可接受、丢失不可接受（全套持久化三件套 + 耗尽后进停车场）。</li>
+        <li><strong>版本化：</strong>当 <code>order.placed</code> 破坏形状时，加 <code>order.placed.v2</code>；增量字段 meanwhile 靠宽容读者。</li>
+      </ul>
+      <p class="why">注意每个要求恰好对应一课：(a) = 第 1 课 work queue + 第 3 课幂等 + 第 4 课阶梯；(b) = 今天的顺序一节；(c) = 第 1 课 pub/sub；(d) = 持久性三件套。你的草图里若有这四种形状，前五课就都内化了。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <strong>RabbitMQ production checklist</strong> —— 持久性、quorum queue、监控与容量的官方口径：<a href="https://rabbitmq.com/docs/production-checklist">rabbitmq.com/docs/production-checklist</a>。任何上线前那一周都值得重读。
+</div>
+
+<div class="ask"><b>随时问我。</b> 这里的好线索："consistent-hash 分片不就是重新发明 Kafka 吗？"、"quorum vs classic queue —— 对我的代码有什么变化？"（剧透：几乎没有，是运维收益）、"拓扑该各服务自己声明还是集中管道声明？" —— 真有争议，来吵。</div>
+
+<div class="nav">
+  <span>◄ <a href="0004-dlx-retry-poison.zh.html">第 4 课 — DLX 与重试</a></span>
+  <span><a href="../reference/glossary.zh.html">词汇表</a> · 下一课：模式 —— Outbox、Saga、最终一致性 ►</span>
+</div>
+
+<h2 id="sources">参考来源</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — Production checklist: <a href="https://rabbitmq.com/docs/production-checklist">rabbitmq.com/docs/production-checklist</a> · Quorum queues: <a href="https://rabbitmq.com/docs/quorum-queues">docs/quorum-queues</a></li>
+  <li id="s2">RabbitMQ — Consistent hash exchange plugin: <a href="https://github.com/rabbitmq/rabbitmq-server/tree/main/deps/rabbitmq_consistent_hash_exchange">github.com/rabbitmq (deps)</a>；顺序语义见 AMQP model guide: <a href="https://rabbitmq.com/tutorials/amqp-concepts">tutorials/amqp-concepts</a></li>
+</ol>

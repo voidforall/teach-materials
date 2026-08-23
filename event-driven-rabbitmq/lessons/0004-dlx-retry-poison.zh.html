@@ -1,0 +1,151 @@
+<meta charset="utf-8">
+<title>MQ · 第 4 课 — 死信、重试与毒消息</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>事件驱动系统 · 第 4 课</span><span>≈13 分钟 · <a href="0004-dlx-retry-poison.html">English</a></span></div>
+  <h1>体面地让一条消息失败</h1>
+  <p class="dek">dead-letter exchange、带退避的重试阶梯，以及毒消息的停车场。</p>
+</header>
+
+<p>第 2 课给了你 <span class="term">nack</span>，还有一个我当时按下不表的警告：<code>nack(requeue=true)</code> 会把消息直接塞回队列头部 —— 立刻重投、滚烫循环、同样的失败、永远如此。本课给出生产环境的答案：一条为"现在处理不了"的消息准备的<em>机械化</em>流水线。<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>Dead-lettering：你配置的转发，不是你写的代码</h2>
+
+<p>一条队列可以声明 <span class="term">dead-letter exchange</span>（DLX）—— "消息未经消费就离开本队列时，去哪里"。三种触发条件：<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>什么会让一条消息从队列里被 dead-letter</caption>
+  <tr><th>触发</th><th>时机</th></tr>
+  <tr><td class="match">rejected</td><td>消费者 <code>nack</code>/<code>reject</code> 且 <code>requeue=false</code></td></tr>
+  <tr><td class="match">expired</td><td>消息 TTL 到期（按消息或按队列）</td></tr>
+  <tr><td class="match">overflow</td><td>队列达到最大长度 —— 最老的消息被挤掉</td></tr>
+</table>
+</div>
+
+<p>被 dead-letter 的消息会带着原始属性<em>重新发布</em>到 DLX，外加一个 <span class="term">x-death</span> header（来自哪个队列、原因、次数、时间戳）。之后就是普通路由 —— 下面的一切都在利用这一点：<strong>DLX 可以路由回你自己的拓扑</strong>，而不只是进一个错误桶。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  队列 TTL 到期会把消息 dead-letter；DLX 把它路由回工作队列。<strong>在转发前面放一条队列，你就造出了一个定时器 —— 延迟重试 —— 零代码。</strong>退避（backoff）只是一串 TTL 递增的这种队列。broker 负责睡；你的消费者只会看到"稍后再试"。
+</div>
+
+<h2>重试阶梯</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <rect class="fl-box broker" x="20" y="30" width="150" height="52"/>
+  <text class="fl-name" x="95" y="52" text-anchor="middle">exchange: work</text>
+  <text class="fl-sub" x="95" y="68" text-anchor="middle">topic</text>
+  <rect class="fl-box broker hot" x="20" y="130" width="150" height="52"/>
+  <text class="fl-name" x="95" y="152" text-anchor="middle">q.orders</text>
+  <text class="fl-sub" x="95" y="168" text-anchor="middle">DLX → retry</text>
+  <rect class="fl-box" x="230" y="132" width="130" height="48"/>
+  <text class="fl-name" x="295" y="152" text-anchor="middle">Consumer</text>
+  <text class="fl-sub" x="295" y="168" text-anchor="middle">nack(requeue=false)</text>
+  <rect class="fl-box" x="420" y="40" width="140" height="44"/>
+  <text class="fl-name" x="490" y="58" text-anchor="middle">retry.10s</text>
+  <text class="fl-sub" x="490" y="74" text-anchor="middle">TTL 10s · DLX→work</text>
+  <rect class="fl-box" x="420" y="130" width="140" height="44"/>
+  <text class="fl-name" x="490" y="148" text-anchor="middle">retry.1m</text>
+  <text class="fl-sub" x="490" y="164" text-anchor="middle">TTL 1m · DLX→work</text>
+  <rect class="fl-box" x="420" y="220" width="140" height="44"/>
+  <text class="fl-name" x="490" y="238" text-anchor="middle">retry.5m</text>
+  <text class="fl-sub" x="490" y="254" text-anchor="middle">TTL 5m · DLX→work</text>
+  <rect class="fl-box broker" x="230" y="30" width="150" height="52"/>
+  <text class="fl-name" x="305" y="52" text-anchor="middle">exchange: retry</text>
+  <text class="fl-sub" x="305" y="68" text-anchor="middle">routes by x-death count</text>
+  <rect class="fl-box" x="610" y="130" width="100" height="44" style="stroke:#a12d2d; fill:#f7ecec"/>
+  <text class="fl-name" x="660" y="148" text-anchor="middle" style="fill:#a12d2d">parking</text>
+  <text class="fl-sub" x="660" y="164" text-anchor="middle">humans look</text>
+  <line class="fl-edge msg" x1="95" y1="82" x2="95" y2="126"/>
+  <line class="fl-edge msg2" x1="170" y1="156" x2="225" y2="156"/>
+  <path class="fl-edge dashed" d="M 295 132 C 295 95, 290 60, 385 55"/>
+  <text class="fl-lbl o" x="330" y="70">failed → retry exch</text>
+  <line class="fl-edge" x1="380" y1="55" x2="415" y2="60"/>
+  <path class="fl-edge dashed" d="M 490 84 C 470 105, 430 130, 385 150"/>
+  <text class="fl-lbl" x="415" y="115">TTL fires → back to work</text>
+  <path class="fl-edge dashed" d="M 420 242 C 380 230, 300 215, 180 190"/>
+  <text class="fl-lbl" x="330" y="235">and again, later</text>
+  <path class="fl-edge msg2" d="M 560 100 C 600 110, 620 120, 635 128"/>
+  <text class="fl-lbl o" x="600" y="95">x-death ≥ 3</text>
+</svg>
+<p class="flowlegend">失败路径：<code>q.orders</code> 把消息 dead-letter 进 retry exchange → 落进某条 TTL 队列 → 到期把它路由<em>回工作队列</em>。死太多次（<code>x-death</code> 计数）后，改道去停车场而不是继续转圈。</p>
+</div>
+
+<p>跟着一条消息走一遍：消费者处理失败 → <code>nack(requeue=false)</code> → <code>q.orders</code> 把它 dead-letter 到 <code>retry</code> exchange → 它在 <code>retry.10s</code> 里待十秒 → TTL 到期又 dead-letter 回 <code>work</code> → 消费者再试一次。第三次失败：retry exchange 看到 <code>x-death.count ≥ 3</code>，把它路由进 <span class="term">parking lot</span>（停车场）—— 一条没有消费者的普通队列，它的<em>职责</em>就是被人看着：看板、告警、人工。</p>
+
+<div class="antipattern">
+  <span class="label">两个常见坑</span>
+  <strong>(1) 在 handler 里 sleep</strong> —— 白白占住一个消费者槽位（prefetch，第 2 课）还什么都没干；负载一上来整个 worker 池都在睡觉。永远不要在 handler 里 sleep；让 broker 替你持有消息。<strong>(2) 在共享的 retry 队列里用按消息 TTL</strong> —— 到期只在队列<em>头部</em>检查，一条长 TTL 消息会把后面所有短 TTL 的都堵住（队头阻塞）。一条队列一个 TTL —— 所以才叫队列<em>阶梯</em>。
+</div>
+
+<h2>毒消息，与循环保护</h2>
+
+<p><span class="term">毒消息（poison message）</span>每次都失败 —— 载荷损坏、引用缺失、handler 有 bug。它永远不会成功，重试纯属浪费；更糟的是它堵住队列、饿死好消息。阶梯通过 <code>x-death</code> 计数自动处理它：重试有上限，然后进停车场。停车场不是 bug 追踪器 —— 把它接到一个上面（告警、落到表里、建 ticket），否则永远不会有人看。</p>
+
+<p class="note">RabbitMQ 还保护<em>即时</em>循环：一条消息被 dead-letter 回它已经待过的队列、且什么都没变时，会被丢弃而不是永远打转。你的阶梯本来也避开了循环 —— 每一跳都换了 TTL 队列、计数加一。</p>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 为什么是一串 TTL 队列，而不是一条 retry 队列？</summary>
+    <p class="answer">到期只在队列头部检查。</p>
+    <p class="why">一条队列里混着不同 TTL 会导致队头阻塞：一条 5 分钟的消息压住所有 10 秒的。一条队列一个 TTL 就避开了。</p>
+  </details>
+  <details>
+    <summary>Q2. 哪个 nack 调用会把消息送上重试路径？</summary>
+    <p class="answer">nack 且 requeue 为 false。</p>
+    <p class="why"><code>requeue=true</code> 是第 2 课那个立即重投的滚烫循环；<code>false</code> 才触发队列的 dead-lettering。</p>
+  </details>
+  <details>
+    <summary>Q3. 机械化上，可重试失败和毒消息的区别是什么？</summary>
+    <p class="answer">反复失败之后的 x-death 计数。</p>
+    <p class="why">你无法预知未来 —— 所以设尝试上限（计数 ≥ 3）然后停进停车场。暂时性错误在阶梯内恢复；毒消息永远不能。</p>
+  </details>
+  <details>
+    <summary>Q4. 五分钟退避期间，是谁在"睡觉"？</summary>
+    <p class="answer">没有人 —— 消息在 broker 的 retry 队列里等着。</p>
+    <p class="why">消费者继续处理别的消息；在 handler 里睡会烧掉 prefetch 槽位并拖垮整个池。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">动手设计 —— 先别展开</span>
+  <p style="margin-top:0">你的发邮件消费者在 SMTP 供应商返回 500（暂时性，约一分钟恢复）时会失败，偶尔也会收到 <code>nobody@invalid</code> 这种地址（永久性）。设计失败路径：exchange、队列、TTL、binding，以及消费者在两种失败下分别做什么。<strong>提示：消费者能在 nack 之前区分这两种情况吗？</strong></p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开一个好答案</summary>
+      <p class="answer"><strong>能 —— 先分类，再 nack。</strong>供应商的 5xx 是可重试的：<code>nack(requeue=false)</code> 送上阶梯（10s → 1m → 5m，然后停进停车场）。被拒的地址（4xx / 校验失败）是毒消息 —— 重试永远修不好它，所以别上阶梯：要么直接 publish 到 <code>parking</code>，要么保留一个两跳的迷你阶梯（重试一次求稳）。拓扑就是阶梯图：<code>q.emails</code> 挂 DLX → <code>retry</code> exchange → 按 routing key 绑定的 TTL 队列；TTL 到期路由回 <code>work</code>；<code>x-death ≥ 3 → parking</code>。</p>
+      <p class="why">深层要点：<strong>重试策略按失败类别分，而消费者是唯一知道类别的地方。</strong>阶梯负责"再等等可能有救"；停车场负责"再等也没救"；分类是拓扑替你做不了的<em>代码</em>职责。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料 —— 两篇都读</span>
+  <strong>RabbitMQ: Dead Lettering</strong> —— 精确的 x-death 语义与循环规则：<a href="https://rabbitmq.com/docs/dlx">rabbitmq.com/docs/dlx</a>。然后是 CloudAMQP 的实操走读：<a href="https://www.cloudamqp.com/blog/when-and-how-to-use-the-rabbitmq-dead-letter-exchange.html">When and how to use the DLX</a>。当你开始在意 dead-letter 本身也可能丢的边界时，再回看 <a href="https://www.rabbitmq.com/blog/2022/03/29/at-least-once-dead-lettering.html">at-least-once dead-lettering 博文</a>。
+</div>
+
+<div class="ask"><b>随时问我。</b> 值得拉扯的线索："停车场应该每个领域一条还是全局一条？"、"什么时候 delayed-message 插件比 TTL 阶梯更好？"、"怎么不干等真实 TTL 来测试重试拓扑？"（剧透：CI 里用超短 TTL）。</div>
+
+<div class="nav">
+  <span>◄ <a href="0003-publisher-confirms-idempotency.zh.html">第 3 课 — Confirms 与幂等</a></span>
+  <span><a href="../reference/glossary.zh.html">词汇表</a> · 下一课：真实服务的拓扑设计 ►</span>
+</div>
+
+<h2 id="sources">参考来源</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — Dead lettering: <a href="https://rabbitmq.com/docs/dlx">rabbitmq.com/docs/dlx</a></li>
+  <li id="s2">CloudAMQP — When and how to use the DLX: <a href="https://www.cloudamqp.com/blog/when-and-how-to-use-the-rabbitmq-dead-letter-exchange.html">cloudamqp.com/blog</a></li>
+</ol>

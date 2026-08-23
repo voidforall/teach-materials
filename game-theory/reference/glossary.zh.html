@@ -1,0 +1,135 @@
+<meta charset="utf-8">
+<title>博弈论 — 词汇表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>博弈论 · 参考 <a href="glossary.html">English</a></span><span>持续更新</span></div>
+  <h1>词汇表</h1>
+  <p class="dek">课程的共享词表。所有课文遵循这里的定义，随课程增长。</p>
+</header>
+
+<p class="note">大致按由基础到外延排序，不按字母 —— 第一次从头读，之后用 <kbd>Ctrl/Cmd-F</kbd> 跳查。</p>
+
+<h2>博弈这个对象</h2>
+
+<h3>Game（博弈）</h3>
+<p>对"每个参与者的结果取决于<em>所有人</em>的选择、而非只取决于自己"的交互的模型。最小规格：<strong>players</strong>（玩家）、<strong>actions</strong>（行动）、<strong>payoffs</strong>（收益）。</p>
+
+<h3>Player（玩家）</h3>
+<p>决策者。假设<strong>理性</strong>（选最大化自身收益的行动），且除特别说明外，这种理性是<em>共同知识</em>（人人皆知人人皆知……人人理性）。</p>
+
+<h3>Action vs. Strategy（行动 vs 策略）</h3>
+<p><span class="term">action</span> 是一步棋。<span class="term">strategy</span> 是完整计划：在你可能要行动的每个点上你会怎么做。一次性同时博弈中两者重合；序贯博弈里截然不同。</p>
+
+<h3>Payoff（收益 / 效用）</h3>
+<p>给玩家对结果喜好排序的数字。越大越好。解题大多只关心<em>排序</em>；单位不是钱，除非声明。</p>
+
+<h3>Normal form（正规 / 策略形式）</h3>
+<p>写成<strong>收益矩阵</strong>的博弈：行 = 一方的行动、列 = 另一方的、每格 = 收益对 <span class="pr" style="color:var(--accent)">(行的</span>, <span class="pc" style="color:var(--loss)">列的)</span>。惯例：<strong>行玩家的收益写在前</strong>。</p>
+
+<h3>Extensive form（扩展形式）</h3>
+<p>写成先后行动<strong>树</strong>的博弈 —— 谁在何时动、知道什么、叶子上的收益。用于序贯博弈（见 <em>backward induction</em>）。</p>
+
+<h2>求解：核心工具箱</h2>
+
+<h3>Best response（最优反应）</h3>
+<p>给定其他人的选择，你的 best response 是带给你最高收益的行动。博弈论的原子操作 —— 解博弈基本就是"人人对人人都 best-respond"。</p>
+
+<h3>Dominant / dominated strategy（占优 / 被占优策略）</h3>
+<p><strong>严格占优（strictly dominant）</strong>：无论别人做什么都最优。<strong>严格被占优（strictly dominated）</strong>：无论别人做什么都劣于某个别的选项 —— 理性玩家绝不选它。<strong>弱</strong>版本把"严格好/差"换成"至少不差/从不更好"。</p>
+
+<h3>IEDS（重复剔除被占优策略）</h3>
+<p>反复删除被占优策略；每次删除都可能在更小的博弈里暴露新的被占优策略。幸存的是可理性化行动集。</p>
+
+<h3>Nash equilibrium（NE，纳什均衡）</h3>
+<p>一个人人同时对其他人 best-respond 的策略组合 —— <strong>无人能靠单方面偏离获利</strong>。一个"给定别人所做、我无怨无悔"的落点。可纯可混；一个博弈可以有零个、一个或多个。</p>
+
+<h3>Pure vs. Mixed strategy（纯策略 vs 混合策略）</h3>
+<p><span class="term">纯</span>：锁定一个行动。<span class="term">混合</span>：以设定概率在行动间随机。<strong>Nash 定理</strong>：允许混合策略后，每个有限博弈至少有一个 Nash equilibrium。</p>
+
+<h3>Indifference principle（无差异原理）</h3>
+<p>求混合均衡的方法：每个玩家设自己的混合概率，使<em>对手</em>在他混合的行动之间<strong>无差异</strong>。推论 —— 你的均衡概率由<em>别人</em>的收益钉死，不是你自己的。2×2 解法：把对手每个行动的期望收益写成你混合比例的函数，划等号，求解。</p>
+
+<h3>Backward induction（倒推归纳）</h3>
+<p>从最后一步往回解序贯博弈：在每个决策点假设未来的玩家会最优行动，然后折回。给出<em>子博弈完美</em>结果。</p>
+
+<h3>Subgame-perfect equilibrium（SPE，子博弈完美均衡）</h3>
+<p>在每个子博弈里也是 Nash equilibrium 的 Nash equilibrium —— 排除靠<em>不可信</em>威胁撑住的均衡。让序举博弈规矩起来的提纯。</p>
+
+<h3>可信 vs 不可信威胁/承诺</h3>
+<p>威胁或承诺<strong>可信</strong>，当且仅当<em>那一刻到来时</em>执行它符合行动者自身利益。Backward induction / SPE 丢弃依赖不可信威胁的均衡（例如"谁进我打谁"，而开战只会伤到自己）。</p>
+
+<h3>Commitment（承诺 / 自我束缚）</h3>
+<p>在对手行动<em>之前</em>绑住自己未来选择的行动，改变他对你的预期。反直觉地，<strong>删掉自己的选项可以提高收益</strong>（过剩产能、约束性合同、托管、声誉、烧桥）。讨价还价与威慑的战略内核。</p>
+
+<h3>Hold-up problem（敲竹杠问题）</h3>
+<p>一笔有效率的交易失败，因为一方在对方投入成本<em>之后无法可信地承诺</em>履约（比如收了钱就违约的供应商）。用承诺装置修复：可执行合同、托管、或重复关系。</p>
+
+<h2>反复出现的结构与市场博弈</h2>
+
+<h3>Prisoner's Dilemma（囚徒困境）</h3>
+<p>每人都有 dominant 的"背叛"，而互相背叛对双方都比互相合作更糟。个体理性与集体理性的经典冲突。</p>
+
+<h3>Repeated game 与 discount factor（重复博弈与贴现因子 δ）</h3>
+<p>同一批玩家反复玩的阶段博弈。<span class="term">贴现因子</span> δ ∈ (0,1) 给每轮未来加权 —— 读作耐心<em>或</em>关系继续的概率。<strong>已知有限期限</strong>会被 backward induction 拆解掉合作；<strong>无限/不确定期限</strong>可以维持它。</p>
+
+<h3>Grim trigger / Tit-for-tat（冷酷触发 / 以牙还牙）</h3>
+<p>重复博弈中的执行策略。<span class="term">Grim trigger</span>：合作直到第一次背叛，此后永远背叛 —— δ 足够高时维持合作（标准囚徒困境 δ ≥ ½）。<span class="term">Tit-for-tat</span>：先合作，然后照抄对手上一手 —— 善良、还击、宽容、清晰；Axelrod 锦标赛冠军。</p>
+
+<h3>Folk theorem（无名氏定理）</h3>
+<p>玩家耐心（δ 接近 1）时，<strong>几乎任何高于各玩家"惩罚（minmax）"水平的收益组合都能成为无限重复博弈的 subgame-perfect equilibrium</strong>。解释了无合同合作 —— 代价是预测均衡数量泛滥。</p>
+
+<h3>Zero-sum game（零和博弈）</h3>
+<p>一方所得恰为另一方所失（收益和为常数）。纯对抗；用 minimax 求解。</p>
+
+<h3>Reaction function（反应函数）</h3>
+<p>Best response 推广到连续行动：对对手每一个可能的行动给出你最优应对的函数。线性需求下 Cournot 反应函数向下斜（"你多产 ⟹ 我少产"）。Nash equilibrium 就是双方反应函数的<strong>交点</strong>。</p>
+
+<h3>Cournot / Bertrand 竞争</h3>
+<p>两个双寡头模型。<span class="term">Cournot</span>：公司选<em>数量</em>；需求 P=a−Q 下每家均衡产量 (a−c)/3，落在垄断与完全竞争之间。<span class="term">Bertrand</span>：公司选<em>价格</em>，互相压价把价格压到边际成本。</p>
+
+<h3>Bertrand paradox（贝特朗悖论）</h3>
+<p>同质品价格竞争下，仅<strong>两家</strong>公司就足以把价格压到边际成本、利润归零 —— 完全竞争的结果。实践中靠产能限制、产品差异化或重复来化解。教训：<em>战略变量</em>（价格 vs 数量）可能比公司数量更要紧。</p>
+
+<h3>Private vs. Common value（私人价值 vs 共同价值）</h3>
+<p><span class="term">Private value</span>：标的对每个竞拍者值一个各自不同的、自己知道的数。<span class="term">Common value</span>：对所有人值同一个未知数，各人只有带噪声的估计（滋生 winner's curse）。</p>
+
+<h3>First- vs. Second-price auction（第一价格 vs 第二价格拍卖）</h3>
+<p><span class="term">First-price</span>：最高者付自己的报价 —— 必须<em>压价</em>（shade），且无 dominant strategy（最优报价取决于信念）。<span class="term">Second-price / Vickrey</span>：最高者付<em>第二高</em>报价，使<strong>说真话成为弱占优策略</strong> —— 你的报价只决定<em>赢不赢</em>；价格由别人定。</p>
+
+<h3>Revenue-equivalence theorem（收入等价定理）</h3>
+<p>标准假设（独立私人价值、对称风险中性竞拍者）下，first-price 与 second-price 拍卖<strong>期望收入相同</strong> —— 竞拍者在 first-price 里的压价抵消其表面优势。</p>
+
+<h3>Winner's curse（赢者的诅咒）</h3>
+<p>共同价值拍卖里，赢意味着你是最乐观的出价者 —— 赢本身就是关于价值的坏消息。理性竞拍者向下修正以纠偏。</p>
+
+<h3>Asymmetric information（信息不对称）</h3>
+<p>一方知道某件影响收益而另一方不知道的事 —— 通常是自己的<em>类型</em>（质量、能力、私有信号）。打破了前几课"收益是共同知识"的假设；逆向选择与 signaling 的源头。</p>
+
+<h3>Adverse selection（逆向选择）</h3>
+<p>交易<em>之前</em>的隐藏信息把好类型挤出市场：任何吸引好类型的价格都在为整个池子多付，因为坏类型模仿同样的报价。Akerlof 的<em>柠檬市场</em>。市场的现实解药：<strong>买卖价差</strong>，补偿做市商与知情订单流交易的风险。</p>
+
+<h3>Signaling 与 single-crossing（信号传递与单交叉条件）</h3>
+<p>知情方采取昂贵行动以可信地揭示类型。只有当信号<strong>差异化地昂贵</strong> —— 对发信号的类型比对模仿者严格更便宜 —— 才有效（否则是<em>cheap talk</em>，什么也不揭示）。Spence 的教育信号是经典。</p>
+
+<h3>Separating vs. Pooling equilibrium（分离 vs 混同均衡）</h3>
+<p><span class="term">Separating</span>：不同类型发不同信号，行为揭示类型。<span class="term">Pooling</span>：所有类型发同一信号，什么也不揭示，信念停在先验。</p>
+
+<h3>Screening（信息甄别）</h3>
+<p>Signaling 的镜像：<em>不知情</em>方设计菜单（保险免赔额、产品版本）让不同类型自选 —— 机制设计用于隐藏类型。</p>
+
+<h3>Mechanism design（机制设计）</h3>
+<p>"反着跑的博弈论"：设计<em>规则</em>，让自利博弈产出你想要的结果（例如让诚实成为最优的 Vickrey 拍卖）。CS 与市场的桥。</p>
+
+<h3>Price of anarchy（无政府代价）</h3>
+<p>最差 Nash equilibrium 的社会成本与最优成本之比。度量自私博弈让系统退化多少 —— 算法博弈论的主力工具。</p>
+
+<div class="ask">
+  <b>老师在线。</b> 哪条定义发滑？找我要个例子 —— 这就是我在的原因。
+</div>
+
+<nav class="nav">
+  <a href="../lessons/0001-best-response-and-nash.zh.html">← 第 1 课：Best Response 与 Nash</a>
+  <a href="../MISSION.md">Mission</a>
+</nav>

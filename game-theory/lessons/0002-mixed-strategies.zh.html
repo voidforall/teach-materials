@@ -1,0 +1,142 @@
+<meta charset="utf-8">
+<title>GT · 第 2 课 — Mixed Strategies 与无差异原理</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>博弈论 · 第 2 课</span><span>≈12 分钟 · <a href="0002-mixed-strategies.html">English</a></span></div>
+  <h1>Mixed Strategies 与无差异原理</h1>
+  <p class="dek">当划线法找不到<em>任何</em>均衡时怎么办：随机化 —— 并精确算出随机多少。</p>
+</header>
+
+<p>上一课，一个<strong>零</strong>个双划线格的矩阵是个悬案。现在讲它为什么会发生、以及理性玩家实际上会怎么做：他们让自己不可预测。本课给你第二项核心技能 —— <strong>手算 2×2 博弈的混合策略均衡</strong>。</p>
+
+<h2>纯均衡为什么会失效：别被预测</h2>
+
+<p>有些博弈惩罚可预测性。对手能猜到你的动作，就能利用它 —— 于是任何纯选择都招来反制，best response 互相追逐成一个圈，无处落脚。<sup class="cite"><a href="#s1">1</a></sup>最简版本是 <span class="term">Matching Pennies</span>（猜硬币）：你靠<em>不</em>一致赢，他靠一致赢。你稳定选什么，他就选什么来赢你。</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>Matching Pennies —— 不一致则行赢，一致则列赢（零和）</caption>
+  <tr><th class="corner"></th><th>列：正面</th><th>列：反面</th></tr>
+  <tr><th>行：正面</th><td>(<span class="pr">−1</span>, <span class="pc">1</span>)</td><td>(<span class="pr">1</span>, <span class="pc">−1</span>)</td></tr>
+  <tr><th>行：反面</th><td>(<span class="pr">1</span>, <span class="pc">−1</span>)</td><td>(<span class="pr">−1</span>, <span class="pc">1</span>)</td></tr>
+</table>
+</div>
+
+<p>跑一遍划线，best response 永不重合 —— 没有纯策略 NE。解法：<span class="term">mixed strategy</span>（混合策略），在你的行动上放一个<em>概率</em>。这里显然该 50/50 抛硬币，让人读不出你。但"显然"只在博弈对称时管用。其余一切，得靠方法。</p>
+
+<h2>方法：让对手无差异</h2>
+
+<p>这一步第一次见会让所有人吃惊：</p>
+
+<div class="keystone">
+  <span class="label">无差异原理（indifference principle）</span>
+  在混合均衡里，你选<em>你的</em>混合比例，是为了让<strong>对手</strong>在他所混合的行动之间<strong>无差异</strong>。<br><br>
+  为什么：如果对手严格偏好其中一个行动，他就会百分之百选它 —— 那你随机化就是送上门被利用。只有当他的两个行动<em>收益相等</em>时，随机化才理性。所以你们各自调自己的骰子，去抹平<em>对方</em>的激励。
+</div>
+
+<p>具体到 2×2：把对手两个行动的期望收益<em>写成你的混合概率的函数</em>，然后把两个式子划<strong>等号</strong>求解。这一个方程就给出你的均衡混合。</p>
+
+<h2>例题 —— 审计博弈（合规）</h2>
+
+<p>直接来自 mission。<strong>审计方</strong>每期决定<em>检查</em>（有成本）还是<em>信任</em>；<strong>交易者</strong>决定<em>诚实</em>还是<em>作弊</em>。作弊划算 —— 除非被查到。</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>审计方（行）vs 交易者（列）—— 收益 = (<span class="pr">审计方</span>, <span class="pc">交易者</span>)</caption>
+  <tr><th class="corner"></th><th>交易者：诚实</th><th>交易者：作弊</th></tr>
+  <tr><th>审计方：检查</th><td>(<span class="pr">−1</span>, <span class="pc">1</span>)</td><td>(<span class="pr">2</span>, <span class="pc">−2</span>)</td></tr>
+  <tr><th>审计方：信任</th><td>(<span class="pr">0</span>, <span class="pc">1</span>)</td><td>(<span class="pr">−2</span>, <span class="pc">2</span>)</td></tr>
+</table>
+</div>
+
+<p><strong>先确认没有纯 NE。</strong>审计方对诚实 best-respond <em>信任</em>、对作弊 best-respond <em>检查</em>；交易者对检查 best-respond <em>诚实</em>、对信任 best-respond <em>作弊</em>。箭头绕圈 —— 没有双划线。好，需要混合。</p>
+
+<h3>第 1 步 —— 审计方的混合（让交易者无差异）</h3>
+<p>设审计方以概率 <em>p</em> <strong>检查</strong>。交易者的期望收益：</p>
+<ul>
+  <li>诚实：<em>p</em>·(1) + (1−<em>p</em>)·(1) = <strong>1</strong> &nbsp;<span class="note">（诚实恒得 1）</span></li>
+  <li>作弊：<em>p</em>·(−2) + (1−<em>p</em>)·(2) = <strong>2 − 4<em>p</em></strong></li>
+</ul>
+<p>划等号：1 = 2 − 4<em>p</em> ⟹ <strong><em>p</em> = 1/4</strong>。审计方四分之一的时间检查 —— 恰好让作弊不再划算。</p>
+
+<h3>第 2 步 —— 交易者的混合（让审计方无差异）</h3>
+<p>设交易者以概率 <em>q</em> <strong>诚实</strong>。审计方的期望收益：</p>
+<ul>
+  <li>检查：<em>q</em>·(−1) + (1−<em>q</em>)·(2) = <strong>2 − 3<em>q</em></strong></li>
+  <li>信任：<em>q</em>·(0) + (1−<em>q</em>)·(−2) = <strong>−2 + 2<em>q</em></strong></li>
+</ul>
+<p>划等号：2 − 3<em>q</em> = −2 + 2<em>q</em> ⟹ 5<em>q</em> = 4 ⟹ <strong><em>q</em> = 4/5</strong>。交易者 4/5 的时间诚实、1/5 作弊。</p>
+
+<p><strong>均衡：</strong>审计方查 1/4，交易者作弊 1/5。谁改自己的骰子都不会更好。</p>
+
+<h2>值得记住的反转</h2>
+
+<div class="keystone">
+  <span class="label">反直觉 —— 但极有用</span>
+  再看一遍：<strong>审计方</strong>的混合 <em>p</em> 是从<strong>交易者</strong>的收益里解出来的，<strong>交易者</strong>的混合 <em>q</em> 是从<strong>审计方</strong>的收益里解出来的。<br><br>
+  <strong>你的均衡概率由对方的激励决定，不是你自己的。</strong>所以加重对作弊的惩罚，并不是天真直觉里"审计方需要查得更勤" —— 而是改变了<em>交易者</em>作弊的频率。这个反转通向 <span class="term">mechanism design</span>（机制设计）：要移动谁的行为，就改变谁面对的收益，而不是你自己的。
+</div>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 混合均衡里，<em>你的</em>混合概率由谁的收益决定？</summary>
+    <p class="answer">对手的 —— 你混合正是为了让他在行动间无差异。</p>
+    <p class="why">他若无差异就不会纯化，你的骰子稍有倾斜就会被利用。</p>
+  </details>
+  <details>
+    <summary>Q2. 你算出某行动的"概率"是 1.3。哪里错了 —— 或意味着什么？</summary>
+    <p class="answer">不存在内部混合；那里 best response 是纯策略。</p>
+    <p class="why">概率落在 [0,1] 之外，说明博弈其实有纯策略解。</p>
+  </details>
+  <details>
+    <summary>Q3. <em>（第 1 课的间隔回忆）</em>混合之前，怎么检查一个 2×2 没有纯 NE？</summary>
+    <p class="answer">给各方的最优收益划线；没有任何格子两个数都被划到。</p>
+    <p class="why">永远先查纯均衡 —— 确认没有才轮到混合。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">试一试 —— 展开前先算出混合</span>
+  <p style="margin-top:0"><strong>守方</strong>守两个据点之一；<strong>攻方</strong>袭击其一。南边据点更值钱。收益 = (<span class="pr">守方</span>, <span class="pc">攻方</span>)，零和。<strong>求守方守北的概率</strong>，使攻方打哪边都占不到便宜。</p>
+  <div class="payoff-wrap">
+  <table class="payoff">
+    <tr><th class="corner"></th><th>攻方：袭北</th><th>攻方：袭南</th></tr>
+    <tr><th>守方：守北</th><td>(<span class="pr">1</span>, <span class="pc">−1</span>)</td><td>(<span class="pr">−2</span>, <span class="pc">2</span>)</td></tr>
+    <tr><th>守方：守南</th><td>(<span class="pr">−1</span>, <span class="pc">1</span>)</td><td>(<span class="pr">1</span>, <span class="pc">−1</span>)</td></tr>
+  </table>
+  </div>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开解答</summary>
+      <p class="answer"><strong>以概率 2/5 守北</strong>（于是 3/5 守南）。</p>
+      <p class="why">设守方以概率 <em>g</em> 守北。让<em>攻方</em>无差异：袭北给攻方 <em>g</em>·(−1) + (1−<em>g</em>)·(1) = 1 − 2<em>g</em>；袭南给 <em>g</em>·(2) + (1−<em>g</em>)·(−1) = 3<em>g</em> − 1。划等号：1 − 2<em>g</em> = 3<em>g</em> − 1 ⟹ 5<em>g</em> = 2 ⟹ <em>g</em> = 2/5。合理：更值钱的南边被守得<em>更多</em>（3/5）。由方法的对称性，攻方自己的混合比例来自守方的收益。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选材料 —— 看这个</span>
+  <strong>Open Yale · ECON 159，Ben Polak</strong> —— 混合策略那几讲（Lectures 10–11）在鲜活例子上现场推导无差异条件。
+  <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>。文字版用 Osborne 的混合策略均衡章节（<a href="https://www.economics.utoronto.ca/osborne/igt/">免费草稿章节</a>）。
+</div>
+
+<h3 id="s1">注释与引用</h3>
+<ol class="note">
+  <li id="s1">形式地说：有限博弈可能没有<em>纯</em>策略均衡，但 <strong>Nash 定理</strong>保证允许混合策略后至少存在一个。Matching Pennies 是最小反例。见<a href="../reference/glossary.zh.html">词汇表</a>中 <em>mixed strategy</em> 与 <em>Nash equilibrium</em> 条目。</li>
+</ol>
+
+<div class="ask">
+  <b>我是你的老师 —— 随便问。</b> 想看为什么概率出 [0,1] 就意味着"打纯策略"？好奇它怎么推广到 2×2 之外、混合均衡怎么出现在诈唬和订单簿博弈里？问，我给你造例子。
+</div>
+
+<nav class="nav">
+  <a href="0001-best-response-and-nash.zh.html">← 第 1 课</a>
+  <a href="../reference/glossary.zh.html">词汇表</a>
+  <span>下一课：第 3 课 — 序贯博弈与可信威胁</span>
+</nav>

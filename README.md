@@ -13,6 +13,25 @@ One folder per topic at the repo root. Keep each folder self-contained.
 - One topic per folder.
 - Prefer many small Markdown files over few large ones.
 
+## Bilingual pages (convention)
+
+Every public page (lesson, glossary) exists as an English original `NNNN-name.html`
+plus a Chinese version `NNNN-name.zh.html` in the same folder:
+
+- The Chinese page is a **full translation of the prose**; **key terminology stays in
+  English** on first use with an optional Chinese gloss — 交换机（exchange）— and in
+  English thereafter. Messaging terms (exchange, binding, routing key, prefetch, ack,
+  dead-letter, idempotency…) and game-theory terms (Nash equilibrium, best response,
+  backward induction…) are never translated away.
+- Diagrams/SVG keep their English labels — consistent with the terminology rule.
+- Each page links to its counterpart: a `中文` link in the original's masthead, an
+  `English` link in the Chinese page's masthead. Lesson-to-lesson nav links point to
+  same-language files.
+- `scripts/build_index.py` detects `.zh.html` siblings automatically and adds a 中
+  badge per lesson. When editing a page, update its pair too.
+- Course working notes (`NOTES.md`, `MISSION.md`, learning records) stay in English —
+  they are agent-facing teaching state, not reader-facing pages.
+
 ## Site (GitHub Pages)
 
 Served from the root of `main`; `.nojekyll` keeps HTML served as-is. After adding

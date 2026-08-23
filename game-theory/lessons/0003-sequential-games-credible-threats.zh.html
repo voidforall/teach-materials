@@ -1,0 +1,158 @@
+<meta charset="utf-8">
+<title>GT · 第 3 课 — 序贯博弈与可信威胁</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>博弈论 · 第 3 课</span><span>≈14 分钟 · <a href="0003-sequential-games-credible-threats.html">English</a></span></div>
+  <h1>序贯博弈与可信威胁</h1>
+  <p class="dek">当玩家有先后时，矩阵藏起了时序。把博弈树倒着解 —— 并学会分辨哪些威胁是虚张声势。</p>
+</header>
+
+<p>目前为止所有人同时行动。但战略生活大多是<em>序贯</em>的：有人先动，另一方看到后回应。时序改变一切 —— 也暴露出战略里最有用的一个思想：<strong>威胁只有你真的会执行时才有效。</strong>本课给你 <span class="term">backward induction</span>（倒推归纳），区分真威胁与吓唬的工具。</p>
+
+<h2>新图景：博弈树</h2>
+
+<p>序贯博弈画成 <span class="term">extensive form</span>（扩展形式）—— 一棵树。节点是决策点（标注<em>谁在动</em>）；树枝是行动；叶子放收益对。时间上从左往右读。</p>
+
+<h2>方法：backward induction</h2>
+
+<div class="keystone">
+  <span class="label">Backward induction（倒推归纳）</span>
+  从<strong>最后</strong>的决策开始。在每个决策点，假设该玩家选对自己最优的收益 —— 剪掉他绝不会选的枝。把该节点替换为幸存树枝的收益，退回上一个决策点，重复。一路退到根。幸存下来的就是 <strong>subgame-perfect equilibrium（SPE，子博弈完美均衡）</strong>：一个"每个玩家在他可能真正行动的<em>每个</em>点上都最优"的预测。
+</div>
+
+<p>诀窍在每一步内置的假设：后动的人在那一刻到来时会做对<em>自己</em>最好的事 —— 而不是他早先许诺的事。这正是吓唬被杀死的原因。</p>
+
+<h2>例题 —— 进入威慑</h2>
+
+<p>直接来自 mission。<strong>进入者</strong>决定是否进入一个目前由<strong>在位者</strong>独占的市场。若进入，在位者选择<em>容忍</em>（分享市场）或<em>开战</em>（两败俱伤的价格战）。</p>
+
+<div class="gametree">
+<svg viewBox="0 0 600 240" role="img" aria-label="Entry game tree solved by backward induction">
+  <line class="gt-edge" x1="55" y1="115" x2="255" y2="55"/>
+  <line class="gt-edge chosen" x1="55" y1="115" x2="255" y2="170"/>
+  <line class="gt-edge chosen" x1="255" y1="170" x2="470" y2="140"/>
+  <line class="gt-edge pruned" x1="255" y1="170" x2="470" y2="205"/>
+  <text class="gt-act" x="120" y="78">不进入 (Out)</text>
+  <text class="gt-act chosen" x="130" y="158">进入 (In)</text>
+  <text class="gt-act chosen" x="300" y="140">容忍 (Accommodate)</text>
+  <text class="gt-act pruned" x="360" y="205">开战 (Fight)</text>
+  <circle class="gt-node" cx="55" cy="115" r="13"/>
+  <text class="gt-who" x="18" y="105">进入者</text>
+  <circle class="gt-node p2" cx="255" cy="170" r="13"/>
+  <text class="gt-who" x="222" y="200">在位者</text>
+  <text class="gt-pay" x="268" y="52">(0, 4)</text>
+  <text class="gt-pay chosen" x="482" y="144">(2, 2)</text>
+  <text class="gt-pay pruned" x="482" y="209">(−1, −1)</text>
+</svg>
+<p class="treelegend"><span class="g">绿色</span> = 每个玩家实际会选的枝 · 虚线 = 被剪掉。收益 = (进入者, 在位者)。</p>
+</div>
+
+<p><strong>第 1 步 —— 最后行动者（在位者），若进入发生。</strong>容忍得 <strong>2</strong>，开战得 <strong>−1</strong>。在位者容忍。剪掉"开战"。</p>
+<p><strong>第 2 步 —— 折回到进入者。</strong>进入者现在知道进入将导致容忍 → 收益 <strong>2</strong>，对上不进入 → <strong>0</strong>。所以他<strong>进入</strong>。</p>
+<p><strong>SPE：</strong>进入者进入、在位者容忍 → (2, 2)。</p>
+
+<h2>回报：识破不可信威胁</h2>
+
+<p>现在把<em>同一个</em>博弈写成第 1 课的矩阵并划线：</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>进入博弈的 normal form —— (<span class="pr">进入者</span>, <span class="pc">在位者</span>)</caption>
+  <tr><th class="corner"></th><th>在位者：开战</th><th>在位者：容忍</th></tr>
+  <tr><th>进入者：进入</th><td>(<span class="pr">−1</span>, <span class="pc">−1</span>)</td><td class="ne">(<span class="pr br pr">2</span>, <span class="pc br pc">2</span>)</td></tr>
+  <tr><th>进入者：不进</th><td class="ne">(<span class="pr br pr">0</span>, <span class="pc br pc">4</span>)</td><td>(<span class="pr br pr">0</span>, <span class="pc br pc">4</span>)</td></tr>
+</table>
+</div>
+
+<p>有<strong>两个</strong>纯策略 Nash equilibrium：<strong>(进入, 容忍)</strong> 和 <strong>(不进, 开战)</strong>。第二个说的是：进入者不进，因为在意者的<em>威胁</em>要开战。它是合法的 Nash equilibrium —— 但 backward induction 把它扔了。为什么？</p>
+
+<div class="keystone">
+  <span class="label">可信 vs 不可信威胁</span>
+  "你敢进我就打"是一个<strong>不可信威胁（non-credible threat）</strong>。若进入者真的进了，开战让在位者得 −1 而容忍得 +2 —— 他<em>不会</em>打。一个你永远不会执行的威胁改变不了理性对手的行为。<strong>Subgame-perfect equilibrium 只保留由可信行动支撑的均衡。</strong>这正是 SPE 提纯存在的理由：普通 Nash equilibrium 会被吓唬骗过；backward induction 不会。
+</div>
+
+<h2>战略反转：commitment</h2>
+
+<p>这里是谈判与市场里真能收房租的部分。如果在位者能让"开战"变得<em>可信</em>，进入者就不会进，在位者独占整个市场（收益 4 &gt; 2）。怎么做到？在对手行动<em>之前</em>改变你<em>自己</em>的未来收益 —— 建过剩产能、签"跟价条款"、押上声誉。每一招都让开战变得便宜或自动，威胁于是成真。</p>
+
+<div class="keystone">
+  <span class="label">Commitment（承诺）的价值</span>
+  反直觉地，<strong>删掉自己的选项可以让你过得更好</strong> —— 因为它改变了对手对你行为的预期。烧桥、有约束力的合同、第三方托管、公开预告：全都是靠可信地<em>自我设限</em>取胜的招。（序贯思维 + commitment 是讨价还价、威慑与市场微观结构的骨架。）<sup class="cite"><a href="#s1">1</a></sup>
+</div>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. backward induction 在每个决策节点上假设什么？</summary>
+    <p class="answer">轮到谁，谁就在那一刻选自己最优的收益。</p>
+    <p class="why">"那一刻"三个字剔除了他们事后不会兑现的许诺。</p>
+  </details>
+  <details>
+    <summary>Q2. (不进, 开战) 这个 Nash equilibrium 为什么被 subgame perfection 否决？</summary>
+    <p class="answer">开战不可信；真面对进入时在位者不会打。</p>
+    <p class="why">SPE 要求每个 subgame 内都最优，包括"进入之后"那个。</p>
+  </details>
+  <details>
+    <summary>Q3. <em>（间隔回忆 —— 第 2 课）</em>混合均衡里，谁的收益决定你的混合概率？</summary>
+    <p class="answer">对手的 —— 你随机化是为了让他无差异。</p>
+    <p class="why">工具不同、纪律相同：永远推理"什么让<em>对方</em>行动"。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">试一试 —— 展开前先解树</span>
+  <p style="margin-top:0"><strong>买方</strong>可以下单（付定金）或不买。若下单，<strong>供应商</strong>要么交货、要么吞掉定金违约。用 backward induction 解：<strong>结果是什么？好结局 (3, 2) 为什么丢了？</strong></p>
+  <div class="gametree">
+  <svg viewBox="0 0 600 240" role="img" aria-label="Buyer-supplier hold-up game tree to solve">
+    <line class="gt-edge" x1="55" y1="115" x2="255" y2="55"/>
+    <line class="gt-edge" x1="55" y1="115" x2="255" y2="170"/>
+    <line class="gt-edge" x1="255" y1="170" x2="470" y2="140"/>
+    <line class="gt-edge" x1="255" y1="170" x2="470" y2="205"/>
+    <text class="gt-act" x="100" y="78">不下单</text>
+    <text class="gt-act" x="140" y="158">下单</text>
+    <text class="gt-act" x="345" y="140">交货</text>
+    <text class="gt-act" x="345" y="205">违约</text>
+    <circle class="gt-node" cx="55" cy="115" r="13"/>
+    <text class="gt-who" x="26" y="105">买方</text>
+    <circle class="gt-node p2" cx="255" cy="170" r="13"/>
+    <text class="gt-who" x="222" y="200">供应商</text>
+    <text class="gt-pay" x="268" y="52">(0, 0)</text>
+    <text class="gt-pay" x="482" y="144">(3, 2)</text>
+    <text class="gt-pay" x="482" y="209">(−2, 3)</text>
+  </svg>
+  <p class="treelegend">收益 = (买方, 供应商)。</p>
+  </div>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开解答</summary>
+      <p class="answer"><strong>买方不下单；结局 (0, 0)。</strong></p>
+      <p class="why">先看最后行动者：若订单来了，供应商比较 交货(2) 对 违约(3) → <strong>违约</strong>。折回：买方预见下单得 −2，不如不下单的 0 → <strong>不下单</strong>。有效率的 (3, 2) 蒸发，因为供应商<em>无法可信地承诺</em>交货。这就是 <strong>hold-up problem（敲竹杠问题）</strong>—— 解法是改变供应商违约收益的承诺装置：可执行的合同、第三方托管、声誉/重复博弈、智能合约。与进入威慑同一课的镜像：那边需要威胁可信，这边需要<em>承诺</em>可信。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选材料 —— 看这个</span>
+  <strong>Open Yale · ECON 159，Ben Polak</strong> —— Lectures 14–19 在鲜活例子上（含进入威慑）建立 backward induction、subgame perfection 与 commitment/可信性。
+  <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>。文字版：Osborne 的扩展形式博弈与 SPE 章节（<a href="https://www.economics.utoronto.ca/osborne/igt/">免费草稿章节</a>）。
+</div>
+
+<h3 id="s1">注释与引用</h3>
+<ol class="note">
+  <li id="s1">Thomas Schelling 的 <em>The Strategy of Conflict</em> 是 commitment 与可信性的经典 —— "约束对手的能力，可能取决于约束自己的能力"。这里的机制熟练之后值得一读。</li>
+</ol>
+
+<div class="ask">
+  <b>我是你的老师 —— 随便问。</b> 想看重复博弈怎么<em>不靠合同</em>让供应商的承诺变得可信？或者先动优势在 Stackelberg 定价里怎么起作用？问，我给你搭一个。
+</div>
+
+<nav class="nav">
+  <a href="0002-mixed-strategies.zh.html">← 第 2 课</a>
+  <a href="../reference/glossary.zh.html">词汇表</a>
+  <span>下一课：第 4 课 — 市场博弈：Cournot 与 Bertrand</span>
+</nav>

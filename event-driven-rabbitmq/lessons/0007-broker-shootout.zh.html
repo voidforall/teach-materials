@@ -1,0 +1,110 @@
+<meta charset="utf-8">
+<title>MQ · 第 7 课 — RabbitMQ vs Kafka vs SQS</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>事件驱动系统 · 第 7 课</span><span>≈14 分钟 · <a href="0007-broker-shootout.html">English</a></span></div>
+  <h1>任务队列，还是记录日志？</h1>
+  <p class="dek">选 broker 是一个问题，不是一张功能矩阵 —— 而答案经常是"都要"。</p>
+</header>
+
+<p>你真正需要的比较不是功能清单。三个工具，对"消息被处理<strong>之后</strong>怎么办"这个问题给出三种答案 —— 其余一切都从这个设计承诺推导出来。<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>决定一切的那根轴</h2>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>三个工具各自的核心承诺</caption>
+  <tr><th></th><th>RabbitMQ</th><th>Kafka</th><th>SQS</th></tr>
+  <tr><td>核心模型</td><td class="match">队列之上的路由织物</td><td class="match">只追加的记录日志</td><td class="match">托管任务队列</td></tr>
+  <tr><td>处理之后</td><td>ack 即删除</td><td>不删 —— 保留数天或永久</td><td>请求删除 / visibility 超时</td></tr>
+  <tr><td>能重读历史吗？</td><td>不能（没了就是没了）</td><td>能 —— 任意 consumer 任意 offset 回放</td><td>不能</td></tr>
+  <tr><td>消费模型</td><td>push，prefetch 塑形（第 2 课）</td><td>pull，offset 由组跟踪</td><td>poll，visibility timeout（第 2 课的影子）</td></tr>
+  <tr><td>路由</td><td>丰富（exchange/binding，第 1 课）</td><td>没有 —— 只有 topic 和 partition；消费者自己过滤</td><td>没有 —— 一条队列；fan-out 靠 SNS</td></tr>
+  <tr><td>顺序</td><td>按队列 best-effort（第 5 课）</td><td>每个 partition 内严格</td><td>FIFO 队列，有吞吐上限</td></tr>
+  <tr><td>运维</td><td>你自己跑（或托管）：集群、升级</td><td>自建最重；有托管（MSK/Confluent）</td><td>零 —— 它就是个 API</td></tr>
+</table>
+</div>
+
+<div class="keystone">
+  <span class="label">关键点 —— 决策流程</span>
+  按顺序问：<strong>(1) 是工作还是历史？</strong>做完即弃的工作 → RabbitMQ 或 SQS。要重读的历史 → Kafka。<strong>(2) 若是工作：要路由还是要省运维？</strong>丰富路由、重试阶梯、多协议、自己掌控基础设施 → RabbitMQ。没有运维团队、已在 AWS、就要简单队列 → SQS（fan-out 加 SNS）。<strong>(3) 若是历史：到此为止</strong> —— Kafka，按实体 partition 保序（第 5 课的 consistent-hash 逻辑，原生版）。而规模化之后的成熟答案常常是<strong>两个都要</strong>：Kafka 做记录流，RabbitMQ 做它下游的工作队列。
+</div>
+
+<h2>杂交为什么会失败、又为什么会成功</h2>
+
+<div class="antipattern">
+  <span class="label">两个经典错配</span>
+  <strong>拿 Kafka 当任务队列：</strong>log 没有按消息的 ack —— 失败的任务没法"退回"；offset 是整个 partition 一起挪的，毒消息处理（第 4 课）全靠自己造，而为了解困跳过前面的消息等于<em>把失败也确认掉了</em>。幂等的大批量流水线勉强能用；逐条工作很难受。<br><br>
+  <strong>拿 RabbitMQ 当事件存储：</strong>ack 掉的消息就没了；掉队的消费者重连也没法重放昨天的流；"把消息留住"意味着永不 ack —— 吞吐被卡死，还复刻了第 2 课的 unacked 洪水。保留根本不是队列干的事。
+</div>
+
+<p>杂交<em>成功</em>时：Kafka 持有不可变的 <code>orders</code> 流，每个团队随意回放；其中一个消费者的工作很薄 —— 追 log、把工作项发布到 RabbitMQ 的 exchange，由路由、重试、停车场（第 1–5 课全套）接管。两个工具各自守住 at-least-once 契约的一半，接缝处用幂等缝合。</p>
+
+<h2>你的 RabbitMQ 课程知识对应到哪</h2>
+
+<ul>
+  <li><strong>Ack（第 2 课）：</strong>Kafka 的对应物是提交的 <em>offset</em> —— 按消费者组、不按消息。SQS 是 visibility timeout 过后的 <code>DeleteMessage</code>：忘了及时删，消息就回来 —— at-least-once 多了几步，幂等的账单（第 3 课）一样要付。</li>
+  <li><strong>竞争消费者（第 1 课）：</strong>Kafka 的消费者<em>组</em>原生自带 —— partition 数就是并行度上限。SQS 免费送；这是它最漂亮的一手。</li>
+  <li><strong>顺序（第 5 课）：</strong>Kafka 每个 partition 严格 —— 不管你有没有要求，consistent-hash 的设计直接给你；热点实体照样独占一个 partition。RabbitMQ 的 best-effort 无论如何都需要守卫模式兜底。</li>
+  <li><strong>重试阶梯（第 4 课）：</strong>纯 RabbitMQ 惯用法。Kafka 需要应用层 retry topic；SQS 有 redrive policy —— 内置停车场，其实是它最贴心的主张。</li>
+</ul>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 财务要在一个 bug 之后重处理所有订单事件。选哪个？</summary>
+    <p class="answer">Kafka —— 保留的日志，offset 随便回。</p>
+    <p class="why">回放是记录日志的定义能力。RabbitMQ 里 ack 掉的历史就没了，无保留的队列装不出这个能力。</p>
+  </details>
+  <details>
+    <summary>Q2. AWS 上五人创业公司要一个任务队列。选哪个？</summary>
+    <p class="answer">SQS —— 零运维、按请求付费、没有集群。</p>
+    <p class="why">不需要路由花样，也没有运维团队去跑 RabbitMQ。等路由复杂度或自建需求真来了再换（广播用 SNS 补）。</p>
+  </details>
+  <details>
+    <summary>Q3. Kafka 消费者在一个 partition 里失败了一条记录。缺什么？</summary>
+    <p class="answer">按消息的 ack —— offset 是整批一起挪的。</p>
+    <p class="why">整个 partition 的位置一起提交；失败那条要么靠应用层 retry topic，要么随批跳过或卡住。</p>
+  </details>
+  <details>
+    <summary>Q4. SQS 为什么会把没删的消息再投一次？</summary>
+    <p class="answer">visibility timeout 到期，消息重新可见。</p>
+    <p class="why">就是换了件衣服的 at-least-once（第 2/3 课）：同样的重投、同样的幂等要求。</p>
+  </details>
+</div>
+
+<h2>现在你来开车 —— 三个判断</h2>
+
+<div class="task">
+  <span class="label">把每个选择论证一遍 —— 先别展开</span>
+  <p style="margin-top:0"><strong>(a)</strong> 网约车公司：司机位置流（每秒 1 万条）喂 ETA 模型<em>和</em>实时地图，外加派单任务（"撮合这一单"）必须恰好执行一次。<strong>(b)</strong> 银行：支付事件归档，下游每个审计消费者独立回放，每季度新增消费者。<strong>(c)</strong> 你自己工作中的系统 —— 你现在正在做的那个。每个都给出：选哪个 broker、为什么、以及你的选择引入的那一个风险。</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开论证</summary>
+      <p class="answer"><strong>(a) 两个都要。</strong>位置流是历史形状 —— Kafka，按 ride/driver ID partition；可回放的地图回填与模型训练正是 log 的强项。派单是工作 —— RabbitMQ：恰好一次撮合比回放重要，重试和停车场是惯用法。风险：两套 broker 要运维，接缝处要幂等。</p>
+      <p class="answer"><strong>(b) Kafka，毫无疑问</strong> —— 这些需求就是记录日志的定义：保留、独立消费者组、新来者可回放。按账户 ID 作 key 保每账户顺序。风险：删除/GDPR 需要 log compaction 设计，而且 partition 数定得偏早（加 partition 会改变 key 的落位）。</p>
+      <p class="answer"><strong>(c)</strong> 诚实的答案用关键点的流程：先问工作还是历史，再问路由还是运维，而且第一版只有 RabbitMQ 完全没问题 —— 第 1–6 课全套都适用 —— 等真的出现"要回放的消费者"再加 Kafka，不提前。</p>
+      <p class="why">这里练的技能是拒绝功能矩阵思维：上面每个需求都靠"处理<em>之后</em>怎么办"这个问题点名它的 broker，而不是靠吞吐数字或流行度。</p>
+      </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料 —— 两篇都读</span>
+  <strong>RabbitMQ 官方比较</strong>（诚实、技术性、出自最有动机不诚实的团队）：<a href="https://www.rabbitmq.com/docs/compare/kafka">rabbitmq.com/docs/compare/kafka</a>。然后是 Jack Vanlightly 的经典系列看架构层面的深对比：<a href="https://jack-vanlightly.com/blog/2017/12/4/rabbitmq-vs-kafka-part-1-messaging-topologies">RabbitMQ vs Kafka, Part 1</a> —— 核心团队时期作品，仍是最好的长文。SQS 语义看 AWS 开发者指南的 <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html">visibility timeout</a> 页。
+</div>
+
+<div class="ask"><b>随时问我。</b> 最好的后续：把你自己的场景 (c) 拿来当设计评审 —— 我们现在有完整的词汇表可以认真吵它了。想跟从业者对练时，<a href="https://www.reddit.com/r/rabbitmq">r/rabbitmq</a> 和 <a href="https://groups.google.com/g/rabbitmq-users">rabbitmq-users 邮件组</a>（核心团队亲自回答）是对的地方。</div>
+
+<div class="nav">
+  <span>◄ <a href="0006-outbox-saga-eventual.zh.html">第 6 课 — Outbox 与 Saga</a></span>
+  <span><a href="../reference/glossary.zh.html">词汇表</a> · 规划篇目完成 ✔</span>
+</div>
+
+<h2 id="sources">参考来源</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — official Kafka comparison: <a href="https://www.rabbitmq.com/docs/compare/kafka">rabbitmq.com/docs/compare/kafka</a> · Jack Vanlightly, <a href="https://jack-vanlightly.com/blog/2017/12/4/rabbitmq-vs-kafka-part-1-messaging-topologies">RabbitMQ vs Kafka Part 1</a> · AWS SQS developer guide</li>
+</ol>

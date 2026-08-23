@@ -1,0 +1,145 @@
+<meta charset="utf-8">
+<title>MQ · 第 2 课 — 消费者 Ack 与 Prefetch</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>事件驱动系统 · 第 2 课</span><span>≈12 分钟 · <a href="0002-consumer-acks-prefetch.html">English</a></span></div>
+  <h1>你没有 Ack 之前，消息不算消失</h1>
+  <p class="dek">消费者视角的投递语义：ack、重投（redelivery）与 prefetch 窗口。</p>
+</header>
+
+<p>上一课你知道了消息去哪。这一课讲<strong>一条消息什么时候不复存在</strong> —— 而这正是"能在崩溃中幸存的系统"和"悄悄丢工作的系统"的分界线。这里的一切都是同一个思想加上它的推论。<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>投递契约</h2>
+
+<p>当你的 consumer（消费者）收到一条消息，broker 会把它置为你的 channel 上的悬置状态：<span class="term">unacked</span>（"已投递，等待裁决"）。这条消息对其他消费者不可见，但<strong>没有删除</strong>。然后你要给出三种裁决之一：</p>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>消费者可以返回的三种裁决</caption>
+  <tr><th>调用</th><th>含义</th><th>broker 的反应</th></tr>
+  <tr><td class="match">ack</td><td>处理完了</td><td>删除该消息</td></tr>
+  <tr><td>nack / reject</td><td>处理不了</td><td>重新入队，或 dead-letter（第 4 课）</td></tr>
+  <tr><td><em>（连接断掉）</em></td><td>没有等到裁决</td><td>自动重新入队</td></tr>
+</table>
+</div>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>只有 <span class="term">ack</span> 才会删除消息。</strong>崩溃、超时、channel 关闭 —— 任何不到 ack 的情况都意味着 broker 会重新入队并<em>重投</em>，给你或给你的竞争者。这就是 <strong>at-least-once（至少一次）投递</strong>：同一条消息你可能见到两次，但绝不会是零次。你写的每一个消费者都必须对同一条消息跑两遍也是安全的 —— 即<em>幂等（idempotent）</em>。这不是附加条款；这是你要围绕它做设计的契约。
+</div>
+
+<h2>把故障场景演一遍</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <rect class="fl-box broker" x="20" y="20" width="150" height="200"/>
+  <text class="fl-name" x="95" y="42" text-anchor="middle">Queue</text>
+  <rect x="40" y="150" width="110" height="24" fill="#fff" stroke="#1d5c8a" stroke-width="1.4"/>
+  <text class="fl-sub" x="95" y="166" text-anchor="middle">m2, m3 (ready)</text>
+  <rect x="40" y="60" width="110" height="24" fill="#fff" stroke="#b8560f" stroke-width="1.8"/>
+  <text class="fl-sub" x="95" y="76" text-anchor="middle" style="fill:#b8560f">m1 (unacked)</text>
+  <rect class="fl-box hot" x="300" y="40" width="160" height="60"/>
+  <text class="fl-name" x="380" y="64" text-anchor="middle">Consumer A</text>
+  <text class="fl-sub" x="380" y="80" text-anchor="middle">processing m1… 💥</text>
+  <rect class="fl-box" x="300" y="160" width="160" height="50"/>
+  <text class="fl-name" x="380" y="182" text-anchor="middle">Consumer B</text>
+  <text class="fl-sub" x="380" y="198" text-anchor="middle">(competitor, same queue)</text>
+  <rect class="fl-box" x="550" y="105" width="150" height="46"/>
+  <text class="fl-name" x="625" y="125" text-anchor="middle">Broker</text>
+  <text class="fl-sub" x="625" y="141" text-anchor="middle">requeues m1</text>
+  <line class="fl-edge msg2" x1="170" y1="70" x2="295" y2="70"/>
+  <text class="fl-lbl o" x="228" y="60" text-anchor="middle">deliver m1</text>
+  <path class="fl-edge dashed" d="M 300 160 C 260 160, 240 100, 175 95"/>
+  <text class="fl-lbl" x="228" y="130" text-anchor="middle">redeliver m1 ✔</text>
+  <path class="fl-edge dashed" d="M 460 65 C 520 65, 530 105, 545 120"/>
+  <text class="fl-lbl o" x="512" y="60">connection dies</text>
+  <line class="fl-edge msg" x1="170" y1="162" x2="295" y2="180"/>
+  <text class="fl-lbl" x="230" y="200" text-anchor="middle">deliver m2</text>
+</svg>
+<p class="flowlegend">Consumer A 处理 <code>m1</code> 中途崩溃、没 ack → broker 把 <code>m1</code> 重新入队 → 竞争者 B 拿到它。第 1 课的 work queue 语义 + at-least-once：<strong>B 可能在重做 A 已经做了一半的工作。</strong></p>
+</div>
+
+<h2>Auto-ack：那把会走火的枪</h2>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <span class="term">auto-ack</span>（no-ack 模式）让 broker 在<em>发出消息的同时</em>就删除它。处理中途崩溃，这份工作就永远丢了 —— 变成 at-<em>most</em>-once 投递。只对可容忍丢失的工作合法（指标、行情跳动）。凡是你业务在乎的东西：手动 ack，并且<strong>在处理完成之后 ack，而不是收到就 ack</strong>。
+</div>
+
+<p>与之匹配的初学者 bug 是反过来的：收到就 ack，然后再处理。这等于带额外步骤的 auto-ack —— 崩溃窗口只是挪了个位置。<code>ack</code> 调用放在哪，<em>就是</em>你的持久化策略。</p>
+
+<h2>Prefetch：流量控制的旋钮</h2>
+
+<p>不设限制的话，broker 会把成千上万条 unacked 消息灌给一个消费者 —— 全卡在悬置态，一条没处理，而消费者一旦死掉，<em>全部</em>重新入队形成惊群。<span class="term">prefetch</span>（QoS）给每个消费者 channel 上的 unacked 消息数量设了上限。<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<ul>
+  <li><strong>prefetch = 0</strong>（不限制）：就是上面的洪水。生产环境永远别用。</li>
+  <li><strong>prefetch = 1</strong>：一次一条 —— 公平但慢。处理很贵、或消费者内部严格依赖顺序时选它。</li>
+  <li><strong>prefetch = 10–100</strong>：通常的甜蜜区。消费者本地永远备着下一条消息；吞吐从 1 往上窜得很快，到几十之后趋于平缓。</li>
+</ul>
+
+<p>prefetch 还是你的<strong>公平机制</strong>：对竞争消费者，broker 只会派发给还有窗口余量的消费者 —— 慢消费者停止囤积消息，而不是把它们抓在自己手里。</p>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 消费者处理完消息、ack 之前崩溃了。会重投吗？</summary>
+    <p class="answer">会 —— 没有 ack，broker 就重新入队。</p>
+    <p class="why">所以叫 at-least-once，所以要做幂等 handler：这个序列是常态，不是例外。</p>
+  </details>
+  <details>
+    <summary>Q2. ack 调用应该放在 handler 的哪个位置？</summary>
+    <p class="answer">处理完全成功之后 —— 最后一步。</p>
+    <p class="why">ack 的位置<em>就是</em>持久化策略。收到就 ack 等于带额外步骤的 auto-ack。</p>
+  </details>
+  <details>
+    <summary>Q3. prefetch 是 1,000，消费者死时攥着 900 条 unacked。什么后果？</summary>
+    <p class="answer">900 条一次性重新入队 —— 惊群。</p>
+    <p class="why">巨大窗口还会饿死竞争者：一个消费者可以囤走整条队列。保持克制。</p>
+  </details>
+  <details>
+    <summary>Q4. 重投的消息带着什么标记？你拿它做什么？</summary>
+    <p class="answer">带着 redelivered 标志位。</p>
+    <p class="why">把它当信号 —— 在死信/重试逻辑里检查它（第 4 课），但永远别拿它替代幂等：拓扑变更后该标志可能丢失。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">审计你的代码 —— 先别展开</span>
+  <p style="margin-top:0">找出（或想象）你在工作中写过的某个消费者，回答：<strong>(a)</strong> auto-ack 还是手动？<strong>(b)</strong> 如果手动，ack 在哪 —— 收到时还是完成时？<strong>(c)</strong> handler 幂等吗 —— 同一条消息跑两遍会发生什么？<strong>(d)</strong> prefetch 是多少？是选的还是默认的？</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>一份合格审计长什么样</summary>
+      <p class="answer">(a) 手动 ack；(b) ack 在 handler 成功路径完成之后 —— 包括 DB commit；(c) 重复安全，通常靠去重键（dedup key）或 upsert（同一行写两遍 = 无操作）；(d) 一个明确的、克制的值（10–100），吞吐要紧时再调。</p>
+      <p class="why">现实中的消费者大多栽在 (b) 或 (c)。如果你的栽在 (c)，那不是 RabbitMQ 的问题 —— 是 handler 设计问题，第 3 课会更进一步说明为什么。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <strong>RabbitMQ: Consumer Acknowledgements</strong> —— confirms 指南的前半部分，讲 delivery-tag 机制与 prefetch 吞吐数据：<a href="https://rabbitmq.com/docs/confirms">rabbitmq.com/docs/confirms</a>。再略读 <a href="https://rabbitmq.com/docs/consumer-prefetch">consumer prefetch</a> 看调参数据。
+</div>
+
+<div class="ask"><b>随时问我。</b> "处理够快不就什么都不用管了吗？"是个好问题 —— 问出来。你审计中发现的问题也一样：把你真实的消费者拿过来，我们一起解剖。</div>
+
+<div class="nav">
+  <span>◄ <a href="0001-amqp-routing-model.zh.html">第 1 课 — 路由模型</a></span>
+  <span><a href="../reference/glossary.zh.html">词汇表</a> · 下一课：Publisher confirms 与幂等 ►</span>
+</div>
+
+<h2 id="sources">参考来源</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — Consumer acknowledgements: <a href="https://rabbitmq.com/docs/confirms">rabbitmq.com/docs/confirms</a></li>
+  <li id="s2">RabbitMQ — Consumer prefetch: <a href="https://rabbitmq.com/docs/consumer-prefetch">rabbitmq.com/docs/consumer-prefetch</a></li>
+</ol>

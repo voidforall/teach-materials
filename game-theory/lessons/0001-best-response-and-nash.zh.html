@@ -1,0 +1,147 @@
+<meta charset="utf-8">
+<title>GT · 第 1 课 — Best Response 与 Nash Equilibrium</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>博弈论 · 第 1 课</span><span>≈10 分钟 · <a href="0001-best-response-and-nash.html">English</a></span></div>
+  <h1>Best Response 与划线法</h1>
+  <p class="dek">一套机械步骤，能找出任何收益矩阵里的全部纯策略 Nash equilibrium —— 不靠猜。</p>
+</header>
+
+<p>你已经知道"Nash equilibrium"这个词。本课把它变成一项<em>你能执行的技能</em>：给定任意一个双人矩阵，你可以在一分钟内手算出它的<strong>全部</strong>纯策略均衡。这是后面一切 —— 价格战、进入决策、拍卖 —— 的承重动作。</p>
+
+<h2>一切之下的那个思想：best response</h2>
+
+<p>博弈就是你最好的选择<em>取决于别人怎么做</em>的任何局面。所以把别人暂时冻结，只问那个唯一要紧的问题：</p>
+
+<p><strong>"如果他们做<em>那个</em>，我能做的最好的是什么？" —— 答案就是你的 <span class="term">best response</span>（最优反应）。</strong><sup class="cite"><a href="#s1">1</a></sup>博弈论里的一切都是玩家在互相 best-respond。解一个博弈 = 找到所有 best response 同时吻合的地方。</p>
+
+<h2>怎么读收益矩阵</h2>
+
+<p><span class="term">normal form</span>（正规形式）把博弈铺成一张网格。行是一方的行动，列是另一方的。每格一对收益。<strong>惯例：行玩家的收益写在前。</strong>越大越好。</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>怎么读一格 —— <span class="pr">（行的收益</span>，<span class="pc">列的收益）</span></caption>
+  <tr><th class="corner"></th><th>对手：左</th><th>对手：右</th></tr>
+  <tr><th>你：上</th><td>(<span class="pr">3</span>, <span class="pc">1</span>)</td><td>(<span class="pr">0</span>, <span class="pc">0</span>)</td></tr>
+  <tr><th>你：下</th><td>(<span class="pr">2</span>, <span class="pc">2</span>)</td><td>(<span class="pr">1</span>, <span class="pc">4</span>)</td></tr>
+</table>
+</div>
+<p class="legend"><span class="pr">蓝 = 行玩家（"你"）</span> · <span class="pc">红 = 列玩家（"对手"）</span></p>
+
+<h2>划线法</h2>
+
+<p>整套步骤就这些。四遍画完，读出答案：</p>
+
+<ol>
+  <li><strong>固定每一列</strong>（对手的一个选择）。在该列里找<em>你的</em>最大收益，<span class="br pr">用蓝色下划线标出</span>。那就是你对这一列的 best response。</li>
+  <li>对<strong>每一列</strong>重复。</li>
+  <li><strong>固定每一行</strong>（你的一个选择）。在该行里找<em>对手的</em>最大收益，<span class="br pc">用红色下划线标出</span>。</li>
+  <li>对<strong>每一行</strong>重复。</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>两个数字都带下划线</strong>的格子就是<strong>纯策略 Nash equilibrium</strong>：双方都已经在对对方 best-respond，<em>谁都不想动</em>。零个双划线 → 没有纯策略 NE。有几个 → 就有几个均衡。
+</div>
+
+<h2>例 1 —— 价格战</h2>
+
+<p>两家咖啡店各自定价：<strong>高价</strong>或<strong>低价</strong>。都高价大家舒服；对手高价你低价就抢走他的顾客；都低价就陷进利润战。</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>店 A（行）vs 店 B（列）—— 收益 = 利润</caption>
+  <tr><th class="corner"></th><th>B：高价</th><th>B：低价</th></tr>
+  <tr><th>A：高价</th><td>(<span class="pr">3</span>, <span class="pc">3</span>)</td><td>(<span class="pr">1</span>, <span class="pc br pc">4</span>)</td></tr>
+  <tr><th>A：低价</th><td>(<span class="pr br pr">4</span>, <span class="pc">1</span>)</td><td class="ne">(<span class="pr br pr">2</span>, <span class="pc br pc">2</span>)</td></tr>
+</table>
+</div>
+
+<p><strong>蓝色遍（A 的 best response）：</strong>B 高价时，A 比较 3 对 4 → <span class="br pr">低价（4）</span>。B 低价时，A 比较 1 对 2 → <span class="br pr">低价（2）</span>。无论哪一列 A 都选低价 —— 低价是 A 的<strong>dominant strategy（占优策略）</strong>。</p>
+<p><strong>红色遍（B 的 best response）：</strong>对称地，B 在两行里都给低价划线。</p>
+<p>唯一的双划线格是 <strong>(低价, 低价) = (2, 2)</strong> —— 唯一的 Nash equilibrium。注意刺痛之处：都在 (高价, 高价) 下各赚 <strong>3</strong>，但谁都忍不住降价，于是竞争把他们拖到各得 2。这就是藏在每场价格战里的 <span class="term">Prisoner's Dilemma</span>（囚徒困境）。<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<h2>例 2 —— 标准之战（两个均衡）</h2>
+
+<p>dominance 不总是把答案递到你手上。两家公司各自选一种文件格式，<strong>A</strong> 或 <strong>B</strong>。只有<em>匹配</em>市场才赚钱；格式 B 技术更好，所以在 B 上匹配的收益高于在 A 上匹配。</p>
+
+<div class="payoff-wrap">
+<table class="payoff">
+  <caption>公司 1（行）vs 公司 2（列）—— 协调收益</caption>
+  <tr><th class="corner"></th><th>公司 2：A</th><th>公司 2：B</th></tr>
+  <tr><th>公司 1：A</th><td class="ne">(<span class="pr br pr">2</span>, <span class="pc br pc">2</span>)</td><td>(<span class="pr">0</span>, <span class="pc">0</span>)</td></tr>
+  <tr><th>公司 1：B</th><td>(<span class="pr">0</span>, <span class="pc">0</span>)</td><td class="ne">(<span class="pr br pr">3</span>, <span class="pc br pc">3</span>)</td></tr>
+</table>
+</div>
+
+<p>跑一遍：公司 2 选 A 时，公司 1 的最优回应是 <span class="br pr">A（2 &gt; 0）</span>；公司 2 选 B 时，最优回应是 <span class="br pr">B（3 &gt; 0）</span>。没有任何行动是 dominant —— 正确选择<em>取决于</em>对手。最终两个格子双划线：<strong>(A, A)</strong> 和 <strong>(B, B)</strong>。</p>
+
+<div class="keystone">
+  <span class="label">这教会我们什么</span>
+  一个博弈可以有<strong>不止一个</strong> Nash equilibrium。(A,A) 和 (B,B) 都自我维持，但 (B,B) 让所有人赚更多。博弈论告诉你两个都是稳定落点；它<em>不</em>保证你落在最好的那个上。逃出"卡在 A"的市场是个协调问题 —— 标准之战、网络效应与锁定的种子。
+</div>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 用你自己的话：什么时候一个格子是 Nash equilibrium？</summary>
+    <p class="answer">当每一方都在对对方 best-respond，谁单独改变都无利可图。</p>
+    <p class="why">操作上：该格的两个收益都被划线法划到了。</p>
+  </details>
+  <details>
+    <summary>Q2. 一个博弈零个双划线格。这意味着什么？</summary>
+    <p class="answer">没有纯策略均衡；稳定解需要随机化。</p>
+    <p class="why">"混合"策略下一课讲 —— Nash 证明了允许随机化后均衡必然存在。</p>
+  </details>
+  <details>
+    <summary>Q3. 为什么两家店各赚 2 而不是各赚 3？</summary>
+    <p class="answer">双方都有 dominant 的低价，互相 best-respond 落到低于共同最优。</p>
+    <p class="why">个体理性与集体利益分道扬镳 —— 该领域的核心张力。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">试一试 —— 先别展开</span>
+  <p style="margin-top:0">你（行）面对一个对手（列）。在纸上跑完四遍。<strong>提示：对手有一个 dominant strategy —— 先找到它，再对它 best-respond。</strong>有几个 Nash equilibrium？是哪一格？</p>
+  <div class="payoff-wrap">
+  <table class="payoff">
+    <tr><th class="corner"></th><th>对手：左</th><th>对手：右</th></tr>
+    <tr><th>你：上</th><td>(<span class="pr">2</span>, <span class="pc">1</span>)</td><td>(<span class="pr">0</span>, <span class="pc">2</span>)</td></tr>
+    <tr><th>你：下</th><td>(<span class="pr">1</span>, <span class="pc">0</span>)</td><td>(<span class="pr">1</span>, <span class="pc">3</span>)</td></tr>
+  </table>
+  </div>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开解答</summary>
+      <p class="answer"><strong>一个均衡：(下, 右) = (1, 3)。</strong></p>
+      <p class="why"><strong>对手（红）：</strong>两行里右都胜左 —— 上行 2&gt;1、下行 3&gt;0 —— 所以<em>右是 dominant</em>；两行都给右的收益划线。<strong>你（蓝）：</strong>对手选左你会选上（2&gt;1），但理性的对手不会选左。对对手的真实选择"右"，你比较 上=0 对 下=1 → <em>下</em>。只有 (下, 右) 双划线。注意转折：你<em>超想要</em> (上, 左)=2 那格，但它不是均衡 —— 对手会跑向右，守不住。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选材料 —— 看这个</span>
+  <strong>Open Yale · ECON 159，Ben Polak 主讲</strong> —— 免费、完整、极好。他前几讲正是用这种动手方式建立 best response、dominance 和 Nash equilibrium。
+  <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>。配合 Osborne 讲 Nash equilibrium 与 best-response 函数的章节（<a href="https://www.economics.utoronto.ca/osborne/igt/">免费草稿章节</a>）。
+</div>
+
+<h3 id="s1">注释与引用</h3>
+<ol class="note">
+  <li id="s1">Best response 是 Nash equilibrium 的原语：一个 NE 就是人人都在对别人 best-respond 的策略组合。见<a href="../reference/glossary.zh.html">课程词汇表</a>。</li>
+  <li id="s2">价格战矩阵是伪装的囚徒困境：各方都有一个 dominant 的"背叛"（降价），以及一个共同更糟的均衡。同样结构反复出现在军备竞赛、过度捕捞和广告大战里。</li>
+</ol>
+
+<div class="ask">
+  <b>我是你的老师 —— 随便问。</b> 想再来一个练习矩阵？好奇三个玩家会怎样、或没有纯均衡时怎么办？不理解为什么 (高价, 高价) 撑不住？问就是了。
+</div>
+
+<nav class="nav">
+  <a href="../reference/glossary.zh.html">词汇表 →</a>
+  <span>下一课：第 2 课 — Mixed strategies（没有纯 NE 时怎么办）</span>
+</nav>

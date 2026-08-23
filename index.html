@@ -35,11 +35,14 @@ details.card summary:hover h2 { color:var(--accent); }
 details.card[open] .chev { transform:rotate(45deg); color:var(--accent); }
 
 ol.lessons { list-style:none; padding:.35rem 0 .6rem; margin:0; border-top:1px solid var(--rule); }
-ol.lessons li { margin:0; }
-ol.lessons a { display:flex; justify-content:space-between; gap:1rem; padding:.42rem 1.15rem;
-  font-family:var(--sans); font-size:.92rem; text-decoration:none; color:var(--ink); }
-ol.lessons a:hover { background:var(--accent-soft); color:var(--accent); }
-ol.lessons .n { color:var(--muted); font-family:var(--mono); font-size:.8rem; white-space:nowrap; }
+ol.lessons li { margin:0; display:flex; align-items:baseline; justify-content:space-between; gap:1rem; }
+ol.lessons li:hover { background:var(--accent-soft); }
+ol.lessons a.t { font-family:var(--sans); font-size:.92rem; text-decoration:none; color:var(--ink); padding:.42rem 0 .42rem 1.15rem; }
+ol.lessons a.t:hover { color:var(--accent); }
+ol.lessons .n { color:var(--muted); font-family:var(--mono); font-size:.8rem; white-space:nowrap; padding-right:1.15rem; }
+ol.lessons .n a.zh { font-family:var(--sans); font-size:.72rem; color:var(--accent); text-decoration:none;
+  border:1px solid var(--accent); border-radius:4px; padding:.05rem .3rem; margin-left:.4rem; }
+ol.lessons .n a.zh:hover { background:var(--accent); color:#fff; }
 .glossary { font-family:var(--sans); font-size:.8rem; color:var(--muted);
   margin:.15rem 0 0; padding:.45rem 1.15rem .3rem; border-top:1px solid var(--rule); }
 .glossary a { color:var(--accent); }
@@ -65,15 +68,15 @@ footer code { font-family:var(--mono); font-size:.9em; }
 <span class="meta">7 lessons</span>
 </summary>
 <ol class="lessons">
-<li><a href="event-driven-rabbitmq/lessons/0001-amqp-routing-model.html"><span>The AMQP Routing Model</span><span class="n">0001</span></a></li>
-<li><a href="event-driven-rabbitmq/lessons/0002-consumer-acks-prefetch.html"><span>Consumer Acks &amp; Prefetch</span><span class="n">0002</span></a></li>
-<li><a href="event-driven-rabbitmq/lessons/0003-publisher-confirms-idempotency.html"><span>Publisher Confirms &amp; Idempotency</span><span class="n">0003</span></a></li>
-<li><a href="event-driven-rabbitmq/lessons/0004-dlx-retry-poison.html"><span>Dead Letters, Retry &amp; Poison</span><span class="n">0004</span></a></li>
-<li><a href="event-driven-rabbitmq/lessons/0005-topology-design.html"><span>Topology Design for Real Services</span><span class="n">0005</span></a></li>
-<li><a href="event-driven-rabbitmq/lessons/0006-outbox-saga-eventual.html"><span>Outbox, Sagas &amp; Eventual Consistency</span><span class="n">0006</span></a></li>
-<li><a href="event-driven-rabbitmq/lessons/0007-broker-shootout.html"><span>RabbitMQ vs Kafka vs SQS</span><span class="n">0007</span></a></li>
+<li><a class="t" href="event-driven-rabbitmq/lessons/0001-amqp-routing-model.html">The AMQP Routing Model</a><span class="n">0001 <a class="zh" href="event-driven-rabbitmq/lessons/0001-amqp-routing-model.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="event-driven-rabbitmq/lessons/0002-consumer-acks-prefetch.html">Consumer Acks &amp; Prefetch</a><span class="n">0002 <a class="zh" href="event-driven-rabbitmq/lessons/0002-consumer-acks-prefetch.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="event-driven-rabbitmq/lessons/0003-publisher-confirms-idempotency.html">Publisher Confirms &amp; Idempotency</a><span class="n">0003 <a class="zh" href="event-driven-rabbitmq/lessons/0003-publisher-confirms-idempotency.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="event-driven-rabbitmq/lessons/0004-dlx-retry-poison.html">Dead Letters, Retry &amp; Poison</a><span class="n">0004 <a class="zh" href="event-driven-rabbitmq/lessons/0004-dlx-retry-poison.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="event-driven-rabbitmq/lessons/0005-topology-design.html">Topology Design for Real Services</a><span class="n">0005 <a class="zh" href="event-driven-rabbitmq/lessons/0005-topology-design.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="event-driven-rabbitmq/lessons/0006-outbox-saga-eventual.html">Outbox, Sagas &amp; Eventual Consistency</a><span class="n">0006 <a class="zh" href="event-driven-rabbitmq/lessons/0006-outbox-saga-eventual.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="event-driven-rabbitmq/lessons/0007-broker-shootout.html">RabbitMQ vs Kafka vs SQS</a><span class="n">0007 <a class="zh" href="event-driven-rabbitmq/lessons/0007-broker-shootout.zh.html" title="中文版">中</a></span></li>
 </ol>
-<p class="glossary">Reference · <a href="event-driven-rabbitmq/reference/glossary.html">Glossary</a></p>
+<p class="glossary">Reference · <a href="event-driven-rabbitmq/reference/glossary.html">Glossary</a> · <a href="event-driven-rabbitmq/reference/glossary.zh.html">词汇表</a></p>
 </details>
 <details class="card">
 <summary>
@@ -82,15 +85,15 @@ footer code { font-family:var(--mono); font-size:.9em; }
 <span class="meta">7 lessons</span>
 </summary>
 <ol class="lessons">
-<li><a href="game-theory/lessons/0001-best-response-and-nash.html"><span>Best Response &amp; Nash Equilibrium</span><span class="n">0001</span></a></li>
-<li><a href="game-theory/lessons/0002-mixed-strategies.html"><span>Mixed Strategies &amp; the Indifference Principle</span><span class="n">0002</span></a></li>
-<li><a href="game-theory/lessons/0003-sequential-games-credible-threats.html"><span>Sequential Games &amp; Credible Threats</span><span class="n">0003</span></a></li>
-<li><a href="game-theory/lessons/0004-cournot-bertrand.html"><span>Market Games: Cournot &amp; Bertrand</span><span class="n">0004</span></a></li>
-<li><a href="game-theory/lessons/0005-auctions-mechanism-design.html"><span>Auctions &amp; Mechanism Design</span><span class="n">0005</span></a></li>
-<li><a href="game-theory/lessons/0006-repeated-games.html"><span>Repeated Games &amp; Sustaining Cooperation</span><span class="n">0006</span></a></li>
-<li><a href="game-theory/lessons/0007-information-signaling-adverse-selection.html"><span>Information: Signaling &amp; Adverse Selection</span><span class="n">0007</span></a></li>
+<li><a class="t" href="game-theory/lessons/0001-best-response-and-nash.html">Best Response &amp; Nash Equilibrium</a><span class="n">0001 <a class="zh" href="game-theory/lessons/0001-best-response-and-nash.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="game-theory/lessons/0002-mixed-strategies.html">Mixed Strategies &amp; the Indifference Principle</a><span class="n">0002 <a class="zh" href="game-theory/lessons/0002-mixed-strategies.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="game-theory/lessons/0003-sequential-games-credible-threats.html">Sequential Games &amp; Credible Threats</a><span class="n">0003 <a class="zh" href="game-theory/lessons/0003-sequential-games-credible-threats.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="game-theory/lessons/0004-cournot-bertrand.html">Market Games: Cournot &amp; Bertrand</a><span class="n">0004 <a class="zh" href="game-theory/lessons/0004-cournot-bertrand.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="game-theory/lessons/0005-auctions-mechanism-design.html">Auctions &amp; Mechanism Design</a><span class="n">0005 <a class="zh" href="game-theory/lessons/0005-auctions-mechanism-design.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="game-theory/lessons/0006-repeated-games.html">Repeated Games &amp; Sustaining Cooperation</a><span class="n">0006 <a class="zh" href="game-theory/lessons/0006-repeated-games.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="game-theory/lessons/0007-information-signaling-adverse-selection.html">Information: Signaling &amp; Adverse Selection</a><span class="n">0007 <a class="zh" href="game-theory/lessons/0007-information-signaling-adverse-selection.zh.html" title="中文版">中</a></span></li>
 </ol>
-<p class="glossary">Reference · <a href="game-theory/reference/glossary.html">Glossary</a></p>
+<p class="glossary">Reference · <a href="game-theory/reference/glossary.html">Glossary</a> · <a href="game-theory/reference/glossary.zh.html">词汇表</a></p>
 </details>
 <details class="card">
 <summary>
@@ -99,13 +102,13 @@ footer code { font-family:var(--mono); font-size:.9em; }
 <span class="meta">5 lessons</span>
 </summary>
 <ol class="lessons">
-<li><a href="scp-foundation/lessons/0001-the-object-class-lens.html"><span>The Object Class Lens</span><span class="n">0001</span></a></li>
-<li><a href="scp-foundation/lessons/0002-groups-of-interest.html"><span>Groups of Interest</span><span class="n">0002</span></a></li>
-<li><a href="scp-foundation/lessons/0003-anatomy-of-an-scp.html"><span>Anatomy of an SCP</span><span class="n">0003</span></a></li>
-<li><a href="scp-foundation/lessons/0004-navigating-the-archive.html"><span>Navigating the Archive</span><span class="n">0004</span></a></li>
-<li><a href="scp-foundation/lessons/0005-canons-and-no-canon.html"><span>Canons & "There Is No Canon"</span><span class="n">0005</span></a></li>
+<li><a class="t" href="scp-foundation/lessons/0001-the-object-class-lens.html">The Object Class Lens</a><span class="n">0001 <a class="zh" href="scp-foundation/lessons/0001-the-object-class-lens.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="scp-foundation/lessons/0002-groups-of-interest.html">Groups of Interest</a><span class="n">0002 <a class="zh" href="scp-foundation/lessons/0002-groups-of-interest.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="scp-foundation/lessons/0003-anatomy-of-an-scp.html">Anatomy of an SCP</a><span class="n">0003 <a class="zh" href="scp-foundation/lessons/0003-anatomy-of-an-scp.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="scp-foundation/lessons/0004-navigating-the-archive.html">Navigating the Archive</a><span class="n">0004 <a class="zh" href="scp-foundation/lessons/0004-navigating-the-archive.zh.html" title="中文版">中</a></span></li>
+<li><a class="t" href="scp-foundation/lessons/0005-canons-and-no-canon.html">Canons & "There Is No Canon"</a><span class="n">0005 <a class="zh" href="scp-foundation/lessons/0005-canons-and-no-canon.zh.html" title="中文版">中</a></span></li>
 </ol>
-<p class="glossary">Reference · <a href="scp-foundation/reference/glossary.html">Glossary</a></p>
+<p class="glossary">Reference · <a href="scp-foundation/reference/glossary.html">Glossary</a> · <a href="scp-foundation/reference/glossary.zh.html">词汇表</a></p>
 </details>
 </div>
 <footer>Generated by <code>scripts/build_index.py</code> — rerun after adding lessons

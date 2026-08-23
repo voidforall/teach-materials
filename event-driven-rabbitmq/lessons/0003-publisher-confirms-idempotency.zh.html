@@ -1,0 +1,98 @@
+<meta charset="utf-8">
+<title>MQ · 第 3 课 — Publisher Confirms 与幂等</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>事件驱动系统 · 第 3 课</span><span>≈12 分钟 · <a href="0003-publisher-confirms-idempotency.html">English</a></span></div>
+  <h1>你的 Publish 可能什么都没做</h1>
+  <p class="dek">契约的发布者一侧：confirms、returns，以及为什么重复是必然的。</p>
+</header>
+
+<p>第 2 课保住了<em>消费者</em>一侧的安全：没有 ack，就没有删除。但如果消息根本没进 broker，这些就都白搭 —— 而一个普通的 <code>publish()</code> 是往黑暗里开火。它是<strong>异步且无应答的</strong>：TCP 发送成功什么也证明不了，不能证明 RabbitMQ 接受了它、路由了它、持久化了它。<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>两种故障，两个特性</h2>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>发布侧故障与 RabbitMQ 对应的特性</caption>
+  <tr><th>故障</th><th>哪里出问题</th><th>特性</th></tr>
+  <tr><td>broker 根本没收到</td><td>连接中途断掉；broker 崩溃</td><td class="match">publisher confirms</td></tr>
+  <tr><td>broker 收到了，但没路由到任何地方</td><td>routing key 不匹配任何 binding（第 1 课的静默丢弃）</td><td class="match">mandatory + returns</td></tr>
+</table>
+</div>
+
+<p><strong>confirms</strong> 把 ack 关系反过来：broker 对每条被接受 —— 并且在 durable 队列上已持久化到磁盘 —— 的 publish 给你回一个确认。没有 confirm = 你不知道它落地没有 = 你<strong>重试</strong>。协议就这么点：开启 confirms，等待（或异步收集），失败/超时就重试。</p>
+
+<p><strong>mandatory + returns</strong> 堵上第 1 课的陷阱：以 <span class="term">mandatory=true</span> 发布时，不可路由的消息会<em>退回给你</em>（一条 "basic.return"），而不是凭空消失。在生产环境，不可路由的消息是拓扑 bug —— 你要的是报警，不是沉默。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>发布侧 confirms + 重试，消费侧 ack + 重投 —— 拼起来，两端随便挂都不会丢消息。代价：两端也都会出现重复。</strong>confirm 丢失后重试的 publish 可能其实已经落地；重投的消息可能其实已经处理过。at-least-once 是一个<em>全系统</em>属性，它最终落在同一个地方：handler 必须幂等（idempotent）。
+</div>
+
+<h2>重复是必然的 —— 为它设计</h2>
+
+<p>人们把重复当作罕见的故障。在一个有 confirm、会重投的系统里，重复是<strong>常态</strong> —— 这是"永不丢任何东西"的代价。三种幂等策略，按优先顺序：</p>
+
+<ol>
+  <li><strong>天然幂等</strong> —— 操作重复执行本身就是无操作。<code>user.email = x</code> 幂等；<code>balance += 10</code> 不幂等。只要你控制事件 schema，优先设置终态而不是累加增量。</li>
+  <li><strong>去重键（deduplication key）</strong> —— 在创建时给每条消息一个唯一 ID（<code>order-4711-created</code> 或 UUID），消费者记录已处理的 ID：<code>INSERT INTO processed_messages … ON CONFLICT DO NOTHING</code>；插入冲突就说明见过 —— ack 并跳过。</li>
+  <li><strong>版本/状态守卫</strong> —— 对状态机，按版本把关："只有 state = PAID 才应用 <code>order.cancelled</code>"。过期或重复的转移无害地滑过去。</li>
+</ol>
+
+<div class="antipattern">
+  <span class="label">反模式 —— 双写（dual write）</span>
+  先把订单提交进 DB，再发布 <code>order.created</code>。两个系统，没有共享事务：commit 失败后 publish 照发（幽灵事件），或者进程死在 commit 和 publish 之间（丢事件）。你无法原子地"写 DB 同时 publish"。解法是 <strong>transactional outbox</strong> —— 在同一个 DB 事务里把事件写进 <code>outbox</code> 表，再由独立的转发者送到 broker。完整方案在第 6 课。
+</div>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. publish 调用没报错就返回了。消息在哪？</summary>
+    <p class="answer">不知道 —— 普通 publish 什么都不承诺。</p>
+    <p class="why">发送成功只覆盖 socket，不覆盖 broker。只有 confirm 才证明被接受（以及持久化）。</p>
+  </details>
+  <details>
+    <summary>Q2. confirm 一直没来；你重试了 publish。会发生什么？</summary>
+    <p class="answer">两份都落地 —— 出现重复消息。</p>
+    <p class="why">原消息可能成功只是 confirm 在回程丢了。重试让重复成为常态，而非罕见。</p>
+  </details>
+  <details>
+    <summary>Q3. handler 做三件事：发礼品卡邮件、然后 balance -= 10。幂等吗？</summary>
+    <p class="answer">不 —— 邮件发两遍，余额扣两次。</p>
+    <p class="why">副作用 + 增量：最坏组合。邮件前需要 dedup key，余额也要靠它守卫。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">动手设计 —— 先别展开</span>
+  <p style="margin-top:0">你的服务处理 <code>invoice.paid</code>：把发票标记为已支付、加 100 积分（<code>points += 100</code>）、发一封收据邮件。现在发生了重投。<strong>(a)</strong> 哪些步骤天然幂等？<strong>(b)</strong> 哪些需要守卫，怎么守？<strong>(c)</strong> 写出让整个 handler 安全的步骤顺序。</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开一个好答案</summary>
+      <p class="answer">(a) 标记已支付 —— 天然幂等，前提是写 <code>SET state='paid' WHERE id=?</code> 而不是增量；再加状态守卫（只有 state 是 OPEN 才应用）。(b) <code>points += 100</code> —— 增量；改成去重：把 <code>(message_id → invoice_id)</code> 插入 processed 表并 <code>ON CONFLICT DO NOTHING</code>，只有插入成功才加积分。邮件 —— 外部副作用；同样以这次新鲜的插入为闸门。(c) 顺序：<strong>先做 dedup 插入</strong>（它是"只执行一次"的令牌），然后在一个 DB 事务里标记已支付 + 加积分，然后发邮件，<em>最后</em> ack —— 接受一个残余窗口（邮件已发、ack 丢失、消息重投），此时 dedup 行会压制重复邮件。</p>
+      <p class="why">dedup 插入是关键支点：它把"我是不是处理过这条消息？"变成一个原子的 DB 问题。其他一切都挂在这个答案上。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <strong>RabbitMQ: Publisher Confirms</strong> —— confirms 指南后半部分，含异步 confirm 模式与吞吐建议：<a href="https://rabbitmq.com/docs/confirms">rabbitmq.com/docs/confirms</a>。注意它<em>不</em>承诺什么：confirm 是"broker 已接受"，不是"消费者已处理" —— 那个缺口是你的可观测性问题，要监控。
+</div>
+
+<div class="ask"><b>随时问我。</b> 特别值得提的："dedup 表不就是换了马甲的分布式事务吗？"、"邮件双发的真实窗口到底多大？" —— 两个都有精确答案，我们可以一起推。</div>
+
+<div class="nav">
+  <span>◄ <a href="0002-consumer-acks-prefetch.zh.html">第 2 课 — Ack 与 prefetch</a></span>
+  <span><a href="../reference/glossary.zh.html">词汇表</a> · 下一课：死信、重试与毒消息 ►</span>
+</div>
+
+<h2 id="sources">参考来源</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — Publisher confirms: <a href="https://rabbitmq.com/docs/confirms">rabbitmq.com/docs/confirms</a> · Unroutable messages / mandatory: <a href="https://rabbitmq.com/docs/confirms#unroutable-messages-in-publishers">docs/confirms</a></li>
+</ol>

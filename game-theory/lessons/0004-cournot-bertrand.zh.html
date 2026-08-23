@@ -1,0 +1,128 @@
+<meta charset="utf-8">
+<title>GT · 第 4 课 — 市场博弈：Cournot 与 Bertrand</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>博弈论 · 第 4 课</span><span>≈15 分钟 · <a href="0004-cournot-bertrand.html">English</a></span></div>
+  <h1>市场博弈：Cournot 与 Bertrand</h1>
+  <p class="dek">真实公司不是从两个格子里挑 —— 它们挑一个数。best response 变成<em>函数</em>，均衡就是两条曲线的交点。</p>
+</header>
+
+<p>到目前为止的博弈都是小网格行动。但公司的一步棋是一个<strong>数量</strong>或一个<strong>价格</strong> —— 连续的数。整套工具仍然成立；只是两样东西升级：best response 变成 <span class="term">reaction function</span>（反应函数），Nash equilibrium 变成两条反应函数<strong>相交</strong>的点。本课在两个主力竞争模型上把它做实 —— 结尾还有一记电击：同样两家公司，可以赚得盆满钵满，也可以赚<em>零</em>，差别只在它们竞争的是数量还是价格。</p>
+
+<h2>Cournot：公司选数量</h2>
+
+<p>两家公司生产同质品，各选产量 <em>q₁</em> 和 <em>q₂</em>。总产量 <em>Q = q₁ + q₂</em> 越大，市场出清价越低：</p>
+
+<p style="text-align:center"><strong>价格 P = a − Q = a − q₁ − q₂</strong>；单位成本为 <em>c</em>。</p>
+
+<p>公司 1 的利润是收入减成本：<em>π₁ = (P − c)·q₁ = (a − c − q₁ − q₂)·q₁</em>。现在找公司 1 的 best response —— 在给定 <em>q₂</em> 下最大化 π₁ 的那个 <em>q₁</em>。对 <em>q₁</em> 求导并置零（利润山的山顶）：<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<p style="text-align:center"><em>a − c − 2q₁ − q₂ = 0</em>&nbsp;&nbsp;⟹&nbsp;&nbsp;<strong>q₁ = (a − c − q₂) / 2</strong></p>
+
+<div class="keystone">
+  <span class="label">Reaction function（反应函数）</span>
+  最后这行就是公司 1 的<strong>反应（best-response）函数</strong>："不管你产多少，我产剩下市场的一半。"对手产得越多，我产得越少 —— 曲线向<em>下</em>倾斜。公司 2 的是镜像。Nash equilibrium 是<strong>同时落在两条曲线上的唯一一组 (q₁, q₂)</strong>。
+</div>
+
+<h3>曲线在哪里相交</h3>
+
+<p>取整数：<em>a = 12</em>、<em>c = 0</em>。公司 1：<em>q₁ = (12 − q₂)/2</em>。公司 2：<em>q₂ = (12 − q₁)/2</em>。由对称性设 <em>q₁ = q₂ = q</em>：<em>q = (12 − q)/2</em> ⟹ <em>3q = 12</em> ⟹ <strong>q = 4</strong>。</p>
+
+<div class="plot">
+<svg viewBox="0 0 320 240" role="img" aria-label="Two downward-sloping Cournot reaction curves intersecting at the Nash equilibrium (4,4)">
+  <line class="pl-axis" x1="55" y1="50" x2="55" y2="205"/>
+  <line class="pl-axis" x1="55" y1="205" x2="215" y2="205"/>
+  <line class="pl-grid" x1="55" y1="157" x2="103" y2="157"/>
+  <line class="pl-grid" x1="103" y1="205" x2="103" y2="157"/>
+  <line class="pl-line f1" x1="127" y1="205" x2="55" y2="61"/>
+  <line class="pl-line f2" x1="55" y1="133" x2="199" y2="205"/>
+  <circle class="pl-pt" cx="103" cy="157" r="5"/>
+  <text class="pl-lbl" x="212" y="220">q₁</text>
+  <text class="pl-lbl" x="34" y="54">q₂</text>
+  <text class="pl-lbl f1" x="128" y="70">公司 1 反应</text>
+  <text class="pl-lbl f2" x="150" y="200">公司 2 反应</text>
+  <text class="pl-lbl ne" x="110" y="150">NE (4, 4)</text>
+</svg>
+<p class="treelegend">每家的 best-response 曲线都向下倾斜；交点只有一个 —— Cournot 均衡。</p>
+</div>
+
+<p><strong>读出结果：</strong>总产量 <em>Q = 8</em>，价格 <em>P = 12 − 8 = 4</em>，各赚 <em>(4 − 0)·4 = 16</em>。对比两个极端：</p>
+<ul>
+  <li><strong>像垄断者一样合谋</strong>（共同限产）：总产量 <em>Q = 6</em>、价格 6、对分 <em>36</em> → <strong>各 18</strong> —— 对它们更好，对买家更糟。</li>
+  <li><strong>完全竞争</strong>：价格被压到成本 0。</li>
+</ul>
+<p>Cournot 落在<em>中间</em>：竞争侵蚀垄断利润（16 &lt; 18）但没有抹掉它。公司越多，均衡越滑向竞争价格 —— 本模型的招牌结论。</p>
+
+<h2>Bertrand：公司选价格 —— 以及悖论</h2>
+
+<p>同样的两家公司、同样的常数成本 <em>c</em>、同质品。但现在它们挂<strong>价格</strong>，所有买家都去便宜的那家。对手定价 <em>p</em>，你的 best response 是什么？</p>
+
+<p><strong>压他一分</strong> —— 定价比 <em>p</em> 低一丁点、独吞<em>整个</em>市场，只要还高于成本 <em>c</em>。但对手的推理一模一样。于是互相压价、没完没了……</p>
+
+<div class="keystone">
+  <span class="label">Bertrand 悖论</span>
+  ……直到价格碰到<strong>边际成本 c</strong>，谁也无法再有利可图地降价。唯一均衡是 <strong>p₁ = p₂ = c</strong>，<strong>利润为零</strong>。仅仅<em>两家</em>定价公司就复现了完全竞争的结果。与 Cournot 里的同两家公司（各赚 16）相比，这里颗粒无收。<strong>你竞争的战略变量（数量 vs 价格）可能比竞争者人数更要紧。</strong>
+</div>
+
+<p>这确实惊人，而它的"解法"正是真实市场的所在 —— 每一条都放松一个假设：</p>
+<ul>
+  <li><strong>产能限制</strong> —— 你其实吃不下整个市场，就没法真正压死对手（这连回第 3 课的 <a href="0003-sequential-games-credible-threats.zh.html">commitment</a> —— 产能是一个可信的先手）。</li>
+  <li><strong>产品差异化</strong> —— 若产品不同质，便宜一点的对手偷不走你<em>全部</em>买家；价格停在成本之上。</li>
+  <li><strong>重复</strong> —— 反复相遇的公司可以用"惩罚降价"的威胁维持高价（下一课的地盘）。</li>
+</ul>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 连续行动下，Nash equilibrium 在几何上是什么？</summary>
+    <p class="answer">双方反应曲线同时相交的那个点。</p>
+    <p class="why">与双划线同一思想：同时互为 best response。</p>
+  </details>
+  <details>
+    <summary>Q2. 为什么两家 Bertrand 公司最终定价在边际成本？</summary>
+    <p class="answer">谁都能靠压价独吞市场，直到再压就无利可图。</p>
+    <p class="why">任何高于成本的价格都邀请对手便宜一分钱、拿走一切。</p>
+  </details>
+  <details>
+    <summary>Q3. <em>（间隔回忆 —— 第 3 课）</em>为什么"我们打价格战"的威胁不总能吓退进入？</summary>
+    <p class="answer">若开战也伤在位者自己，威胁不可信、会被无视。</p>
+    <p class="why">Backward induction 只保留行动者真的会执行的威胁。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">试一试 —— 展开前先推导均衡</span>
+  <p style="margin-top:0">两家公司进行 <strong>Cournot 竞争</strong>。需求为 <strong>P = 8 − Q</strong>（<em>Q = q₁ + q₂</em>），单位成本 <strong>c = 2</strong>。求公司 1 的反应函数与对称均衡下每家的产量。</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开解答</summary>
+      <p class="answer"><strong>反应函数：q₁ = (6 − q₂)/2。均衡：各产 q₁ = q₂ = 2。</strong></p>
+      <p class="why">利润 π₁ = (8 − q₁ − q₂ − 2)·q₁ = (6 − q₁ − q₂)·q₁。对 q₁ 求导置零：6 − 2q₁ − q₂ = 0 ⟹ q₁ = (6 − q₂)/2 —— 与例题同形，只是 (a − c) = 6。对称：q = (6 − q)/2 ⟹ 3q = 6 ⟹ <strong>q = 2</strong>。于是 Q = 4、价格 P = 8 − 4 = 4，各赚 (4 − 2)·2 = 4。检验：垄断者会定 Q = (a−c)/2 = 3（价格 5、利润 9）—— 多于双寡头对分的 4 + 4 = 8，正合预期：竞争压低价格、也压小每家的份额。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选材料 —— 读/看</span>
+  <strong>Osborne, <em>An Introduction to Game Theory</em></strong> —— Cournot 与 Bertrand 寡占一章把这些 best-response 函数仔细过一遍（<a href="https://www.economics.utoronto.ca/osborne/igt/">免费草稿章节</a>）。视频版：<strong>Open Yale ECON 159</strong> 讲 Cournot 竞争的部分 —— <a href="https://oyc.yale.edu/economics/econ-159">oyc.yale.edu/economics/econ-159</a>。
+</div>
+
+<h3 id="s1">注释与引用</h3>
+<ol class="note">
+  <li id="s1">一阶条件只是在说"在你最优的产量上，往上或往下微调都不再增加利润"。线性需求下 π₁ 是 q₁ 的开口向下抛物线，驻点即最大值。不需要更重的微积分。</li>
+</ol>
+
+<div class="ask">
+  <b>我是你的老师 —— 随便问。</b> 想要<em>成本不对称</em>的 Cournot（一家更便宜时会怎样）？或者 Stackelberg —— 一家先承诺产量、第 3 课的先手逻辑回归？问。
+</div>
+
+<nav class="nav">
+  <a href="0003-sequential-games-credible-threats.zh.html">← 第 3 课</a>
+  <a href="../reference/glossary.zh.html">词汇表</a>
+  <span>下一课：第 5 课 — 拍卖与机制设计</span>
+</nav>

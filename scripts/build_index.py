@@ -34,14 +34,20 @@ def course_title(course: Path) -> str:
     return course.name.replace("-", " ").title()
 
 
-def lessons(course: Path) -> list[tuple[str, str]]:
+def lessons(course: Path) -> list[dict]:
     out = []
     for f in sorted((course / "lessons").glob("*.html")):
+        if f.name.endswith(".zh.html"):
+            continue
         m = TITLE_RE.search(f.read_text(encoding="utf-8"))
         raw = m.group(1).strip() if m else f.stem
         # raw is already HTML-escaped in the source document — do not escape again
         title = TITLE_PREFIX_RE.match(raw).group(1).strip()
-        out.append((f.name, title))
+        out.append({
+            "file": f.name,
+            "title": title,
+            "zh": f.with_suffix("").with_suffix(".zh.html").exists(),
+        })
     return out
 
 
@@ -76,11 +82,14 @@ details.card summary:hover h2 { color:var(--accent); }
 details.card[open] .chev { transform:rotate(45deg); color:var(--accent); }
 
 ol.lessons { list-style:none; padding:.35rem 0 .6rem; margin:0; border-top:1px solid var(--rule); }
-ol.lessons li { margin:0; }
-ol.lessons a { display:flex; justify-content:space-between; gap:1rem; padding:.42rem 1.15rem;
-  font-family:var(--sans); font-size:.92rem; text-decoration:none; color:var(--ink); }
-ol.lessons a:hover { background:var(--accent-soft); color:var(--accent); }
-ol.lessons .n { color:var(--muted); font-family:var(--mono); font-size:.8rem; white-space:nowrap; }
+ol.lessons li { margin:0; display:flex; align-items:baseline; justify-content:space-between; gap:1rem; }
+ol.lessons li:hover { background:var(--accent-soft); }
+ol.lessons a.t { font-family:var(--sans); font-size:.92rem; text-decoration:none; color:var(--ink); padding:.42rem 0 .42rem 1.15rem; }
+ol.lessons a.t:hover { color:var(--accent); }
+ol.lessons .n { color:var(--muted); font-family:var(--mono); font-size:.8rem; white-space:nowrap; padding-right:1.15rem; }
+ol.lessons .n a.zh { font-family:var(--sans); font-size:.72rem; color:var(--accent); text-decoration:none;
+  border:1px solid var(--accent); border-radius:4px; padding:.05rem .3rem; margin-left:.4rem; }
+ol.lessons .n a.zh:hover { background:var(--accent); color:#fff; }
 .glossary { font-family:var(--sans); font-size:.8rem; color:var(--muted);
   margin:.15rem 0 0; padding:.45rem 1.15rem .3rem; border-top:1px solid var(--rule); }
 .glossary a { color:var(--accent); }
@@ -102,14 +111,23 @@ def build(exclude: set[str]) -> str:
         sys.exit("no course folders found")
     for course in courses:
         ls = lessons(course)
-        items = [
-            f'<li><a href="{course.name}/lessons/{fname}">'
-            f'<span>{title}</span><span class="n">{fname.split("-")[0]}</span></a></li>'
-            for fname, title in ls
-        ]
+        items = []
+        for entry in ls:
+            zh = (
+                f' <a class="zh" href="{course.name}/lessons/{entry["file"].replace(".html", ".zh.html")}" '
+                f'title="中文版">中</a>'
+                if entry["zh"] else ""
+            )
+            items.append(
+                f'<li><a class="t" href="{course.name}/lessons/{entry["file"]}">{entry["title"]}</a>'
+                f'<span class="n">{entry["file"].split("-")[0]}{zh}</span></li>'
+            )
         gloss = course / "reference" / "glossary.html"
+        gloss_zh = course / "reference" / "glossary.zh.html"
         gloss_line = (
-            f'<p class="glossary">Reference · <a href="{course.name}/reference/glossary.html">Glossary</a></p>'
+            f'<p class="glossary">Reference · <a href="{course.name}/reference/glossary.html">Glossary</a>'
+            + (f' · <a href="{course.name}/reference/glossary.zh.html">词汇表</a>' if gloss_zh.exists() else "")
+            + "</p>"
             if gloss.exists() else ""
         )
         cards.append(

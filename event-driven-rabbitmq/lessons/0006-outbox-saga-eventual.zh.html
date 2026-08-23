@@ -1,0 +1,169 @@
+<meta charset="utf-8">
+<title>MQ · 第 6 课 — Outbox、Saga 与最终一致性</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>事件驱动系统 · 第 6 课</span><span>≈14 分钟 · <a href="0006-outbox-saga-eventual.html">English</a></span></div>
+  <h1>没有分布式事务。照此设计。</h1>
+  <p class="dek">outbox 让"提交 + 发布"原子化；saga 让跨服务流程可恢复；剩下的由 UX 吸收。</p>
+</header>
+
+<p>第 3 课埋下了双写问题并许诺了 outbox。但 outbox 是一个更大真相的实例：跨数据库和 broker —— 或跨多个服务 —— <strong>不存在原子提交</strong>。没人会在服务边界上跑两阶段提交（2PC 会耦合可用性：一个参与者挂了，全部卡住）。本课讲的，是真实系统在这之外的活法。<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>Transaction outbox，具体地</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 190" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <rect class="fl-box" x="15" y="55" width="130" height="70"/>
+  <text class="fl-name" x="80" y="80" text-anchor="middle">Order service</text>
+  <text class="fl-sub" x="80" y="97" text-anchor="middle">one DB tx:</text>
+  <text class="fl-sub" x="80" y="112" text-anchor="middle">row + event row</text>
+  <rect class="fl-box hot" x="185" y="30" width="160" height="120"/>
+  <text class="fl-name" x="265" y="52" text-anchor="middle">PostgreSQL</text>
+  <rect x="200" y="62" width="130" height="26" fill="#fff" stroke="#1f7a4d" stroke-width="1.4"/>
+  <text class="fl-sub" x="265" y="79" text-anchor="middle">orders (state)</text>
+  <rect x="200" y="98" width="130" height="26" fill="#fff" stroke="#1f7a4d" stroke-width="1.4"/>
+  <text class="fl-sub" x="265" y="115" text-anchor="middle">outbox (event)</text>
+  <text class="fl-sub" x="265" y="140" text-anchor="middle">committed atomically ✔</text>
+  <rect class="fl-box" x="395" y="55" width="130" height="70"/>
+  <text class="fl-name" x="460" y="80" text-anchor="middle">Relay</text>
+  <text class="fl-sub" x="460" y="97" text-anchor="middle">poll / CDC</text>
+  <text class="fl-sub" x="460" y="112" text-anchor="middle">publish w/ confirms</text>
+  <rect class="fl-box broker" x="575" y="55" width="130" height="70"/>
+  <text class="fl-name" x="640" y="80" text-anchor="middle">RabbitMQ</text>
+  <text class="fl-sub" x="640" y="97" text-anchor="middle">then mark row sent</text>
+  <line class="fl-edge msg" x1="145" y1="90" x2="180" y2="90"/>
+  <line class="fl-edge msg2" x1="345" y1="90" x2="390" y2="90"/>
+  <path class="fl-edge dashed" d="M 460 125 C 460 165, 265 175, 265 155"/>
+  <text class="fl-sub" x="380" y="172" text-anchor="middle">mark sent (idempotent — relays may duplicate)</text>
+  <line class="fl-edge msg" x1="525" y1="90" x2="570" y2="90"/>
+</svg>
+<p class="flowlegend">状态变更与它的事件<strong>一起</strong>提交，否则都不提交。发布变成一个独立、可重试的作业 —— 带 confirms（第 3 课）和幂等的标记，因为 relay 可能在 publish 与标记之间崩溃。</p>
+</div>
+
+<p>组成件：一张 <span class="term">outbox</span> 表（事件载荷、聚合 ID、序号），一个把待发行带 confirms 发布、然后标记已发的 relay。relay 的实现从 50 行轮询器到读事务日志的 CDC（Debezium）不等。消费者仍然必须幂等 —— relay 自己就可能重复发布 —— 所以第 3 课的 dedup key 依然承重。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>saga 是一串本地事务的序列，每步带自己的 outbox，且每一步都知道如何<em>撤销</em>它之前的步骤。</strong>没有任何一步跨两个系统 —— 原子性永远是本地的；分布式的东西是<em>恢复</em>。故障不是被预防的，而是被<em>设计</em>的：每个正向动作配一个<span class="term">补偿动作（compensating action）</span>（reserve ↔ release、charge ↔ refund、create ↔ cancel）。
+</div>
+
+<h2>Saga：编舞 vs 编排</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <rect class="fl-box hot" x="15" y="90" width="150" height="52"/>
+  <text class="fl-name" x="90" y="110" text-anchor="middle">1 · reserve stock</text>
+  <text class="fl-sub" x="90" y="126" text-anchor="middle">undo: release</text>
+  <rect class="fl-box hot" x="200" y="90" width="150" height="52"/>
+  <text class="fl-name" x="275" y="110" text-anchor="middle">2 · charge card</text>
+  <text class="fl-sub" x="275" y="126" text-anchor="middle">undo: refund</text>
+  <rect class="fl-box hot" x="385" y="90" width="150" height="52"/>
+  <text class="fl-name" x="460" y="110" text-anchor="middle">3 · schedule van</text>
+  <text class="fl-sub" x="460" y="126" text-anchor="middle">undo: cancel slot</text>
+  <rect class="fl-box hot" x="570" y="90" width="135" height="52"/>
+  <text class="fl-name" x="637" y="110" text-anchor="middle">4 · done ✔</text>
+  <text class="fl-sub" x="637" y="126" text-anchor="middle">order fulfilled</text>
+  <line class="fl-edge msg" x1="165" y1="116" x2="195" y2="116"/>
+  <line class="fl-edge msg" x1="350" y1="116" x2="380" y2="116"/>
+  <line class="fl-edge msg" x1="535" y1="116" x2="565" y2="116"/>
+  <text class="fl-lbl bad" x="460" y="70" text-anchor="middle">step 3 fails 💥</text>
+  <path class="fl-edge comp" d="M 460 92 C 460 40, 275 40, 275 85" marker-end="url(#fl-arrow2)"/>
+  <path class="fl-edge comp" d="M 250 100 C 180 50, 100 50, 90 85" marker-end="url(#fl-arrow2)"/>
+  <text class="fl-lbl bad" x="180" y="42">compensations run backward: refund, release</text>
+</svg>
+<p class="flowlegend">绿色为正向路径，红色为补偿路径。saga 在第 3/4 步失败时，只按倒序展开<em>已完成的步骤</em>。</p>
+</div>
+
+<p>把步骤串起来有两种方式 —— 这是一个拓扑决定（第 5 课）：</p>
+
+<ul>
+  <li><strong>编舞（choreography）：</strong>服务彼此响应对方的事件 —— 库存听到 <code>order.placed</code>，发出 <code>stock.reserved</code>；支付听到它，发出 <code>card.charged</code>……没有协调者；流程从 binding 中<em>涌现</em>。胜在低耦合与起步成本；随着步骤增多败在"看不到全貌"——"谁在响应什么？"变成考古。2–3 步用它。</li>
+  <li><strong>编排（orchestration）：</strong>一台 saga 状态机（独立服务或库）发<em>命令</em>、收结果：<code>reserve.stock</code>、然后 <code>charge.card</code>，失败时按序发出补偿。流程活在一个可读的地方，失败分支显式。步骤 ≥ 4、有分支或需要超时用它。警惕它的败法：orchestrator 长成神服务。</li>
+</ul>
+
+<p class="note">命名承载模型（见词汇表）：步骤是<em>命令（command）</em> —— 祈使、有地址、逻辑上单一消费者（<code>charge.card</code>）；宣告是<em>事件（event）</em> —— 陈述事实、广播（<code>card.charged</code>）。saga 向前说命令，向世界广播事件。</p>
+
+<h2>最终一致性：现在这是 UX 问题了</h2>
+
+<p>"订单已确认"在支付服务里为真，会比在订单服务里晚几秒。技术上没问题（第 3 课的守卫处理过期读取）；面向用户的那部分要<em>你</em>来设计：</p>
+
+<ul>
+  <li><strong>把"处理中"建模成真实状态</strong> —— "支付处理中…"是你领域里的真实状态，不是遮着一个的转圈。在 API 和 UI 里暴露它。</li>
+  <li><strong>别在异步管道上伪造同步应答</strong> —— 调用者现在就要结果的话，那是请求/响应（HTTP）的事。RabbitMQ 上的 request/reply 存在（correlation ID、reply queue），真正异步的请求-响应用它没问题；但在 saga 前面盖一层同步门面只是把超时挪了个地方。</li>
+  <li><strong>把延迟当指标</strong> —— 队列深度和消费者 lag（第 5 课）就是你的"到底多最终？"仪表盘。尾部 30 秒的"最终一致"不是一致性策略；是你还没宣布的故障。</li>
+</ul>
+
+<h2>自测</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. 为什么 DB 提交和 publish 永远不可能是一个事务？</summary>
+    <p class="answer">数据库和 broker 没有共享的事务协调者。</p>
+    <p class="why">2PC 理论上能跨它们，但会耦合可用性 —— 一个系统挂、全部提交卡住。所以用 outbox：本地原子化、分布式重试。</p>
+  </details>
+  <details>
+    <summary>Q2. saga 在第 3/4 步失败。接下来究竟运行什么？</summary>
+    <p class="answer">已completed步骤的补偿事务，倒序执行。</p>
+    <p class="why">只撤销<em>发生过</em>的 —— 第 1、2 步。失败的那步没留下可撤销的。补偿本身也是 saga 步骤：可重试、幂等。</p>
+  </details>
+  <details>
+    <summary>Q3. 五步带分支的流程，选编舞还是编排？</summary>
+    <p class="answer">编排 —— 有分支的流程需要一个看得见的家。</p>
+    <p class="why">五个订阅者靠 binding 串起来会把流程逻辑埋掉。经验法则：约 3 步以内编舞，超出或有分支/超时就编排。</p>
+  </details>
+  <details>
+    <summary>Q4. UI 必须立即确认支付。它显示什么？</summary>
+    <p class="answer">先显示 pending 状态，事件落地后再确认。</p>
+    <p class="why">pending 是真实的领域状态，不是转圈。在 saga 确认前伪造确定（"已支付！"）是经典的最终一致性 bug。</p>
+  </details>
+</div>
+
+<h2>现在你来开车</h2>
+
+<div class="task">
+  <span class="label">动手设计 —— 先别展开</span>
+  <p style="margin-top:0">外卖平台（第 5 课毕业设计）的退款流程：顾客在送达后申请退款。步骤：<strong>(1)</strong> 核实订单已送达、<strong>(2)</strong> 退款给支付、<strong>(3)</strong> 追回餐厅的结算款、<strong>(4)</strong> 通知顾客。支付供应商本身是最终一致的（退款受理 ≠ 退款完成）。选编舞或编排，列出消息（命令 vs 事件）、定义补偿（若有），并说出顾客 App 在 t=0 显示什么。</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>展开一个好答案</summary>
+      <p class="answer"><strong>编排</strong> —— 4 步、一个外部最终一致的供应商、而且退款是钱：你要这台状态机在一个可审计的地方。</p>
+      <ul>
+        <li>消息：命令 <code>verify.delivery</code>、<code>refund.payment</code>、<code>clawback.payout</code>、<code>notify.customer</code>；世界听到事实 <code>refund.completed</code>。</li>
+        <li>供应商的异步完成以事件 <code>refund.provider_completed</code>（或 webhook → outbox）回来；orchestrator 靠它推进，而不是靠"已受理"。</li>
+        <li>补偿：核实失败 → 无事可撤销，发 <code>refund.rejected</code>。退款失败 → 终止并通知（不做追回）。追回失败 → 重试阶梯（第 4 课）；它<em>不</em>用重新向顾客扣款来补偿 —— 钱的不对称交给人（停车场），不交给自动化。</li>
+        <li>outbox：每一步的状态变更与下一条消息一起提交（orchestrator 自己的 DB、支付服务自己的 DB）。全程消费者幂等。</li>
+        <li>UI 在 t=0：<strong>"退款已申请"</strong> —— pending 是真实状态；<code>refund.completed</code> 后确认。</li>
+      </ul>
+      <p class="why">三个来之不易的要点：orchestrator 等<em>完成</em>事件而非受理回执；有些步骤是"终点归人管"而非可补偿；outbox 会递归 —— 每个服务边界上都是同一个模式。</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">首选阅读材料</span>
+  <strong>microservices.io —— Chris Richardson 的模式目录</strong>：<a href="https://microservices.io/patterns/data/saga.html">Saga</a>、<a href="https://microservices.io/patterns/data/transactional-outbox.html">Transactional Outbox</a>，以及 <a href="https://microservices.io/patterns/data/event-sourcing.html">Event Sourcing</a>（我们刻意没讲的相邻思想）。Richardson 的目录正是这些模式被引用最多、最成体系的整理。
+</div>
+
+<div class="ask"><b>随时问我。</b> 值得吵的："orchestrator 不就是多了几步的分布式事务吗？"（不是 —— 但理由很微妙）、"什么时候 event sourcing 比 outbox 划算？"、"saga 怎么测？"（契约测试 + 第 4 课的短 TTL 技巧）。</div>
+
+<div class="nav">
+  <span>◄ <a href="0005-topology-design.zh.html">第 5 课 — 拓扑设计</a></span>
+  <span><a href="../reference/glossary.zh.html">词汇表</a> · 下一课：RabbitMQ vs Kafka vs SQS ►</span>
+</div>
+
+<h2 id="sources">参考来源</h2>
+<ol class="note">
+  <li id="s1">microservices.io — Saga &amp; Transactional Outbox: <a href="https://microservices.io/patterns/data/saga.html">saga</a> · <a href="https://microservices.io/patterns/data/transactional-outbox.html">outbox</a>；模式词汇对照 <a href="https://www.enterpriseintegrationpatterns.com">Enterprise Integration Patterns</a>（Hohpe &amp; Woolf）</li>
+</ol>
