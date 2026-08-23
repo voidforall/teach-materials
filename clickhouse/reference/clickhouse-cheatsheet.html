@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.cs { border-collapse: collapse; font-family: var(--mono); font-size: 0.82rem; margin: 1rem 0; width: 100%; }
+  table.cs th, table.cs td { border: 1px solid var(--rule); padding: 0.35rem 0.55rem; text-align: left; vertical-align: top; }
+  table.cs th { font-family: var(--sans); font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  table.cs td.g { font-weight: 700; color: var(--accent); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Reference</span><span>ClickHouse <a class="langbtn" href="clickhouse-cheatsheet.zh.html" title="切换到中文">中</a></span></div>
+  <h1>ClickHouse Cheat Sheet</h1>
+  <p class="dek">The whole course compressed to one page: mechanisms, design rules, engine choices, idioms, red flags.</p>
+</div>
+
+<h2>Mechanisms in one line each</h2>
+<ul>
+  <li><strong>Speed</strong> = vectorized execution over compressed, sorted, immutable column files; bottleneck is memory bandwidth + decompression.</li>
+  <li><strong>Part</strong> = one insert block → one immutable sorted directory; merges are k-way sorted merges. Insert in batches ≥ 10k rows.</li>
+  <li><strong>Granule</strong> = 8192 rows (default); <strong>mark</strong> = first ORDER BY value(s) per granule, held in RAM. Reads are whole-granule.</li>
+  <li><strong>Pruning</strong> only works on an <strong>ORDER BY prefix</strong>; everything else needs a skip index or a scan.</li>
+</ul>
+
+<h2>Table design decisions</h2>
+<table class="cs">
+  <tr><th>Decision</th><th>Rule</th></tr>
+  <tr><td class="g">ORDER BY</td><td>Most-common equality filters first (selective → less), main time column last. Never a unique id.</td></tr>
+  <tr><td class="g">PARTITION BY</td><td>Management unit only: month/day. Enables DROP PARTITION + TTL. Never high-cardinality.</td></tr>
+  <tr><td class="g">Codecs</td><td>Default LZ4; ZSTD(1–3) for big/cold; Delta/DoubleDelta (monotonic ts/counters), Gorilla (floats), T64 (ints). Sort order is the master codec.</td></tr>
+  <tr><td class="g">LowCardinality</td><td>&lt; ~10k distinct strings — always. Not for high-cardinality values.</td></tr>
+  <tr><td class="g">Skip indexes</td><td>bloom_filter (high-card equality, non-key), minmax (numeric/time), set(N) (low-card). Help only when correlated with sort order.</td></tr>
+</table>
+
+<h2>Engine picker</h2>
+<table class="cs">
+  <tr><th>Workload</th><th>Engine</th><th>Read-side duty</th></tr>
+  <tr><td class="g">Default / append-only facts</td><td>MergeTree</td><td>Plain queries; argMax for latest-per-key.</td></tr>
+  <tr><td class="g">Upserted entities</td><td>ReplacingMergeTree(ver)</td><td>argMax(ver) GROUP BY key (avoid FINAL on big scans).</td></tr>
+  <tr><td class="g">Additive pre-aggregates</td><td>SummingMergeTree</td><td>GROUP BY + sum (partials exist).</td></tr>
+  <tr><td class="g">MV rollup targets</td><td>AggregatingMergeTree</td><td>-Merge combinators (uniq/quantile states fold).</td></tr>
+  <tr><td class="g">Frequent full-row updates</td><td>VersionedCollapsing(sign, ver)</td><td>Insert +1 and −1 rows; rare, last resort.</td></tr>
+</table>
+
+<h2>Updates &amp; deletes</h2>
+<ul>
+  <li>Strategy ladder: <strong>append + argMax</strong> → merge-fold engine → <strong>partition REPLACE/DROP</strong> → mutation (repairs only).</li>
+  <li><code>ALTER … UPDATE/DELETE</code> rewrites whole parts (all columns) — cost ∝ affected part size, async (<code>system.mutations</code>).</li>
+  <li><code>DELETE FROM … WHERE</code> = lightweight masks; fast to issue, filtered at read, reclaimed at merge. GDPR-rate OK, not OLTP-rate.</li>
+</ul>
+
+<h2>MV pipeline recipe</h2>
+<pre><code>CREATE TABLE rollup ENGINE = AggregatingMergeTree ORDER BY (dim, bucket) AS
+SELECT dim, bucket, sumState(m) AS m_sum, uniqState(u) AS u_uniq FROM src GROUP BY dim, bucket;
+CREATE MATERIALIZED VIEW rollup_mv TO rollup AS
+SELECT dim, bucket, sumState(m) AS m_sum, uniqState(u) AS u_uniq FROM src GROUP BY dim, bucket;
+-- read: SELECT dim, sum(m_sum), uniq(u_uniq) FROM rollup GROUP BY dim;</code></pre>
+<p>MV = per-insert-block trigger; no history recompute — backfill manually.</p>
+
+<h2>Joins &amp; lookups</h2>
+<ul>
+  <li>Hash join: right side in RAM — project only needed columns; joins run left→right; <code>ANY LEFT JOIN</code> for dimensions.</li>
+  <li><code>dictGet('d','attr',key)</code> — in-memory map refreshed from Postgres/HTTP; enrich at ingest via MV whenever possible.</li>
+  <li>Denormalize by default; storage is nearly free, joins are not.</li>
+</ul>
+
+<h2>SQL idioms</h2>
+<table class="cs">
+  <tr><th>Task</th><th>Idiom</th></tr>
+  <tr><td class="g">Latest per key</td><td>argMax(col, ts) GROUP BY key</td></tr>
+  <tr><td class="g">Rate / conditional agg</td><td>countIf(c) / count(); sumIf(x, c)</td></tr>
+  <tr><td class="g">Distinct count</td><td>uniq (approx) / uniqExact / uniqCombined</td></tr>
+  <tr><td class="g">Percentiles</td><td>quantiles(0.5, 0.99)(x)</td></tr>
+  <tr><td class="g">Top items</td><td>topK(10)(x)</td></tr>
+  <tr><td class="g">Unroll array to rows</td><td>arrayJoin(arr)</td></tr>
+  <tr><td class="g">Funnel</td><td>windowFunnel(t)(ts, e1, e2, …)</td></tr>
+  <tr><td class="g">Retention</td><td>retention(c1, c2, …)</td></tr>
+  <tr><td class="g">Sizing audit</td><td>system.columns: data_compressed vs uncompressed</td></tr>
+</table>
+
+<h2>Use / don't use</h2>
+<ul>
+  <li><strong>Use when:</strong> append-heavy + scan-style analytics + eventual consistency OK — event analytics, logs/observability, tick data, feature stores, dashboard backends.</li>
+  <li><strong>Don't when:</strong> OLTP, continuously mutable state, heavy ad-hoc multi-join relational algebra, strong consistency needs — keep Postgres/warehouse; mirror into CH for analytics.</li>
+</ul>
+
+<h2>Ops quick hits</h2>
+<ul>
+  <li>Batch inserts (≥10k rows); watch <code>system.parts</code> for part-count health.</li>
+  <li>Per-query guardrails: <code>SETTINGS max_execution_time, max_memory_usage</code>.</li>
+  <li>Inspect marks: <code>system.parts</code>; compression: <code>system.columns</code>; mutations: <code>system.mutations</code>.</li>
+  <li>TTL for retention + partition drops for bulk lifecycle.</li>
+</ul>
+
+<div class="ask">Anything here unclear? <b>Ask the agent</b> — every row of this sheet expands into a conversation.</div>
+</body>
+</html>

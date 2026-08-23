@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 1 课 — ClickHouse 为什么快</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 1 课</span><span>基础 <a class="langbtn" href="0001-why-clickhouse-is-fast.html" title="Switch to English">EN</a></span></div>
+  <h1>ClickHouse 为什么快</h1>
+  <p class="dek">你已经懂列式 OLAP。ClickHouse 的优势不是"列式"本身，而是它<b>拒绝了什么</b>。</p>
+</div>
+
+<p>你的目标是知道什么时候该用 ClickHouse、什么时候不该。这个判断力要从"速度到底从哪来"的精确图景开始。每个列式数据库都在扫描列；ClickHouse 的差异化在于一组<b>设计承诺</b>——用 OLTP 的便利性换取聚合扫描的吞吐。</p>
+
+<h2>承诺一：向量化执行，而非逐行解释</h2>
+<p>大多数 OLAP 引擎按行或按对象批次解释执行计划。ClickHouse 以<b>连续内存的列、每次数千个值</b>为单位处理数据，内层循环对 SIMD 友好，并在运行时生成和编译查询流水线。<code>sum(amount)</code> 字面上就是对一个数组的紧凑循环——CPU 每条指令处理 4–16 个值。</p>
+<p>后果：表达式求值快到瓶颈转移到了<b>内存带宽和解压缩</b>上。这就引出承诺二。</p>
+
+<h2>承诺二：数据压缩存储，且有序</h2>
+<p>列在磁盘上用通用编解码器压缩（默认 LZ4，可选 ZSTD），再叠加按列的专用编解码器（Delta、DoubleDelta、Gorilla——<a href="0004-compression-codecs.zh.html">见第 4 课</a>）。按主键排序让相似值相邻，这正是压缩比轻松达到 10–100× 的原因。扫描读取的字节很少，因为：(a) 只读需要的列；(b) 数据是压缩的；(c) 稀疏主键索引直接跳过绝大多数 granule（<a href="0002-mergetree-anatomy.zh.html">第 2 课</a>）。</p>
+
+<h2>承诺三：shared-nothing、以单表为中心</h2>
+<p>ClickHouse 靠把一张大表分片到多节点来扩展；它是<b>构建在有序、不可变列文件之上的查询引擎</b>，不是事务存储。不可变文件成就了零拷贝读、低开销合并、无锁并行扫描。而 ClickHouse 几乎所有短板（快速更新、删除、ACID 事务——<a href="0006-mutations-deletes.zh.html">第 6 课</a>）都源于这个选择。</p>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>ClickHouse = 在压缩、有序、不可变的列文件上做向量化执行。</strong>扫描快、聚合快、点式更新难用——三个事实同根同源。
+</div>
+
+<h2>心中的基准测试</h2>
+<p>这套技术栈赢的典型负载：<em>对数亿行数据聚合少数几列，过滤条件命中排序键的前缀</em>。比如对 2 年的事件表算"最近 30 天各国日收入"——读几个 GB，一秒内出结果。典型的输家负载：在按时间排序的表上 <code>SELECT * WHERE user_id = ?</code> 取一行。能跑，但你是在让错误的引擎干这事。</p>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：列式 MPP 数据库本来就只扫需要的列。说出两个 ClickHouse 特有、能进一步减少读取字节的机制。</summary>
+    <p class="answer">压缩（通用 + 专用编解码器）和稀疏主键索引只选取相关 granule。</p>
+    <p class="why">两者都依赖表是<em>有序的</em>——排序聚集相似值（利于压缩），并给索引提供剪枝依据。</p>
+  </details>
+  <details>
+    <summary>问 2：为什么原地更新与 ClickHouse 存储根本冲突？</summary>
+    <p class="answer">数据分片文件不可变；"更新"是异步的后台重写（mutation）。原地修改会破坏无锁扫描和合并假设。</p>
+  </details>
+  <details>
+    <summary>问 3：设计良好的 ClickHouse 扫描中，瓶颈在哪？</summary>
+    <p class="answer">内存带宽和解压速度——不是表达式求值，向量化让它变得很便宜。</p>
+  </details>
+</div>
+
+<div class="task">
+  <span class="label">练习</span>
+  打开公开的 <a href="https://play.clickhouse.com/play">ClickHouse Playground</a>。先跑 <code>SELECT count() FROM github_events</code>，再跑 <code>SELECT repo_name, count() FROM github_events WHERE event_type = 'PullRequestEvent' GROUP BY repo_name ORDER BY 2 DESC LIMIT 10</code>。给两条都计时。第二条对约 3000 万行聚合、远低于一秒完成——这就是三个承诺在协同工作。
+</div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/introduction/distinctive-features">ClickHouse 官方文档 — Distinctive Features</a>。完整工程史见 <a href="https://clickhouse.com/blog/">ClickHouse 博客</a>。</div>
+
+<div class="ask">哪里卡住了——SIMD、为什么不可变有帮助、"稀疏"什么意思？<b>问 agent</b>，它是你的老师，可以带你挖任意深。</div>
+
+<div class="nav"><a href="0002-mergetree-anatomy.zh.html">下一课：MergeTree 剖析 →</a></div>
+</body>
+</html>

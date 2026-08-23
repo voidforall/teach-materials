@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 7 — Materialized Views &amp; Incremental Aggregation</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 7</span><span>Pipelines <a class="langbtn" href="0007-materialized-views.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Materialized Views &amp; Incremental Aggregation</h1>
+  <p class="dek">A ClickHouse materialized view is not a stored query plan like in Postgres — it's an <em>insert trigger</em>. That difference is the whole lesson.</p>
+</div>
+
+<p>When rows land in the source table, the MV's <code>SELECT</code> runs <strong>on the inserted block only</strong>, and the transformed result is inserted into a target table. No scans of history, no recompute — per-block stream processing inside the database.</p>
+
+<h2>The canonical pattern: rollup with aggregate states</h2>
+<pre><code>CREATE TABLE events_raw (…) ENGINE = MergeTree ORDER BY (user_id, ts);
+
+CREATE TABLE events_1m
+ENGINE = AggregatingMergeTree
+ORDER BY (toStartOfMinute(ts), user_id) AS
+SELECT
+  toStartOfMinute(ts) AS minute,
+  user_id,
+  sumState(amount)   AS amount_sum,
+  uniqState(session) AS sessions
+FROM events_raw
+GROUP BY minute, user_id;
+
+CREATE MATERIALIZED VIEW events_1m_mv TO events_1m AS
+SELECT toStartOfMinute(ts) AS minute, user_id,
+       sumState(amount) AS amount_sum, uniqState(session) AS sessions
+FROM events_raw GROUP BY minute, user_id;</code></pre>
+<p>Read it back with the matching <code>-Merge</code> combinators:</p>
+<pre><code>SELECT minute, sum(amount_sum) AS amount, uniq(sessions) AS users
+FROM events_1m GROUP BY minute;</code></pre>
+<p>The <span class="term">-State</span> suffix stores a <em>mergeable partial state</em> (sum + count, HLL sketch, quantile sketch…); the <span class="term">-Merge</span> suffix combines states at query time. This is what makes aggregation <strong>associative across time</strong>: a minute-aggregate computed today merges losslessly with one computed next year. SummingMergeTree's plain numbers can't do that for non-additive metrics like <code>uniq</code> or <code>quantile</code> — states can.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>MV = per-insert-block transform; -State = mergeable partial aggregates; AggregatingMergeTree = target that folds states on merge.</strong> Together they turn a raw firehose into pre-aggregated, arbitrarily-deep rollups — the signature ClickHouse architecture.
+</div>
+
+<h2>Operational truths</h2>
+<ul>
+  <li>MVs chain (raw → per-minute → per-hour): each layer is another MV reading from the layer below.</li>
+  <li>MVs slow inserts slightly and can silently drop rows on errors in old versions — monitor <code>system.distributed</code>-style pipelines and keep transforms exception-free.</li>
+  <li>Backfill manually: run the same SELECT with date bounds and insert into the target. The MV only covers inserts made <em>after</em> its creation.</li>
+  <li>Use <code>TO target_table</code> so you control the target's schema, ORDER BY, and TTL explicitly.</li>
+</ul>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: You add a column-changing computation to an MV. Does history get recomputed?</summary>
+    <p class="answer">No. MVs process only new insert blocks. Historical data needs a manual backfill insert into the target.</p>
+  </details>
+  <details>
+    <summary>Q2: Why uniqState rather than uniq in the MV target?</summary>
+    <p class="answer">uniq isn't additive — you can't merge per-minute counts by summing. The -State form stores a sketch; uniq(-Merge) combines sketches losslessly.</p>
+  </details>
+  <details>
+    <summary>Q3: What does the AggregatingMergeTree engine contribute here?</summary>
+    <p class="answer">It merges equal-key rows by combining their aggregate states at part-merge time, keeping the target small and query-time merging cheap.</p>
+  </details>
+</div>
+
+<div class="task">
+  <span class="label">Task</span> Sketch (on paper) a two-level rollup for "requests per second → per hour, distinct clients + p99 latency" — table DDL, MV, and the final query using the right combinators. Then compare with the <a href="../reference/clickhouse-cheatsheet.html">cheat sheet</a>.</div>
+
+<div class="source">Primary source: <a href="https://clickhouse.com/docs/en/guides/developer/cascading-materialized-views">Cascading materialized views guide</a>.</div>
+
+<div class="ask">Design review for your real pipeline? <b>Ask the agent</b> — include volumes and query shapes.</div>
+
+<div class="nav"><a href="0008-joins-dictionaries.html">Next: Joins &amp; Dictionaries →</a></div>
+</body>
+</html>

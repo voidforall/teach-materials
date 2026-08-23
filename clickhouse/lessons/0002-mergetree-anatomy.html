@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 2 — MergeTree Anatomy: Parts &amp; Granules</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .diagram { margin: 1.4rem 0; }
+  .diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .box { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .box.gran { fill: #f6efdc; stroke: var(--accent); }
+  .lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 2</span><span>Storage engine <a class="langbtn" href="0002-mergetree-anatomy.zh.html" title="切换到中文">中</a></span></div>
+  <h1>MergeTree Anatomy: Parts &amp; Granules</h1>
+  <p class="dek">Everything in a MergeTree table — speed, mutation cost, index behavior — follows from two units of storage: the <em>part</em> and the <em>granule</em>.</p>
+</div>
+
+<p><span class="term">MergeTree</span> is the engine behind ~95% of real ClickHouse tables. It is an <strong>LSM-flavored columnar store</strong>: inserts create immutable sorted parts; background threads continually merge parts into larger ones. Unlike a classic LSM it has no memtable flush or WAL-per-tx semantics — inserts arrive in blocks of tens of thousands to millions of rows and go straight to a new part.</p>
+
+<h2>The part</h2>
+<ul>
+  <li>Each <code>INSERT</code> of a block produces one <span class="term">part</span> (directory) — one compressed file per column, plus a sparse primary index ("marks") per part.</li>
+  <li>Parts are <strong>sorted by the ORDER BY key</strong>. Merges are k-way merges of sorted runs — cheap, sequential, and they keep part count low.</li>
+  <li>Consequence: insert in <strong>large batches</strong>. One row-per-insert produces one tiny part each — the classic "too many parts" death.</li>
+</ul>
+
+<h2>The granule</h2>
+<p>Inside a part, each column file is divided into <span class="term">granules</span> of <code>index_granularity = 8192</code> rows by default. The primary index stores, per granule, the <strong>first value of each ORDER BY column</strong> — one "mark" per granule, held in memory.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="lbl">Part 202608_10_2 (sorted by (site, ts))</text>
+  <g>
+    <rect x="0" y="26" width="105" height="34" class="box gran"/><text x="52" y="47" text-anchor="middle" class="sub">gran 0..8191</text>
+    <rect x="107" y="26" width="105" height="34" class="box gran"/><text x="159" y="47" text-anchor="middle" class="sub">gran 8192..</text>
+    <rect x="214" y="26" width="105" height="34" class="box"/><text x="266" y="47" text-anchor="middle" class="sub">…</text>
+    <rect x="321" y="26" width="105" height="34" class="box gran"/><text x="373" y="47" text-anchor="middle" class="sub">last gran</text>
+  </g>
+  <text x="0" y="86" class="lbl">Sparse primary index (in memory)</text>
+  <g>
+    <rect x="0" y="96" width="105" height="34" class="box"/><text x="52" y="117" text-anchor="middle" class="sub">mark0: site=a, ts=…</text>
+    <rect x="107" y="96" width="105" height="34" class="box"/><text x="159" y="117" text-anchor="middle" class="sub">mark1: site=b, …</text>
+    <rect x="321" y="96" width="105" height="34" class="box"/><text x="373" y="117" text-anchor="middle" class="sub">markN: site=z, …</text>
+  </g>
+  <text x="0" y="156" class="sub">1 mark per granule ⇒ billions of rows, millions of marks — still RAM-cheap. That's why it's "sparse".</text>
+</svg>
+</div>
+
+<p>A query like <code>WHERE site = 'kaggle' AND ts &gt;= today() - 7</code> binary-searches the marks, selects granules whose key ranges intersect the predicate, and decompresses only those. Note the subtlety: ClickHouse reads <strong>whole granules</strong>, then filters precisely inside them. A predicate on a non-first key column still scans lots of granules — that's the next lesson's problem.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Inserts create sorted parts; merges keep part count low; the sparse index maps 8192-row granules to key ranges in memory.</strong> Read amplification, mutation cost, and index selectivity are all granule-and-part arithmetic.
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: Why is one-row-per-INSERT catastrophic in MergeTree?</summary>
+    <p class="answer">Each insert creates a part; unbounded part count explodes merge load and open files ("too many parts"). Batch inserts: at least thousands of rows, ideally 100k+.</p>
+  </details>
+  <details>
+    <summary>Q2: A query matches 3 rows out of 8 billion, keyed on a column that is 3rd in ORDER BY. How many granules can it skip, at best?</summary>
+    <p class="answer">Almost none — the marks can't prune on a non-prefix key, so it effectively scans the whole table (or needs a skip index).</p>
+  </details>
+  <details>
+    <summary>Q3: What exactly does one mark contain?</summary>
+    <p class="answer">The first value of each ORDER BY-column in a granule (plus the file offsets needed to read it).</p>
+  </details>
+</div>
+
+<p><strong>Drill</strong> — granule/mark arithmetic until it's automatic:</p>
+<script src="../assets/partsize-drill.js"></script>
+<div data-partsize-drill></div>
+
+<div class="source">Primary source: <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree">MergeTree docs</a> and the <a href="https://clickhouse.com/docs/en/guides/best-practice/sparse-primary-index">sparse primary index guide</a>.</div>
+
+<div class="ask">Anything unclear — merge policy, mark files, granularity tuning? <b>Ask the agent</b>.</div>
+
+<div class="nav"><a href="0003-orderby-skip-indexes.html">Next: ORDER BY Design &amp; Skip Indexes →</a></div>
+</body>
+</html>

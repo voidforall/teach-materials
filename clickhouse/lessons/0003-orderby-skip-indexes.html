@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 3 — ORDER BY Design, Partitioning &amp; Skip Indexes</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 3</span><span>Schema design <a class="langbtn" href="0003-orderby-skip-indexes.zh.html" title="切换到中文">中</a></span></div>
+  <h1>ORDER BY Design, Partitioning &amp; Skip Indexes</h1>
+  <p class="dek">In ClickHouse you don't index queries — you design the table <em>around</em> the queries. ORDER BY is the single highest-leverage decision you make.</p>
+</div>
+
+<p>There is no secondary B-tree index to add later. The ORDER BY key determines: which predicates can prune granules, how well columns compress (adjacent similarity), and how merges behave. Design rule:</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>ORDER BY = your most common filter(s), ordered from most-selective-in-practice to least, with the main time column usually last.</strong> Every dimension you filter by frequently belongs in the key; a typical event table uses <code>ORDER BY (user_id, event, timestamp)</code> or <code>(site_id, timestamp)</code> — never just <code>(timestamp)</code> unless you only ever query time ranges.
+</div>
+
+<h2>Partitioning is for management, not for speed</h2>
+<p><code>PARTITION BY toYYYYMM(event_date)</code> splits the table into partitioned sets of parts. Pruning on the partition expression is coarse (month-granular) but <strong>dropping a partition is the cheapest delete in ClickHouse</strong>: <code>ALTER TABLE t DROP PARTITION '2024-01'</code> — instant, no rewrite. Use partitions for TTL expiry and bulk data lifecycle; don't partition by anything high-cardinality (user_id!) — hundreds of partitions × parts each will wreck merges.</p>
+
+<h2>Skip indexes for non-key columns</h2>
+<p>When a frequent predicate can't be in the key (too many access patterns), add a <span class="term">data skipping index</span>. It doesn't point at rows — it stores per-granule-range metadata so the engine can skip whole granules:</p>
+<ul>
+  <li><code>INDEX idx_user user_id TYPE bloom_filter GRANULARITY 4</code> — membership test; equality/IN lookups on high-cardinality non-key columns.</li>
+  <li><code>TYPE minmax</code> — ranges of numeric/time columns (great for correlated columns already implied by the key order).</li>
+  <li><code>TYPE set(N)</code> — up to N distinct values per range, for low-cardinality columns.</li>
+</ul>
+<p>Skip indexes cost read time (on ingest, mostly) and help only when data is <em>correlated with the sort order</em> — a bloom filter over randomly-scattered values skips nothing.</p>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span> Copying an OLTP habit: <code>ORDER BY id</code> (or leaving it off) and "adding an index later". There is no later. A table sorted by a unique id compresses poorly and prunes never — the worst of both worlds.
+</div>
+
+<h2>Worked example</h2>
+<p>Query: "events for user U in the last 30 days, by type" (99% of traffic) + "all events for site S today".</p>
+<pre><code>CREATE TABLE events (
+  user_id UInt64,
+  site_id UInt32,
+  event LowCardinality(String),
+  ts DateTime,
+  payload String CODEC(ZSTD(3))
+) ENGINE = MergeTree
+PARTITION BY toYYYYMM(ts)
+ORDER BY (user_id, event, ts)
+INDEX idx_site site_id TYPE bloom_filter GRANULARITY 4;</code></pre>
+<p>User-first key makes the 99% query read a handful of granules; bloom index rescues the site query; monthly partitions give cheap TTL.</p>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: Why does time usually go last in ORDER BY, not first?</summary>
+    <p class="answer">Queries almost always carry an equality dimension (user, site) plus a time range. Key-prefix pruning needs the equality columns first; the time range then prunes within them. Time-first defeats every non-time filter.</p>
+  </details>
+  <details>
+    <summary>Q2: When is DROP PARTITION the right "delete"?</summary>
+    <p class="answer">Whole-unit data lifecycle: retention windows, re-ingesting a bad load. It's metadata-only and instant, versus mutations which rewrite parts.</p>
+  </details>
+  <details>
+    <summary>Q3: A bloom_filter skip index on user_id skips nothing. Most likely reason?</summary>
+    <p class="answer">user_id values are uncorrelated with the sort order — every granule's range contains "everything", so no granule can be excluded. (Or it's already the key column.)</p>
+  </details>
+</div>
+
+<div class="source">Primary sources: <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree">MergeTree docs (ORDER BY / PARTITION BY)</a>, <a href="https://clickhouse.com/docs/en/guides/best-practice/sparse-primary-index">sparse index guide</a>, <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-data_skipping-indexes">skip indexes section</a>.</div>
+
+<div class="ask">Want your real workload reviewed against this framework? <b>Ask the agent</b> — describe the queries and get a key design back.</div>
+
+<div class="nav"><a href="0004-compression-codecs.html">Next: Compression &amp; Codecs →</a></div>
+</body>
+</html>

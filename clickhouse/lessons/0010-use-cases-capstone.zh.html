@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 10 课 — 用例与结课设计</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 10 课</span><span>决策 <a class="langbtn" href="0010-use-cases-capstone.html" title="Switch to English">EN</a></span></div>
+  <h1>用例与结课设计</h1>
+  <p class="dek">课程结束在你使命开始的地方：ClickHouse 什么时候赢、什么时候输，以及如何端到端地为真实负载做设计。</p>
+</div>
+
+<h2>赢的场景——每个绿灯背后的共同模式</h2>
+<p>共同形状：<strong>追加为主的写入量 + 扫描式分析读取 + 能接受最终一致性</strong>。</p>
+<ul>
+  <li><strong>产品/事件分析：</strong>漏斗、留存、同期群——在数十亿事件上跑 windowFunnel/retention（<a href="0009-sql-toolbox.zh.html">第 9 课</a>）。</li>
+  <li><strong>日志、链路与可观测性：</strong>许多 SaaS "Log Explorer" 背后 quietly 跑的就是 ClickHouse。海量追加流、时间范围扫描、按分区 TTL 过期。（注意：这个领域也有对象存储引擎竞争——按你真实的留存/延迟需求比较。）</li>
+  <li><strong>行情/tick 数据与金融遥测：</strong>按 (symbol, ts) 排序、DoubleDelta/Gorilla 编解码、按标的区间扫描；银行与交易所的 tick 历史是经典案例。</li>
+  <li><strong>特征库 / ML 元数据：</strong>从事件日志批量物化 point-in-time 特征。</li>
+  <li><strong>通用 OLAP 仪表盘后端：</strong>大规模亚秒聚合，取代夜间预聚合。</li>
+</ul>
+
+<h2>输的场景——尊重红旗</h2>
+<ul>
+  <li><strong>OLTP：</strong>逐行事务、按主键点读点写 → Postgres/MySQL。ClickHouse 没有真正的事务，点式 CRUD 是它最糟的路径。</li>
+  <li><strong>持续可变状态：</strong>购物车、原地更新的账户余额 → OLTP 存量 + 同步镜像进 CH 做分析。</li>
+  <li><strong>重型的、即席的关系代数：</strong>大表间多路 join、复杂计划 → 数仓（Snowflake/BigQuery）或单机的 DuckDB。</li>
+  <li><strong>强一致 / 分布式 ACID 要求。</strong></li>
+</ul>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>决策问题不是"数据大吗"，而是"负载是追加加扫描吗？"</strong>是 → 用 ClickHouse，设计就是第 2–8 课（键、分区、编解码、MV、字典/反规范化）。否 → 选承诺匹配的工具，让 ClickHouse 只做这些数据的分析镜像。
+</div>
+
+<h2>结课设计</h2>
+<p>为下面的负载做端到端设计——然后与 agent 对答案：</p>
+<div class="task">
+  <span class="label">结课任务</span>
+  <p><strong>负载：</strong>某金融 App 以每秒 5 万条接入支付事件（字段：event_time、user_id、merchant_id、country、amount、status、device）。查询：(1) 近 90 天各国每小时收入与去重付款人数；(2) 单用户近 90 天账单（低频）；(3) 风控看板：每商户拒绝率、p99 延迟，近 24 小时；(4) GDPR：按请求删除某用户全部行；(5) 保留 90 天。</p>
+  <p><strong>交付：</strong>每张表的 DDL（引擎、ORDER BY、分区、编解码、TTL）、带 -State 组合子的 MV 流水线、(1)–(3) 的读取查询、以及如何不用 mutation 跑步机满足 (4)。</p>
+</div>
+<p>对答案要点：user_id 放键首（查询 2）；MV → 按 (country, hour) 和 (merchant, hour) 的 AggregatingMergeTree，带 uniqState/quantileState；GDPR 按请求频率用轻量删除；保留用日/月分区 + TTL。先论证你自己的选择，再让 agent 追问。</p>
+
+<div class="quiz">
+  <details>
+    <summary>终检：说出构成 ClickHouse 表设计的五个决策。</summary>
+    <p class="answer">ORDER BY 键、分区、编解码 + LowCardinality、引擎选择（MergeTree 家族）、MV/汇总层——外加更新策略（追加 vs 四条 mutation 路径）。</p>
+  </details>
+</div>
+
+<div class="source">设计时打开<a href="../reference/clickhouse-cheatsheet.zh.html">速查表</a>。社区智慧：<a href="https://clickhouse.com/slack">ClickHouse Slack</a>、<a href="https://www.reddit.com/r/ClickHouse/">r/ClickHouse</a>、<a href="https://altinity.com/blog/">Altinity 博客</a>。</div>
+
+<div class="ask">课程完成——把你的结课设计交给 agent 做评审，或把攒下的疑问一次问清。<b>agent 是你的老师。</b></div>
+
+<div class="nav"><a href="../reference/clickhouse-cheatsheet.zh.html">速查表 →</a></div>
+</body>
+</html>

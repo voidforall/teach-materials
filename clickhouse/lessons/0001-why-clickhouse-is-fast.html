@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 1 — Why ClickHouse Is Fast</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 1</span><span>Foundations <a class="langbtn" href="0001-why-clickhouse-is-fast.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Why ClickHouse Is Fast</h1>
+  <p class="dek">You already know columnar OLAP. ClickHouse's edge is not "columnar" — it's what it refuses to be.</p>
+</div>
+
+<p>Your mission is to know when to reach for ClickHouse and when not to. That judgment starts with a precise picture of where the speed comes from. Every columnar database scans columns; ClickHouse's differentiators are a set of <strong>design commitments</strong> that trade OLTP niceties for aggregate scan throughput.</p>
+
+<h2>Commitment 1: vectorized execution, not per-row interpretation</h2>
+<p>Most OLAP engines compile or interpret plans per row or per batch of objects. ClickHouse processes data in <strong>columns of contiguous values, thousands at a time</strong>, with SIMD-friendly inner loops and runtime code specialization (it generates and compiles query pipelines at runtime). A <code>sum(amount)</code> is literally a tight loop over an array of numbers — the CPU does 4–16 values per instruction.</p>
+<p>Consequence: expression evaluation is fast enough that the bottleneck moves to <strong>memory bandwidth and decompression</strong>. Which leads to commitment 2.</p>
+
+<h2>Commitment 2: data is stored compressed, and sorted</h2>
+<p>Columns are compressed on disk with general codecs (LZ4 default, ZSTD opt-in) plus per-column specialized codecs (Delta, DoubleDelta, Gorilla — <a href="0004-compression-codecs.html">lesson 4</a>). Sorting data by the primary key makes similar values adjacent, which is what makes compression ratios of 10–100× routine. Scans read few bytes because (a) only needed columns are read, (b) they're compressed, and (c) the sparse primary index skips most granules entirely (<a href="0002-mergetree-anatomy.html">lesson 2</a>).</p>
+
+<h2>Commitment 3: shared-nothing, single-table-first</h2>
+<p>ClickHouse scales by sharding one big table across nodes; it is a <strong>query engine over sorted, immutable column files</strong>, not a transactional store. Immutable files are what make zero-copy reads, cheap merges, and lock-free parallel scans possible. Almost everything ClickHouse is bad at (fast updates, deletes, ACID transactions — <a href="0006-mutations-deletes.html">lesson 6</a>) falls out of this choice.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>ClickHouse = vectorized execution over compressed, sorted, immutable column files.</strong> Fast scans, fast aggregations, terrible point-mutation ergonomics — all three facts have the same root.
+</div>
+
+<h2>The mental benchmark</h2>
+<p>The canonical workload where this stack wins: <em>aggregate a few columns over hundreds of millions of rows, filtered by a selective prefix of the sort key</em>. E.g. "daily revenue by country for the last 30 days" over 2 years of events — reads a few GB, answers in a second. The canonical losing workload: <code>SELECT * WHERE user_id = ?</code> returning one row, on a table sorted by timestamp. It works, but you're paying the wrong engine to do it.</p>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: A columnar MPP database already scans only needed columns. Name two ClickHouse-specific mechanisms that reduce bytes read further.</summary>
+    <p class="answer">Compression (general + specialized codecs) and the sparse primary index selecting only relevant granules.</p>
+    <p class="why">Both depend on the table being <em>sorted</em> — sorting clusters similar values (compression) and gives the index something to prune with.</p>
+  </details>
+  <details>
+    <summary>Q2: Why is update-in-place fundamentally at odds with ClickHouse storage?</summary>
+    <p class="answer">Part files are immutable; "updates" are asynchronous background rewrites (mutations). In-place mutation would break lock-free scans and merge assumptions.</p>
+  </details>
+  <details>
+    <summary>Q3: Where does the bottleneck sit in a well-designed ClickHouse scan?</summary>
+    <p class="answer">Memory bandwidth and decompression speed — not expression evaluation, which vectorization makes cheap.</p>
+  </details>
+</div>
+
+<div class="task">
+  <span class="label">Task</span>
+  Try the public <a href="https://play.clickhouse.com/play">ClickHouse Playground</a>. Run <code>SELECT count() FROM github_events</code>, then <code>SELECT repo_name, count() FROM github_events WHERE event_type = 'PullRequestEvent' GROUP BY repo_name ORDER BY 2 DESC LIMIT 10</code>. Time both. The second aggregates ~30M rows in well under a second — that's commitments 1–3 working together.
+</div>
+
+<div class="source">Primary source: <a href="https://clickhouse.com/docs/en/introduction/distinctive-features">ClickHouse docs — Distinctive Features of ClickHouse</a>. For the full engineering history, the <a href="https://clickhouse.com/blog/">ClickHouse blog</a>.</div>
+
+<div class="ask">Stuck on anything — SIMD, why immutability helps, what "sparse" means? <b>Ask the agent</b>; it's your teacher and can go as deep as you want.</div>
+
+<div class="nav"><a href="0002-mergetree-anatomy.html">Next: MergeTree Anatomy →</a></div>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 6 — Mutations, Deletes &amp; the Update Anti-Pattern</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 6</span><span>Constraints <a class="langbtn" href="0006-mutations-deletes.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Mutations, Deletes &amp; the Update Anti-Pattern</h1>
+  <p class="dek">ClickHouse can update and delete — it just charges you list price. Knowing that price is what separates users from victims.</p>
+</div>
+
+<p><code>ALTER TABLE t UPDATE status = 'x' WHERE …</code> and <code>ALTER TABLE t DELETE WHERE …</code> are <span class="term">mutations</span>: asynchronous commands that <strong>rewrite every part containing matching rows</strong> — all columns, whole files. Cost model:</p>
+<ul>
+  <li>Mutation cost ≈ data volume of affected parts, not number of matching rows. A <code>WHERE</code> matching 10 rows in a month-old 500 GB partition still rewrites that partition's parts.</li>
+  <li>They queue and run in the background; check <code>system.mutations</code> (<code>is_done</code>) — your query doesn't wait, but your disk I/O does.</li>
+</ul>
+
+<h2>Lightweight DELETE</h2>
+<p><code>DELETE FROM t WHERE …</code> writes delete masks (row-level tombstones) instead of rewriting immediately — fast to issue; affected rows are filtered at read time, and physically reclaimed at merges. Good for GDPR-style "delete this user's rows" at moderate rates. It's still not an OLTP delete path.</p>
+
+<h2>The idiomatic alternatives (in order of preference)</h2>
+<ol>
+  <li><strong>Append + read-time resolution:</strong> insert a new versioned row; queries pick the latest with <code>argMax</code> (lesson 9). Updates become cheap inserts.</li>
+  <li><strong>Replacing/VersionedCollapsing engines</strong> (lesson 5) if the read-side ergonomics justify it.</li>
+  <li><strong>Partition lifecycle:</strong> partition by unit-of-work (day/month), overwrite a bad day with <code>INSERT</code> into a staging table + <code>REPLACE PARTITION</code>, expire with <code>DROP PARTITION</code> + TTL.</li>
+  <li><strong>Mutations</strong> — for genuine one-off data repairs.</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>ClickHouse data is write-once; "update" is one of four strategies — append+argMax, merge-fold engine, partition swap, or the expensive mutation.</strong> If your workload updates rows continuously by primary identity, that's an OLTP workload and belongs in Postgres (possibly synced into ClickHouse for analytics).
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span> Running scheduled <code>ALTER TABLE … UPDATE</code> jobs as a normal part of the pipeline ("we update statuses every 10 minutes"). You now have a permanent background-rewrite treadmill competing with merges and queries. Redesign as appends.
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: Why is a mutation matching 3 rows potentially the most expensive statement your cluster runs today?</summary>
+    <p class="answer">It rewrites every part (all columns) that contains matching rows — potentially the whole table if the predicate hits old, large parts.</p>
+  </details>
+  <details>
+    <summary>Q2: Lightweight DELETE issues instantly. Where did the cost go?</summary>
+    <p class="answer">To read time (masked rows filtered per scan) and to future merges (physical reclamation). Nothing in an immutable store is free — it's deferred, not removed.</p>
+  </details>
+  <details>
+    <summary>Q3: Pipeline needs to fix "status" on yesterday's misloaded data daily. Best mechanism?</summary>
+    <p class="answer">Partition by day; load corrected day into a staging table and atomically REPLACE PARTITION. No mutation, no rewrite of other days.</p>
+  </details>
+</div>
+
+<div class="source">Primary sources: <a href="https://clickhouse.com/docs/en/guides/developer/mutations">Mutations guide</a>, <a href="https://clickhouse.com/docs/en/sql-reference/statements/delete">lightweight DELETE</a>, <a href="https://altinity.com/blog/">Altinity blog</a> for mutation horror stories and redesigns.</div>
+
+<div class="ask">Bring your update/delete pattern to the agent — <b>ask</b> which of the four strategies fits it.</div>
+
+<div class="nav"><a href="0007-materialized-views.html">Next: Materialized Views &amp; Incremental Aggregation →</a></div>
+</body>
+</html>

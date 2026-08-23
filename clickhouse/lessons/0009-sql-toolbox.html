@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 9 — The SQL Toolbox</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 9</span><span>SQL <a class="langbtn" href="0009-sql-toolbox.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The SQL Toolbox</h1>
+  <p class="dek">ClickHouse SQL is analytics-first: aggregates you can merge, arrays as first-class citizens, and argMax doing the job three subqueries used to.</p>
+</div>
+
+<h2>argMax — "latest row per key" in one pass</h2>
+<pre><code>SELECT user_id, argMax(status, updated_at) AS status,
+       argMax(balance, updated_at)          AS balance
+FROM ledger GROUP BY user_id;</code></pre>
+<p>One aggregate, no window functions, no FINAL, no self-join. This is the idiomatic way to read append-only/versioned tables (lessons 5–6). Pair columns with the same <code>updated_at</code> ordering column and they stay consistent.</p>
+
+<h2>Combinators — modifiers on every aggregate</h2>
+<ul>
+  <li><code>sumIf(x, cond)</code>, <code>countIf(cond)</code> — conditional aggregation replaces CASE-SUM; <code>countIf(a) / count()</code> is a one-line rate.</li>
+  <li><code>uniq</code>/<code>uniqExact</code> — approximate (fast, fixed memory) vs exact; <code>uniqCombined</code> in between.</li>
+  <li><code>quantile(0.99)(latency_ms)</code> — sketches; <code>quantiles(0.5, 0.99)(…)</code> for several at once.</li>
+  <li><code>-State</code>/<code>-Merge</code>/<code>-MergeState</code> — partial aggregates for MV pipelines (lesson 7).</li>
+  <li><code>groupUniqArray</code>, <code>topK(10)</code>, <code>any(last(x))</code> — the ones you'll reach for weekly.</li>
+</ul>
+
+<h2>Arrays as first-class citizens</h2>
+<p>Arrays arrive naturally (JSON fields, funnel steps) and ClickHouse has a mini query language over them:</p>
+<pre><code>SELECT user_id,
+  arrayFilter(x -> x.event = 'signup', events)  AS signups,
+  arraySort(x -> x.ts, events)[1]               AS first_event,
+  length(arrayDistinct(arrayMap(x -> x.page, events))) AS pages_seen
+FROM user_sessions;</code></pre>
+<p><span class="term">arrayJoin</span> is the special one: it <em>unrolls</em> one array column into multiple rows — turning nested data into flat rows that normal aggregates can chew on. Funnels: <code>windowFunnel</code> (ordered event sequences within a session) and <code>retention</code> (cohort matrix) are built-in, scan-based implementations of analyses you'd otherwise write as five-stage scripts.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>ClickHouse pushes analytics into aggregates: combinator suffixes for conditions/states, arrays with lambdas for nested data, argMax for latest-per-key, windowFunnel/retention for behavioral analytics.</strong> The instinct to port complex warehouse SQL (window functions over CTEs) is often the wrong one — there's usually a one-aggregate idiom.
+</div>
+
+<h2>Also worth knowing</h2>
+<ul>
+  <li>Window functions (<code>OVER/PARTITION BY</code>) exist — for running totals and rankings — but are usually slower than an aggregate idiom when one exists.</li>
+  <li><code>WITH</code> supports expressions and named subqueries (CTEs).</li>
+  <li><code>SETTINGS</code> per query: <code>max_execution_time</code>, <code>max_memory_usage</code>, <code>join_use_nulls</code> — analytics queries should carry their own guardrails.</li>
+  <li><code>sample</code> on tables with <code>SAMPLE BY</code> in the key: statistically valid subsetting at granule granularity.</li>
+</ul>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: Compute "7-day retention" without window functions or joins. What's in your toolbox?</summary>
+    <p class="answer"><code>retention(cond1, cond2, …)</code> — the built-in cohort aggregate takes first-event + return-event conditions and returns the retention matrix directly.</p>
+  </details>
+  <details>
+    <summary>Q2: Why prefer countIf over SUM(CASE WHEN …)?</summary>
+    <p class="answer">Semantically identical, but the combinator is the native vectorized form — shorter, and no branchy inner loop.</p>
+  </details>
+  <details>
+    <summary>Q3: What does arrayJoin do that arrayMap cannot?</summary>
+    <p class="answer">It changes row multiplicity — explodes one row with an array into N rows — while arrayMap stays within the row. Only arrayJoin lets downstream GROUP BYs see elements individually.</p>
+  </details>
+</div>
+
+<div class="task">
+  <span class="label">Task</span> On <code>github_events</code> in the <a href="https://play.clickhouse.com/play">playground</a>: per repo, share of WatchEvents this year, top-10 repos by that share. One query with <code>countIf</code>. Then try <code>topK(10)(repo_name)</code> and note what it computes differently.</p></div>
+
+<div class="source">Primary sources: <a href="https://clickhouse.com/docs/en/sql-reference/aggregate-functions">aggregate functions reference</a> (combinators table), <a href="https://clickhouse.com/docs/en/sql-reference/functions/array-functions">array functions</a>, <a href="https://clickhouse.com/docs/en/sql-reference/aggregate-functions/reference/windowfunnel">windowFunnel</a>.</div>
+
+<div class="ask">Porting gnarly warehouse SQL to ClickHouse? <b>Ask the agent</b> — there's usually a one-liner.</div>
+
+<div class="nav"><a href="0010-use-cases-capstone.html">Next: Use Cases &amp; Capstone →</a></div>
+</body>
+</html>

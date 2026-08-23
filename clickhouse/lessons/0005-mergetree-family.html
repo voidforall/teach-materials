@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 5 — The MergeTree Family</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 5</span><span>Engines <a class="langbtn" href="0005-mergetree-family.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The MergeTree Family</h1>
+  <p class="dek">Replacing, Summing, Aggregating, Collapsing — they all share one trick: <em>fix things up during the merge</em>. Understand that trick and the whole family is one idea.</p>
+</div>
+
+<p>Plain MergeTree never deduplicates or folds anything — rows inserted twice stay twice. The family variants add an <strong>on-merge policy</strong>: when parts merge, rows sharing the ORDER BY key are combined according to the engine's rule. Queries always see all parts, so before merges happen you can still see un-folded rows — the family engines are <em>eventually consistent</em>, not magically exact.</p>
+
+<h2>The catalog</h2>
+<ul>
+  <li><span class="term">ReplacingMergeTree(ver)</span> — keeps the row with the max version per key; deduplication of upserted rows. "Replacing" only happens at merge time: query with <code>FINAL</code> or dedupe yourself (<code>argMax</code> — lesson 9).</li>
+  <li><span class="term">SummingMergeTree</span> — sums numeric columns per key. Classic for pre-aggregated facts: insert per-minute rows, reads still need <code>GROUP BY</code> + <code>sum()</code> because partials exist.</li>
+  <li><span class="term">AggregatingMergeTree</span> — stores partial aggregate states (<code>sumState</code>, <code>uniqState</code>, …) and merges them. The backbone of materialized-view pipelines — lesson 7.</li>
+  <li><span class="term">CollapsingMergeTree(sign)</span> — rows with sign = −1 cancel the matching sign = +1 row. Turns "updates" into insert-two-rows (state + inverse state). <span class="term">VersionedCollapsingMergeTree</span> adds a version so cancellation works regardless of insert order.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Every family engine is MergeTree + a merge-time row-combining rule.</strong> None of them guarantee correctness at read time — your <em>queries</em> must tolerate partially-merged data (GROUP BY sums are fine; "latest row per key" needs argMax or FINAL).
+</div>
+
+<h2>Choosing (decision order)</h2>
+<ol>
+  <li>Default: <strong>plain MergeTree</strong> + dedupe/aggregation logic in the query (argMax, sum). Simplest, most flexible.</li>
+  <li>Repeated upserts of entities → <strong>ReplacingMergeTree</strong>, read with argMax per key.</li>
+  <li>High-volume additive metrics → <strong>SummingMergeTree</strong> or (better) plain + MV into <strong>AggregatingMergeTree</strong>.</li>
+  <li>Frequently-mutated entities with strict accounting → <strong>VersionedCollapsing</strong>. Rarely the first choice — sign bookkeeping in the ingestion path is error-prone.</li>
+</ol>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span> <code>SELECT * FROM t FINAL</code> on large tables as the default read path. FINAL forces on-the-fly merging of your data <em>at query time</em> — it can be orders of magnitude slower than an argMax GROUP BY that exploits the same version column.
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: Rows were re-inserted 5 minutes ago; ReplacingMergeTree hasn't merged that part yet. What does count() show?</summary>
+    <p class="answer">Both copies. Replacement is merge-time only; reads see un-folded rows. Dedupe at read time with argMax(version) GROUP BY key, or accept FINAL's cost.</p>
+  </details>
+  <details>
+    <summary>Q2: Why do SummingMergeTree queries still need GROUP BY + sum?</summary>
+    <p class="answer">Because partial rows may exist in not-yet-merged parts; summing already-summed values in different parts is still correct only if you aggregate by key again.</p>
+  </details>
+  <details>
+    <summary>Q3: What does the sign = −1 row do in CollapsingMergeTree?</summary>
+    <p class="answer">It cancels an earlier +1 row with the same key at merge time — deleting/updating becomes an insert of an inverse record.</p>
+  </details>
+</div>
+
+<div class="source">Primary source: <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family">MergeTree family docs</a> — read the individual engine pages for the exact merge rules.</div>
+
+<div class="ask">Got an upsert-heavy use case? <b>Ask the agent</b> before reaching for Collapsing — there's often a simpler design.</div>
+
+<div class="nav"><a href="0006-mutations-deletes.html">Next: Mutations &amp; Deletes →</a></div>
+</body>
+</html>

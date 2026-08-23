@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse 速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.cs { border-collapse: collapse; font-family: var(--mono); font-size: 0.82rem; margin: 1rem 0; width: 100%; }
+  table.cs th, table.cs td { border: 1px solid var(--rule); padding: 0.35rem 0.55rem; text-align: left; vertical-align: top; }
+  table.cs th { font-family: var(--sans); font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  table.cs td.g { font-weight: 700; color: var(--accent); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>参考</span><span>ClickHouse <a class="langbtn" href="clickhouse-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>ClickHouse 速查表</h1>
+  <p class="dek">整门课压缩成一页：机制、设计规则、引擎选择、惯用法、红旗。</p>
+</div>
+
+<h2>机制各一行</h2>
+<ul>
+  <li><strong>速度</strong> = 在压缩、有序、不可变的列文件上向量化执行；瓶颈是内存带宽 + 解压。</li>
+  <li><strong>Part</strong> = 一个插入块 → 一个不可变有序目录；合并是 k 路有序归并。插入批次 ≥ 1 万行。</li>
+  <li><strong>Granule</strong> = 8192 行（默认）；<strong>mark</strong> = 每个 granule 的首个 ORDER BY 值，常驻内存。读取以整 granule 为单位。</li>
+  <li><strong>剪枝</strong>只对 <strong>ORDER BY 前缀</strong>有效；其他列要么跳数索引、要么全扫。</li>
+</ul>
+
+<h2>表设计决策</h2>
+<table class="cs">
+  <tr><th>决策</th><th>规则</th></tr>
+  <tr><td class="g">ORDER BY</td><td>最常用的等值过滤在前（选择性高→低），主时间列最后。绝不按唯一 id。</td></tr>
+  <tr><td class="g">PARTITION BY</td><td>只作管理单元：月/天。成就 DROP PARTITION + TTL。绝不按高基数分区。</td></tr>
+  <tr><td class="g">编解码器</td><td>默认 LZ4；大而冷的列用 ZSTD(1–3)；Delta/DoubleDelta（单调时间戳/计数器）、Gorilla（浮点）、T64（整数）。排序序是主编解码器。</td></tr>
+  <tr><td class="g">LowCardinality</td><td>不同值少于约 1 万的字符串——尽管用。高基数值不用。</td></tr>
+  <tr><td class="g">跳数索引</td><td>bloom_filter（非键高基数等值）、minmax（数值/时间）、set(N)（低基数）。只有与排序序相关时才有用。</td></tr>
+</table>
+
+<h2>引擎选择器</h2>
+<table class="cs">
+  <tr><th>负载</th><th>引擎</th><th>读侧职责</th></tr>
+  <tr><td class="g">默认 / 追加式事实表</td><td>MergeTree</td><td>普通查询；每键最新用 argMax。</td></tr>
+  <tr><td class="g">Upssert 的实体</td><td>ReplacingMergeTree(ver)</td><td>argMax(ver) GROUP BY key（大表避免 FINAL）。</td></tr>
+  <tr><td class="g">可加预聚合</td><td>SummingMergeTree</td><td>GROUP BY + sum（存在部分聚合行）。</td></tr>
+  <tr><td class="g">MV 汇总目标</td><td>AggregatingMergeTree</td><td>-Merge 组合子（uniq/quantile 状态可折叠）。</td></tr>
+  <tr><td class="g">频繁整行更新</td><td>VersionedCollapsing(sign, ver)</td><td>插 +1 与 −1 行；少见，最后手段。</td></tr>
+</table>
+
+<h2>更新与删除</h2>
+<ul>
+  <li>策略阶梯：<strong>追加 + argMax</strong> → 合并折叠引擎 → <strong>分区 REPLACE/DROP</strong> → mutation（只做修复）。</li>
+  <li><code>ALTER … UPDATE/DELETE</code> 重写整个 part（全部列）——代价 ∝ 受影响 part 大小，异步（<code>system.mutations</code>）。</li>
+  <li><code>DELETE FROM … WHERE</code> = 轻量掩码；下发快，读取时过滤、合并时回收。GDPR 频率可以，OLTP 频率不行。</li>
+</ul>
+
+<h2>MV 流水线配方</h2>
+<pre><code>CREATE TABLE rollup ENGINE = AggregatingMergeTree ORDER BY (dim, bucket) AS
+SELECT dim, bucket, sumState(m) AS m_sum, uniqState(u) AS u_uniq FROM src GROUP BY dim, bucket;
+CREATE MATERIALIZED VIEW rollup_mv TO rollup AS
+SELECT dim, bucket, sumState(m) AS m_sum, uniqState(u) AS u_uniq FROM src GROUP BY dim, bucket;
+-- 读取：SELECT dim, sum(m_sum), uniq(u_uniq) FROM rollup GROUP BY dim;</code></pre>
+<p>MV = 逐插入块触发；不重算历史——回填要手动。</p>
+
+<h2>Join 与查找</h2>
+<ul>
+  <li>Hash join：右表进内存——只投影需要的列；join 从左到右执行；维度表用 <code>ANY LEFT JOIN</code>。</li>
+  <li><code>dictGet('d','attr',key)</code>——从 Postgres/HTTP 刷新的内存映射；尽可能用 MV 在摄取时富化。</li>
+  <li>默认反规范化；存储近乎免费，join 不是。</li>
+</ul>
+
+<h2>SQL 惯用法</h2>
+<table class="cs">
+  <tr><th>任务</th><th>惯用法</th></tr>
+  <tr><td class="g">每键最新</td><td>argMax(col, ts) GROUP BY key</td></tr>
+  <tr><td class="g">比率 / 条件聚合</td><td>countIf(c) / count(); sumIf(x, c)</td></tr>
+  <tr><td class="g">去重计数</td><td>uniq（近似）/ uniqExact / uniqCombined</td></tr>
+  <tr><td class="g">分位数</td><td>quantiles(0.5, 0.99)(x)</td></tr>
+  <tr><td class="g">Top 项</td><td>topK(10)(x)</td></tr>
+  <tr><td class="g">数组展开为行</td><td>arrayJoin(arr)</td></tr>
+  <tr><td class="g">漏斗</td><td>windowFunnel(t)(ts, e1, e2, …)</td></tr>
+  <tr><td class="g">留存</td><td>retention(c1, c2, …)</td></tr>
+  <tr><td class="g">体量审计</td><td>system.columns：压缩 vs 未压缩字节</td></tr>
+</table>
+
+<h2>用 / 不用</h2>
+<ul>
+  <li><strong>用：</strong>追加为主 + 扫描式分析 + 可接受最终一致性——事件分析、日志/可观测性、tick 数据、特征库、仪表盘后端。</li>
+  <li><strong>不用：</strong>OLTP、持续可变状态、重型即席多表 join、强一致需求——留在 Postgres/数仓，镜像进 CH 做分析。</li>
+</ul>
+
+<h2>运维速记</h2>
+<ul>
+  <li>批量插入（≥1 万行）；用 <code>system.parts</code> 监控 part 数健康度。</li>
+  <li>逐查询护栏：<code>SETTINGS max_execution_time, max_memory_usage</code>。</li>
+  <li>看 marks：<code>system.parts</code>；压缩：<code>system.columns</code>；mutation：<code>system.mutations</code>。</li>
+  <li>留存用 TTL；批量生命周期用分区删除。</li>
+</ul>
+
+<div class="ask">这一页有任何不清楚？<b>问 agent</b>——表里每一行都能展开成一场对话。</div>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 6 课 — Mutation、删除与更新反模式</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 6 课</span><span>约束 <a class="langbtn" href="0006-mutations-deletes.html" title="Switch to English">EN</a></span></div>
+  <h1>Mutation、删除与更新反模式</h1>
+  <p class="dek">ClickHouse 能更新也能删除——只是按标价收费。知道这个价格，你就从受害者变成了用户。</p>
+</div>
+
+<p><code>ALTER TABLE t UPDATE status = 'x' WHERE …</code> 和 <code>ALTER TABLE t DELETE WHERE …</code> 是 <span class="term">mutation</span>：异步命令，<strong>重写每个包含匹配行的 part</strong>——所有列、整个文件。成本模型：</p>
+<ul>
+  <li>Mutation 代价 ≈ 受影响 part 的数据量，而不是匹配行数。<code>WHERE</code> 在一个存了一个月的 500 GB 分区里命中 10 行，也要重写该分区的 part。</li>
+  <li>它们排队后台执行；查 <code>system.mutations</code>（<code>is_done</code>）——查询不用等，但磁盘 I/O 要等。</li>
+</ul>
+
+<h2>轻量删除（Lightweight DELETE）</h2>
+<p><code>DELETE FROM t WHERE …</code> 写入删除掩码（行级墓碑）而非立即重写——下发很快；匹配行在读取时被过滤，合并时物理回收。适合 GDPR 式"删除该用户所有行"的中等频率场景。它仍不是 OLTP 删除路径。</p>
+
+<h2>惯用替代方案（按优先级）</h2>
+<ol>
+  <li><strong>追加 + 读时裁决：</strong>插入一条带版本的新行；查询用 <code>argMax</code> 取最新（第 9 课）。更新变成廉价插入。</li>
+  <li><strong>Replacing / VersionedCollapsing 引擎</strong>（第 5 课），如果读侧收益说得清。</li>
+  <li><strong>分区生命周期：</strong>按工作单元（天/月）分区，坏的一天用暂存表 <code>INSERT</code> + <code>REPLACE PARTITION</code> 原子替换，用 <code>DROP PARTITION</code> + TTL 过期。</li>
+  <li><strong>Mutation</strong>——留给真正的一次性数据修复。</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>ClickHouse 数据是一次性写入的；"更新"是四种策略之一——追加+argMax、合并折叠引擎、分区替换、或昂贵的 mutation。</strong>如果你的负载在按主标识持续更新行，那是 OLTP 负载，应该放进 Postgres（再同步进 ClickHouse 做分析）。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span> 把定时 <code>ALTER TABLE … UPDATE</code> 当流水线的常规环节（"每 10 分钟刷一次状态"）。你就有了一台永久后台重写跑步机，和合并、查询抢资源。重新设计为追加。
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：为什么匹配 3 行的 mutation 可能是今天集群里最贵的语句？</summary>
+    <p class="answer">它要重写每个包含匹配行的 part（全部列）——若谓词命中又老又大的 part，可能等于重写整表。</p>
+  </details>
+  <details>
+    <summary>问 2：轻量删除瞬间完成。成本去哪了？</summary>
+    <p class="answer">转到读取时（每次扫描过滤被掩蔽的行）和未来的合并（物理回收）。不可变存储里没有免费操作——只是延期，不是消失。</p>
+  </details>
+  <details>
+    <summary>问 3：流水线每天要修"昨天加载坏的数据的 status"。最佳机制？</summary>
+    <p class="answer">按天分区；把修正后的一天载入暂存表，原子 REPLACE PARTITION。不用 mutation，不重写其他天。</p>
+  </details>
+</div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/guides/developer/mutations">Mutations 指南</a>、<a href="https://clickhouse.com/docs/en/sql-reference/statements/delete">轻量删除</a>、<a href="https://altinity.com/blog/">Altinity 博客</a>（mutation 翻车故事与重设计）。</div>
+
+<div class="ask">把你的更新/删除模式讲给 agent——<b>问问</b>四种策略哪个合适。</div>
+
+<div class="nav"><a href="0007-materialized-views.zh.html">下一课：物化视图与增量聚合 →</a></div>
+</body>
+</html>

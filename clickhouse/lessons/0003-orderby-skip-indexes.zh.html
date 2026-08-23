@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 3 课 — ORDER BY 设计、分区与跳数索引</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 3 课</span><span>表设计 <a class="langbtn" href="0003-orderby-skip-indexes.html" title="Switch to English">EN</a></span></div>
+  <h1>ORDER BY 设计、分区与跳数索引</h1>
+  <p class="dek">在 ClickHouse 里你不是给查询建索引，而是围绕查询设计表。ORDER BY 是你做出的杠杆率最高的决定。</p>
+</div>
+
+<p>没有可以事后补建的二级 B-tree 索引。ORDER BY 键决定：哪些谓词能剪枝 granule、列压缩得好不好（相邻相似性）、以及合并行为。设计规则：</p>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>ORDER BY = 最常用的过滤列，按实际选择性从高到低排列，主时间列通常放最后。</strong>所有高频过滤维度都应进键；典型事件表用 <code>ORDER BY (user_id, event, timestamp)</code> 或 <code>(site_id, timestamp)</code>——除非只按时间查，否则绝不要只用 <code>(timestamp)</code>。
+</div>
+
+<h2>分区是为了管理，不是为了速度</h2>
+<p><code>PARTITION BY toYYYYMM(event_date)</code> 把表按分区组织 part。按分区表达式剪枝很粗（月粒度），但<strong>删分区是 ClickHouse 里最廉价的删除</strong>：<code>ALTER TABLE t DROP PARTITION '2024-01'</code>——瞬间完成、零重写。分区用于 TTL 过期和批量数据生命周期；不要按高基数码（user_id！）分区——数百个分区 × 各自的 part 会毁掉合并。</p>
+
+<h2>给非键列加跳数索引</h2>
+<p>当高频谓词进不了键（访问模式太多）时，加 <span class="term">data skipping index</span>。它不指向行——它按 granule 区间存元数据，让引擎跳过整个 granule：</p>
+<ul>
+  <li><code>INDEX idx_user user_id TYPE bloom_filter GRANULARITY 4</code>——成员测试；高基数非键列的等值/IN 查找。</li>
+  <li><code>TYPE minmax</code>——数值/时间列的区间（对与键序相关的列特别有效）。</li>
+  <li><code>TYPE set(N)</code>——每区间最多 N 个不同值，适合低基数列。</li>
+</ul>
+<p>跳数索引有摄取成本，而且只有当数据与排序序<em>相关</em>时才有效——对随机散布的值，bloom filter 什么都跳不掉。</p>
+
+<div class="antipattern">
+  <span class="label">反模式</span> 照搬 OLTP 习惯：<code>ORDER BY id</code>（或不写）然后"以后再加索引"。没有以后。按唯一 id 排序的表压缩差、剪枝无——两头皆输。
+</div>
+
+<h2>示例</h2>
+<p>查询："用户 U 最近 30 天的事件，按类型"（99% 流量）+ "网站 S 今天所有事件"。</p>
+<pre><code>CREATE TABLE events (
+  user_id UInt64,
+  site_id UInt32,
+  event LowCardinality(String),
+  ts DateTime,
+  payload String CODEC(ZSTD(3))
+) ENGINE = MergeTree
+PARTITION BY toYYYYMM(ts)
+ORDER BY (user_id, event, ts)
+INDEX idx_site site_id TYPE bloom_filter GRANULARITY 4;</code></pre>
+<p>用户在前的键让 99% 的查询只读少数 granule；bloom 索引救活网站查询；月分区提供廉价 TTL。</p>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：为什么时间通常放 ORDER BY 最后而不是最前？</summary>
+    <p class="answer">查询几乎总带等值维度（用户、网站）+ 时间范围。键前缀剪枝要求等值列在前，时间范围再在其中剪枝。时间放第一会让所有非时间过滤失效。</p>
+  </details>
+  <details>
+    <summary>问 2：什么时候 DROP PARTITION 是正确的"删除"？</summary>
+    <p class="answer">整单位的数据生命周期：保留窗口、重新导入坏数据。它是纯元数据操作、瞬时完成；而 mutation 要重写 part。</p>
+  </details>
+  <details>
+    <summary>问 3：user_id 上的 bloom_filter 跳数索引什么都跳不掉。最可能的原因？</summary>
+    <p class="answer">user_id 取值与排序序不相关——每个 granule 的值域都"含一切"，无从排除。（或者它本来就是键列。）</p>
+  </details>
+</div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree">MergeTree 文档（ORDER BY / PARTITION BY）</a>、<a href="https://clickhouse.com/docs/en/guides/best-practice/sparse-primary-index">稀疏索引指南</a>、<a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-data_skipping-indexes">跳数索引章节</a>。</div>
+
+<div class="ask">想让你的真实负载按这套框架过一遍？<b>问 agent</b>——描述查询，拿回一份键设计。</div>
+
+<div class="nav"><a href="0004-compression-codecs.zh.html">下一课：压缩与编解码器 →</a></div>
+</body>
+</html>

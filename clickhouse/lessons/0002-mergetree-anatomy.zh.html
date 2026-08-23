@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 2 课 — MergeTree 剖析：Part 与 Granule</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .diagram { margin: 1.4rem 0; }
+  .diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .box { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .box.gran { fill: #f6efdc; stroke: var(--accent); }
+  .lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 2 课</span><span>存储引擎 <a class="langbtn" href="0002-mergetree-anatomy.html" title="Switch to English">EN</a></span></div>
+  <h1>MergeTree 剖析：Part 与 Granule</h1>
+  <p class="dek">MergeTree 表的一切——速度、mutation 代价、索引行为——都源于两个存储单元：<em>part</em> 和 <em>granule</em>。</p>
+</div>
+
+<p><span class="term">MergeTree</span> 是约 95% 真实 ClickHouse 表背后的引擎。它是一个<strong>带 LSM 色彩的列式存储</strong>：插入产生不可变的有序 part；后台线程持续把 part 合并成更大的 part。与经典 LSM 不同，它没有 memtable 刷盘或逐事务 WAL——插入以数万到数百万行的块为单位，直接落成一个新 part。</p>
+
+<h2>Part</h2>
+<ul>
+  <li>每个块的 <code>INSERT</code> 产生一个 <span class="term">part</span>（目录）——每列一个压缩文件，外加该 part 的稀疏主键索引（"marks"）。</li>
+  <li>Part 按 ORDER BY 键<strong>有序</strong>。合并就是有序归并——廉价、顺序化，并维持 part 数量低。</li>
+  <li>推论：要<strong>大批量插入</strong>。一次插一行会每次产生一个微型 part——经典的"too many parts"死法。</li>
+</ul>
+
+<h2>Granule</h2>
+<p>在 part 内部，每个列文件按默认 <code>index_granularity = 8192</code> 行切分为 <span class="term">granule</span>。主键索引为每个 granule 记录 ORDER BY 各列的<strong>首值</strong>——每个 granule 一条"mark"，常驻内存。</p>
+
+<div class="diagram">
+<svg viewBox="0 0 560 170" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="lbl">Part 202608_10_2（按 (site, ts) 排序）</text>
+  <g>
+    <rect x="0" y="26" width="105" height="34" class="box gran"/><text x="52" y="47" text-anchor="middle" class="sub">gran 0..8191</text>
+    <rect x="107" y="26" width="105" height="34" class="box gran"/><text x="159" y="47" text-anchor="middle" class="sub">gran 8192..</text>
+    <rect x="214" y="26" width="105" height="34" class="box"/><text x="266" y="47" text-anchor="middle" class="sub">…</text>
+    <rect x="321" y="26" width="105" height="34" class="box gran"/><text x="373" y="47" text-anchor="middle" class="sub">末 gran</text>
+  </g>
+  <text x="0" y="86" class="lbl">稀疏主键索引（内存中）</text>
+  <g>
+    <rect x="0" y="96" width="105" height="34" class="box"/><text x="52" y="117" text-anchor="middle" class="sub">mark0: site=a, ts=…</text>
+    <rect x="107" y="96" width="105" height="34" class="box"/><text x="159" y="117" text-anchor="middle" class="sub">mark1: site=b, …</text>
+    <rect x="321" y="96" width="105" height="34" class="box"/><text x="373" y="117" text-anchor="middle" class="sub">markN: site=z, …</text>
+  </g>
+  <text x="0" y="156" class="sub">每个 granule 一条 mark ⇒ 数十亿行也只是数百万条 mark——内存仍然便宜。这就是"稀疏"的含义。</text>
+</svg>
+</div>
+
+<p><code>WHERE site = 'kaggle' AND ts &gt;= today() - 7</code> 这类查询会对 marks 做二分查找，选出键区间与谓词相交的 granule，只解压这些。注意微妙之处：ClickHouse 读的是<strong>整个 granule</strong>，然后在其中精确过滤。对非首键列的谓词仍会扫描大量 granule——这是下一课的问题。</p>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>插入产生有序 part；合并维持 part 数量低；稀疏索引把 8192 行的 granule 映射到内存中的键区间。</strong>读放大、mutation 代价、索引选择性，全是 part 与 granule 的算术题。
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：为什么一次插一行在 MergeTree 里是灾难？</summary>
+    <p class="answer">每次插入产生一个 part；part 数无界增长会压垮合并负载和打开文件数（"too many parts"）。批量插入：至少数千行，理想 10 万+。</p>
+  </details>
+  <details>
+    <summary>问 2：一个查询在 80 亿行中命中 3 行，条件列是 ORDER BY 第 3 列。最好情况能跳过多少 granule？</summary>
+    <p class="answer">几乎为零——marks 无法按非前缀键剪枝，等于全表扫描（除非加跳数索引）。</p>
+  </details>
+  <details>
+    <summary>问 3：一条 mark 究竟存什么？</summary>
+    <p class="answer">granule 内每个 ORDER BY 列的首值（外加读取该 granule 所需的文件偏移）。</p>
+  </details>
+</div>
+
+<p><strong>练习</strong>——练到 granule/mark 算术成为本能：</p>
+<script src="../assets/partsize-drill.js"></script>
+<div data-partsize-drill></div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree">MergeTree 文档</a> 与 <a href="https://clickhouse.com/docs/en/guides/best-practice/sparse-primary-index">稀疏主键索引指南</a>。</div>
+
+<div class="ask">有疑问——合并策略、mark 文件、粒度调优？<b>问 agent</b>。</div>
+
+<div class="nav"><a href="0003-orderby-skip-indexes.zh.html">下一课：ORDER BY 设计与跳数索引 →</a></div>
+</body>
+</html>

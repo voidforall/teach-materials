@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 8 课 — Join 与字典</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 8 课</span><span>关系 <a class="langbtn" href="0008-joins-dictionaries.html" title="Switch to English">EN</a></span></div>
+  <h1>Join 与字典</h1>
+  <p class="dek">ClickHouse 的 join 没问题——直到右表放不进内存。全部艺术在于让右表保持小，或者干脆绕开 join。</p>
+</div>
+
+<h2>默认路径：hash join，右表进内存</h2>
+<p><code>SELECT … FROM events e JOIN users u ON e.user_id = u.id</code> 先在内存里建 <code>users</code>（右侧）的哈希表，再流式处理左侧。经验法则：</p>
+<ul>
+  <li>右表不超过几个 GB：没问题。右侧只留需要的列（用子查询投影列，好过直接 join 宽表）。</li>
+  <li>多个 join <strong>从左到右</strong>依次执行，每个输出成为下一个左侧——顺序影响内存。</li>
+  <li><code>ANY LEFT JOIN</code>：只取第一个匹配——维度查找中右侧重复属于数据 bug 时，它更省也更安全。</li>
+  <li>大表 join 大表：可行（通过 <code>join_algorithm</code> 用 partial/grace join 落盘），但你在逆着引擎的纹理干活。</li>
+</ul>
+
+<h2>字典：不走 join 的点查</h2>
+<p><span class="term">字典（dictionary）</span>是从 Postgres/MySQL/HTTP/另一张 CH 表加载的 key→属性映射，可定时或按失效刷新，以多种布局（hash_array、cached、complex_key_*）常驻内存。SQL 里直接访问：</p>
+<pre><code>SELECT dictGet('users_dict', 'plan', user_id) AS plan, count()
+FROM events GROUP BY plan;</code></pre>
+<p>这是 ClickHouse 对"join 一个住在别处的小维度"的回答：没有 join 机制、不扫右表、微秒级查找，而且事实源头仍在 OLTP 库里。它也极适合<em>摄取时富化</em>——用 MV 在入库时富化一次，查询时永不 join。</p>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>Join 策略阶梯：摄取时富化（MV + dictGet）＞ 查询时 dictGet ＞ 小而投影过的右表 hash join ＞ grace/partial join（最后手段）。</strong>ClickHouse 是扫描引擎，不是关系代数机器——默认反规范化。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span> 星型模式忠诚：把事件规范化成事实表 + 维度表，每次查询 join 四个维度。在 ClickHouse 里每次 join 都按次收费。入库时拍平：每行事件自带维度快照（plan、country）——以这种压缩比，存储几乎免费。
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：为什么要在 join 右侧用子查询投影列？</summary>
+    <p class="answer">右表会被物化成内存哈希表——列投影直接缩小它，常常就是放得下与 OOM 的差别。</p>
+  </details>
+  <details>
+    <summary>问 2：维度表在 Postgres 里、每小时变一次。查询时 join 还是字典？</summary>
+    <p class="answer">带定时/失效刷新的字典：dictGet 免掉 join 机制并直连源头；一小时的陈旧通常可接受。</p>
+  </details>
+  <details>
+    <summary>问 3：为什么反规范化在 ClickHouse 比行存便宜？</summary>
+    <p class="answer">重复的维度值压缩后几乎不占空间（字典/低基数编码 + 排序相邻），而逐查询 join 每次都实打实消耗内存和时间。</p>
+  </details>
+</div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/sql-reference/statements/select/join">JOIN 文档</a>（算法、右表行为）、<a href="https://clickhouse.com/docs/en/sql-reference/dictionaries">字典文档</a>。</div>
+
+<div class="ask">join 又慢又 OOM？把两表规模和查询交给 <b>agent</b>。</div>
+
+<div class="nav"><a href="0009-sql-toolbox.zh.html">下一课：SQL 工具箱 →</a></div>
+</body>
+</html>

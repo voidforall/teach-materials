@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 4 课 — 压缩、编解码器与 LowCardinality</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 4 课</span><span>存储效率 <a class="langbtn" href="0004-compression-codecs.html" title="Switch to English">EN</a></span></div>
+  <h1>压缩、编解码器与 LowCardinality</h1>
+  <p class="dek">ClickHouse 在磁盘上比行存常态领先 10–100×。这个比例是设计出来的——而设计者是你。</p>
+</div>
+
+<p>压缩是<strong>查询加速器</strong>，不只是省磁盘：磁盘字节少，解压和流过内存的字节就少。两层叠加：</p>
+
+<h2>第一层：专用编解码器（先变换再压缩）</h2>
+<ul>
+  <li><code>CODEC(Delta(n))</code>——存差值；单调计数器、时间戳。</li>
+  <li><code>CODEC(DoubleDelta)</code>——差值的差值；缓慢变化的单调序列（时间戳/自增 id 收益最大）。</li>
+  <li><code>CODEC(Gorilla)</code>——异或编码的浮点；监控指标值。</li>
+  <li><code>CODEC(T64)</code>——打包 ≤64 位整数中有意义的位。</li>
+</ul>
+<p>它们包在通用编解码器外：<code>ts DateTime CODEC(DoubleDelta, ZSTD(1))</code>。通用层（默认 LZ4，要比例用 ZSTD(n)）再压缩已规律化的字节。</p>
+
+<h2>第二层：LowCardinality——类型系统里的字典编码</h2>
+<p><code>LowCardinality(String)</code> 把每个值存成指向 part 内字典的 8 位（自动加宽）索引。不同值少于约 1 万的列（国家、状态、事件名）又小又快——比较变成整数比较。这是 ClickHouse 最接近免费午餐的东西；大胆用，但别用于高基数字符串（字典成了死重）。</p>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>排序序是主编解码器。</strong>Delta/DoubleDelta 只在相邻值可预测时有效——而这正是 ORDER BY 对键组内"类时间"列的保证。压缩策略是第 3 课 ORDER BY 决定的下游。
+</div>
+
+<h2>体量直觉</h2>
+<ul>
+  <li>行存里约 1 KB 的原始事件行 → ClickHouse 键对齐排序 + ZSTD 后通常每行 10–100 字节。</li>
+  <li>自查：<code>SELECT name, formatReadableSize(sum(data_compressed_bytes)) AS disk, formatReadableSize(sum(data_uncompressed_bytes)) AS raw, round(sum(data_uncompressed_bytes)/sum(data_compressed_bytes), 1) AS ratio FROM system.columns WHERE table = 'events' GROUP BY name ORDER BY disk DESC</code>。</li>
+</ul>
+
+<div class="antipattern">
+  <span class="label">反模式</span> 给所有列无脑上 <code>ZSTD(22)</code>。最高级 ZSTD 解压慢得多；默认 LZ4 通常在扫描延迟上获胜。重 ZSTD 留给冷、大、少查的列——并用 <code>system.columns</code> 实测，别凭感觉。
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：为什么 DoubleDelta 对 ORDER BY 中的时间戳列有效？</summary>
+    <p class="answer">在同一个键组内时间戳单调递增且步长相当规律；二阶差分近乎常数（常为零），压缩后几乎不占空间。</p>
+  </details>
+  <details>
+    <summary>问 2：LowCardinality 什么时候有害？</summary>
+    <p class="answer">高基数字符串：per-part 字典膨胀，查找无收益，合并还要为统一字典付费。粗略上限：约 1 万个不同值。</p>
+  </details>
+  <details>
+    <summary>问 3：切到 ZSTD(19) 后查询延迟上升，为什么？</summary>
+    <p class="answer">解压在扫描路径上；极端 ZSTD 级别用解压速度换比例，字节更少但扫描更慢。</p>
+  </details>
+</div>
+
+<div class="task">
+  <span class="label">练习</span> 在 <a href="https://play.clickhouse.com/play">playground</a> 里对 <code>github_events</code> 跑上面的 <code>system.columns</code> 查询。找出比例最好和最差的列，预测什么编解码器或类型改动能治好最差的那个。
+</div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/sql-reference/statements/create/table#column_compression_codec">codec 文档</a>、<a href="https://clickhouse.com/docs/en/sql-reference/data-types/lowcardinality">LowCardinality 文档</a>、<a href="https://altinity.com/blog/">Altinity 博客</a>（生产压缩实战）。</div>
+
+<div class="ask">你那个奇怪的列该用哪个编解码器？把列的形状告诉 <b>agent</b>。</div>
+
+<div class="nav"><a href="0005-mergetree-family.zh.html">下一课：MergeTree 家族 →</a></div>
+</body>
+</html>

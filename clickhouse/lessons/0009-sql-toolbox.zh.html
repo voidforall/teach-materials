@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 9 课 — SQL 工具箱</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 9 课</span><span>SQL <a class="langbtn" href="0009-sql-toolbox.html" title="Switch to English">EN</a></span></div>
+  <h1>SQL 工具箱</h1>
+  <p class="dek">ClickHouse 的 SQL 是分析优先的：可合并的聚合、一等公民的数组、还有用一个聚合干掉三个子查询的 argMax。</p>
+</div>
+
+<h2>argMax —— 一趟搞定"每键最新行"</h2>
+<pre><code>SELECT user_id, argMax(status, updated_at) AS status,
+       argMax(balance, updated_at)          AS balance
+FROM ledger GROUP BY user_id;</code></pre>
+<p>一个聚合，不需要窗口函数、不需要 FINAL、不需要自 join。这是读取追加式/带版本表的惯用法（第 5–6 课）。多个列配同一个 <code>updated_at</code> 排序列，它们保持相互一致。</p>
+
+<h2>组合子——每个聚合都有的修饰符</h2>
+<ul>
+  <li><code>sumIf(x, cond)</code>、<code>countIf(cond)</code>——条件聚合替代 CASE-SUM；<code>countIf(a) / count()</code> 一行算比率。</li>
+  <li><code>uniq</code>/<code>uniqExact</code>——近似（快、定长内存）与精确；<code>uniqCombined</code> 居中。</li>
+  <li><code>quantile(0.99)(latency_ms)</code>——sketch；<code>quantiles(0.5, 0.99)(…)</code> 一次取多个。</li>
+  <li><code>-State</code>/<code>-Merge</code>/<code>-MergeState</code>——MV 流水线的部分聚合（第 7 课）。</li>
+  <li><code>groupUniqArray</code>、<code>topK(10)</code>、<code>any(last(x))</code>——每周都会用的那批。</li>
+</ul>
+
+<h2>数组是一等公民</h2>
+<p>数组天然到来（JSON 字段、漏斗步骤），ClickHouse 对它有一套迷你查询语言：</p>
+<pre><code>SELECT user_id,
+  arrayFilter(x -> x.event = 'signup', events)  AS signups,
+  arraySort(x -> x.ts, events)[1]               AS first_event,
+  length(arrayDistinct(arrayMap(x -> x.page, events))) AS pages_seen
+FROM user_sessions;</code></pre>
+<p><span class="term">arrayJoin</span> 最特别：把一个数组列<em>展开</em>成多行——把嵌套数据变成普通聚合能嚼的平面行。漏斗分析：<code>windowFunnel</code>（会话内有序事件序列）与 <code>retention</code>（同期群矩阵）是内建的、基于扫描的实现，替代你原本要写五段脚本的分析。</p>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>ClickHouse 把分析塞进聚合里：组合子后缀管条件和状态，数组配 lambda 管嵌套数据，argMax 管每键最新，windowFunnel/retention 管行为分析。</strong>把复杂数仓 SQL（CTE 上叠窗口函数）原样搬过来的直觉常常是错的——通常存在单聚合惯用法。
+</div>
+
+<h2>另外值得知道</h2>
+<ul>
+  <li>窗口函数（<code>OVER/PARTITION BY</code>）存在——用于累计和与排名——但有聚合惯用法时通常更慢。</li>
+  <li><code>WITH</code> 支持表达式和命名子查询（CTE）。</li>
+  <li>逐查询 <code>SETTINGS</code>：<code>max_execution_time</code>、<code>max_memory_usage</code>、<code>join_use_nulls</code>——分析查询应自带护栏。</li>
+  <li>带 <code>SAMPLE BY</code> 键的表可用 <code>sample</code>：在 granule 粒度上做统计有效的抽样。</li>
+</ul>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：不用窗口函数和 join 算"7 日留存"。工具箱里有什么？</summary>
+    <p class="answer"><code>retention(cond1, cond2, …)</code>——内建同期群聚合，直接吃首日事件 + 回访事件条件，返回留存矩阵。</p>
+  </details>
+  <details>
+    <summary>问 2：为什么选 countIf 而不是 SUM(CASE WHEN …)？</summary>
+    <p class="answer">语义等价，但组合子是原生的向量化形式——更短，内层循环没有分支。</p>
+  </details>
+  <details>
+    <summary>问 3：arrayJoin 能做而 arrayMap 不能的是什么？</summary>
+    <p class="answer">它改变行的多重性——把带数组的一行炸成 N 行——而 arrayMap 留在行内。只有 arrayJoin 让下游 GROUP BY 逐元素看到数据。</p>
+  </details>
+</div>
+
+<div class="task">
+  <span class="label">练习</span> 在 <a href="https://play.clickhouse.com/play">playground</a> 的 <code>github_events</code> 上：按 repo 算今年 WatchEvents 占比，输出占比 top 10。一条 <code>countIf</code> 查询搞定。再试试 <code>topK(10)(repo_name)</code>，注意它算的东西有何不同。</div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/sql-reference/aggregate-functions">聚合函数参考</a>（组合子表）、<a href="https://clickhouse.com/docs/en/sql-reference/functions/array-functions">数组函数</a>、<a href="https://clickhouse.com/docs/en/sql-reference/aggregate-functions/reference/windowfunnel">windowFunnel</a>。</div>
+
+<div class="ask">要把棘手的数仓 SQL 移植成 ClickHouse？<b>问 agent</b>——通常有一行版。</div>
+
+<div class="nav"><a href="0010-use-cases-capstone.zh.html">下一课：用例与结课设计 →</a></div>
+</body>
+</html>

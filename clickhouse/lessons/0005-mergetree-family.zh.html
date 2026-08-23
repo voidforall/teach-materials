@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 5 课 — MergeTree 家族</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 5 课</span><span>引擎 <a class="langbtn" href="0005-mergetree-family.html" title="Switch to English">EN</a></span></div>
+  <h1>MergeTree 家族</h1>
+  <p class="dek">Replacing、Summing、Aggregating、Collapsing——它们共用一个招数：<em>在合并时收拾局面</em>。理解这个招数，整个家族就是一个思想。</p>
+</div>
+
+<p>普通 MergeTree 从不去重、不折叠任何东西——插两次就有两行。家族变体增加的是<strong>合并时策略</strong>：part 合并时，ORDER BY 键相同的行按引擎规则合并。查询总能看到所有 part，所以合并发生前你仍会看到未折叠的行——家族引擎是<em>最终一致</em>的，不是天然精确的。</p>
+
+<h2>目录</h2>
+<ul>
+  <li><span class="term">ReplacingMergeTree(ver)</span>——每键保留版本最大的行；upsert 去重。"替换"只发生在合并时：查询要用 <code>FINAL</code> 或自己去重（<code>argMax</code>——第 9 课）。</li>
+  <li><span class="term">SummingMergeTree</span>——按键求和数值列。预聚合事实表的经典：插分钟级行，读时仍要 <code>GROUP BY</code> + <code>sum()</code>，因为存在部分聚合行。</li>
+  <li><span class="term">AggregatingMergeTree</span>——存部分聚合状态（<code>sumState</code>、<code>uniqState</code> 等）并在合并时合并它们。物化视图流水线的骨干——第 7 课。</li>
+  <li><span class="term">CollapsingMergeTree(sign)</span>——sign = −1 的行抵消匹配的 sign = +1 行。把"更新"变成插两行（状态 + 逆状态）。<span class="term">VersionedCollapsingMergeTree</span> 加版本列，使抵消与插入顺序无关。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>每个家族引擎都是 MergeTree + 一条合并时的行合并规则。</strong>它们都不保证读时正确——你的<em>查询</em>必须容忍部分合并的数据（GROUP BY 求和没问题；"每键最新行"要 argMax 或 FINAL）。
+</div>
+
+<h2>选择（决策顺序）</h2>
+<ol>
+  <li>默认：<strong>普通 MergeTree</strong> + 查询里做去重/聚合（argMax、sum）。最简单、最灵活。</li>
+  <li>实体反复 upsert → <strong>ReplacingMergeTree</strong>，读时按键 argMax。</li>
+  <li>海量可加指标 → <strong>SummingMergeTree</strong>，或（更好）普通表 + 物化视图进 <strong>AggregatingMergeTree</strong>。</li>
+  <li>频繁变动的实体且要求严格记账 → <strong>VersionedCollapsing</strong>。很少是首选——摄取路径上的符号簿记容易出错。</li>
+</ol>
+
+<div class="antipattern">
+  <span class="label">反模式</span> 把 <code>SELECT * FROM t FINAL</code> 当大表的默认读法。FINAL 在<em>查询时</em>强制现场合并数据——比利用同一版本列的 argMax GROUP BY 慢几个数量级。
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：5 分钟前重复插入的行，ReplacingMergeTree 还没合并那个 part。count() 显示多少？</summary>
+    <p class="answer">两份都在。替换只在合并时发生；读取会看到未折叠的行。读时用 argMax(version) GROUP BY key 去重，或承受 FINAL 的代价。</p>
+  </details>
+  <details>
+    <summary>问 2：为什么 SummingMergeTree 的查询仍要 GROUP BY + sum？</summary>
+    <p class="answer">未合并的 part 里可能存在部分聚合行；只有再次按键聚合，对已求和值再求和才正确。</p>
+  </details>
+  <details>
+    <summary>问 3：CollapsingMergeTree 中 sign = −1 的行起什么作用？</summary>
+    <p class="answer">合并时抵消同键的更早 +1 行——删除/更新变成插入一条逆记录。</p>
+  </details>
+</div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family">MergeTree 家族文档</a>——各引擎页面有精确合并规则。</div>
+
+<div class="ask">有 upsert 密集的场景？先<b>问 agent</b>——通常有更简单的设计，别急着上 Collapsing。</div>
+
+<div class="nav"><a href="0006-mutations-deletes.zh.html">下一课：Mutation 与删除 →</a></div>
+</body>
+</html>

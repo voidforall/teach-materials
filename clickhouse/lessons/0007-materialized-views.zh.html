@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · 第 7 课 — 物化视图与增量聚合</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · 第 7 课</span><span>流水线 <a class="langbtn" href="0007-materialized-views.html" title="Switch to English">EN</a></span></div>
+  <h1>物化视图与增量聚合</h1>
+  <p class="dek">ClickHouse 的物化视图不是 Postgres 那种存储查询计划——它是<em>插入触发器</em>。这个差异就是本课的全部。</p>
+</div>
+
+<p>当行落入源表时，MV 的 <code>SELECT</code> 只在<strong>刚插入的块</strong>上运行，转换结果插入目标表。不扫历史、不重算——数据库内部的逐块流处理。</p>
+
+<h2>经典模式：用聚合状态做汇总</h2>
+<pre><code>CREATE TABLE events_raw (…) ENGINE = MergeTree ORDER BY (user_id, ts);
+
+CREATE TABLE events_1m
+ENGINE = AggregatingMergeTree
+ORDER BY (toStartOfMinute(ts), user_id) AS
+SELECT
+  toStartOfMinute(ts) AS minute,
+  user_id,
+  sumState(amount)   AS amount_sum,
+  uniqState(session) AS sessions
+FROM events_raw
+GROUP BY minute, user_id;
+
+CREATE MATERIALIZED VIEW events_1m_mv TO events_1m AS
+SELECT toStartOfMinute(ts) AS minute, user_id,
+       sumState(amount) AS amount_sum, uniqState(session) AS sessions
+FROM events_raw GROUP BY minute, user_id;</code></pre>
+<p>读回时配对应的 <code>-Merge</code> 组合子：</p>
+<pre><code>SELECT minute, sum(amount_sum) AS amount, uniq(sessions) AS users
+FROM events_1m GROUP BY minute;</code></pre>
+<p><span class="term">-State</span> 后缀存<em>可合并的部分状态</em>（sum+count、HLL sketch、分位数 sketch……）；<span class="term">-Merge</span> 后缀在查询时合并状态。这让聚合<strong>跨时间可结合</strong>：今天算的分钟聚合与明年算的无损合并。SummingMergeTree 的普通数字对 <code>uniq</code>、<code>quantile</code> 这类非可加指标做不到——状态可以。</p>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>MV = 逐插入块的变换；-State = 可合并部分聚合；AggregatingMergeTree = 合并时折叠状态的目标表。</strong>三者把原始洪流变成预聚合、可任意加深 的汇总层——这是 ClickHouse 的招牌架构。
+</div>
+
+<h2>运维事实</h2>
+<ul>
+  <li>MV 可以链式级联（原始 → 每分钟 → 每小时）：每一层是从下一层读的另一个 MV。</li>
+  <li>MV 会略微拖慢插入，且旧版本出错时可能静默丢行——监控流水线，保持变换零异常。</li>
+  <li>手动回填：用同样的 SELECT 带日期边界插入目标表。MV 只覆盖它创建<em>之后</em>的插入。</li>
+  <li>使用 <code>TO target_table</code>，显式掌控目标表的 schema、ORDER BY 和 TTL。</li>
+</ul>
+
+<div class="quiz">
+  <details>
+    <summary>问 1：给 MV 加了一个改变计算的列，历史会被重算吗？</summary>
+    <p class="answer">不会。MV 只处理新插入块。历史数据需要手动回填插入目标表。</p>
+  </details>
+  <details>
+    <summary>问 2：MV 目标里为什么用 uniqState 而不是 uniq？</summary>
+    <p class="answer">uniq 不可加——每分钟计数不能相加。State 形式存 sketch；uniq(Merge) 无损合并 sketch。</p>
+  </details>
+  <details>
+    <summary>问 3：这里 AggregatingMergeTree 引擎贡献了什么？</summary>
+    <p class="answer">part 合并时按键合并聚合状态，保持目标表小巧、查询时合并便宜。</p>
+  </details>
+</div>
+
+<div class="task">
+  <span class="label">练习</span> 在纸上为"每秒请求数 → 每小时、去重客户端数 + p99 延迟"画一个两层汇总——建表 DDL、MV、以及用对组合子的最终查询。然后对照<a href="../reference/clickhouse-cheatsheet.zh.html">速查表</a>。</div>
+
+<div class="source">首选资料：<a href="https://clickhouse.com/docs/en/guides/developer/cascading-materialized-views">级联物化视图指南</a>。</div>
+
+<div class="ask">想让你真实的流水线过一遍设计评审？<b>问 agent</b>——附上数据量和查询形态。</div>
+
+<div class="nav"><a href="0008-joins-dictionaries.zh.html">下一课：Join 与字典 →</a></div>
+</body>
+</html>

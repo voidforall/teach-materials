@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 10 — Use Cases &amp; Capstone</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 10</span><span>Decisions <a class="langbtn" href="0010-use-cases-capstone.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Use Cases &amp; Capstone</h1>
+  <p class="dek">The course ends where your mission began: when does ClickHouse win, when does it lose, and how do you design for a real workload end to end?</p>
+</div>
+
+<h2>Wins — the pattern behind every green case</h2>
+<p>Common shape: <strong>append-heavy write volume + scan-style analytical reads + tolerance for eventual consistency</strong>.</p>
+<ul>
+  <li><strong>Product/event analytics:</strong> funnels, retention, cohorts — windowFunnel/retention over billions of events (<a href="0009-sql-toolbox.html">lesson 9</a>).</li>
+  <li><strong>Logs, traces &amp; observability:</strong> the reason ClickHouse quietly runs under many SaaS "Log Explorer" products. Huge append-only streams, time-ranged scans, TTL expiry by partition. (Notably: this space competes with object-storage engines too — compare with your real retention/latency needs.)</li>
+  <li><strong>Market/tick data &amp; fintech telemetry:</strong> ordered by (symbol, ts), DoubleDelta/Gorilla codecs, per-instrument range scans; tick history at banks and exchanges is a classic.</li>
+  <li><strong>Feature stores / ML metadata:</strong> batch materialization of point-in-time features from event logs.</li>
+  <li><strong>General-purpose OLAP serving UI dashboards:</strong> sub-second aggregation at scale, replacing nightly pre-aggregations.</li>
+</ul>
+
+<h2>Losses — respect the red flags</h2>
+<ul>
+  <li><strong>OLTP:</strong> row-at-audit transactions, point reads/writes by primary key → Postgres/MySQL. ClickHouse has no real transactions, and point CRUD is its worst path.</li>
+  <li><strong>Continuously mutable state:</strong> shopping carts, account balances updated in place → OLTP + sync into CH for analytics.</li>
+  <li><strong>Heavy, ad-hoc relational algebra:</strong> large multi-table joins with complex planning → a warehouse (Snowflake/BigQuery) or DuckDB for single-node.</li>
+  <li><strong>Strong consistency / distributed ACID requirements.</strong></li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>The decision question is not "is it big data?" but "is the workload append-and-scan?"</strong> If yes → ClickHouse, and design = lessons 2–8 (key, partition, codecs, MVs, dict/denormalize). If no → pick the tool whose commitments match, and let ClickHouse serve the analytical mirror of that data.
+</div>
+
+<h2>Capstone</h2>
+<p>Design end-to-end for this workload — then compare notes with the agent:</p>
+<div class="task">
+  <span class="label">Capstone task</span>
+  <p><strong>Workload:</strong> a fintech app ingesting 50k payment-events/sec (fields: event_time, user_id, merchant_id, country, amount, status, device). Queries: (1) hourly revenue + uniq payers per country, last 90 days; (2) single-user last 90 days statement (rare); (3) fraud dashboard: per-merchant decline rate, p99 latency, last 24h; (4) GDPR: delete all rows for a user on request; (5) 90-day retention.</p>
+  <p><strong>Deliver:</strong> DDL for every table (engine, ORDER BY, PARTITION, codecs, TTL), the MV pipeline with -State combinators, the read queries for (1)–(3), and how you satisfy (4) without a mutation treadmill.</p>
+</div>
+<p>Spoiler checkpoints: user_id first in the key (query 2); MV → AggregatingMergeTree per (country, hour) and (merchant, hour) with uniqState/quantileState; lightweight DELETE for GDPR at request rates; monthly → no, daily or monthly partition + TTL for retention. Argue your own choices first, then have the agent grill them.</p>
+
+<div class="quiz">
+  <details>
+    <summary>Final check: name the five decisions that make up a ClickHouse table design.</summary>
+    <p class="answer">ORDER BY key, partitioning, codecs + LowCardinality, engine choice (MergeTree family), and the MV/rollup layer — plus the update strategy (append vs the four mutation paths).</p>
+  </details>
+</div>
+
+<div class="source">Keep the <a href="../reference/clickhouse-cheatsheet.html">cheat sheet</a> open when you design. Community wisdom: <a href="https://clickhouse.com/slack">ClickHouse Slack</a>, <a href="https://www.reddit.com/r/ClickHouse/">r/ClickHouse</a>, <a href="https://altinity.com/blog/">Altinity blog</a>.</div>
+
+<div class="ask">Course complete — bring your capstone design to the agent for a design review, or ask anything that accumulated. <b>The agent is your teacher.</b></div>
+
+<div class="nav"><a href="../reference/clickhouse-cheatsheet.html">Cheat sheet →</a></div>
+</body>
+</html>

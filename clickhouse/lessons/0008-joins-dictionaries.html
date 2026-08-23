@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 8 — Joins &amp; Dictionaries</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 8</span><span>Relations <a class="langbtn" href="0008-joins-dictionaries.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Joins &amp; Dictionaries</h1>
+  <p class="dek">ClickHouse joins are fine — until the right table stops fitting in memory. The whole art is keeping the right side small, or avoiding the join entirely.</p>
+</div>
+
+<h2>The default: hash join, right table in RAM</h2>
+<p><code>SELECT … FROM events e JOIN users u ON e.user_id = u.id</code> builds a hash table of <code>users</code> (the right side) in memory, then streams the left side. Rules of thumb:</p>
+<ul>
+  <li>Right table ≤ a few GB: fine. Keep only needed columns in the right side (subquery projecting columns beats joining the wide table).</li>
+  <li>Multiple joins execute <strong>left to right</strong>, each output becoming the next left side — order matters for memory.</li>
+  <li><code>ANY LEFT JOIN</code>: first match only — for dimension lookups where duplicates on the right are a data bug, it's cheaper and safer.</li>
+  <li>Big-vs-big joins: possible (partial/grace join via <code>join_algorithm</code> settings that spill to disk) but you're fighting the engine's grain.</li>
+</ul>
+
+<h2>Dictionaries: point lookups without joins</h2>
+<p>A <span class="term">dictionary</span> is a key→attributes map loaded from Postgres/MySQL/HTTP/another CH table, refreshed on a schedule or on invalidation, held in memory with several layouts (hash_array, cached, complex_key_*). Access it directly in SQL:</p>
+<pre><code>SELECT dictGet('users_dict', 'plan', user_id) AS plan, count()
+FROM events GROUP BY plan;</code></pre>
+<p>This is ClickHouse's answer to "join a small-ish dimension that lives elsewhere": no join machinery, no right-table scan, microsecond lookups, and the source of truth stays in the OLTP database. Also great for <em>enriching at insert time</em> via MVs — enrich once at ingest, never join at query time.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Join strategy ladder: enrich-at-ingest (MV + dictGet) &gt; dictGet at query time &gt; hash join with small projected right side &gt; grace/partial join (last resort).</strong> ClickHouse is a scan engine, not a relational algebra machine — denormalize by default.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span> Star-schema loyalty: normalizing events into facts + dimensions and joining 4 dimensions at query time, every time. In ClickHouse you pay per join per query. Flatten at ingest: each event row carries its dimension snapshot (plan, country) — storage is nearly free at these compression ratios.
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: Why project columns in a subquery on the right side of a join?</summary>
+    <p class="answer">The right table is materialized as an in-memory hash table — column projection shrinks it directly, often the difference between fitting and OOM.</p>
+  </details>
+  <details>
+    <summary>Q2: Dimension table lives in Postgres and changes hourly. Query-time join or dictionary?</summary>
+    <p class="answer">Dictionary with lifetime/invalidation refresh: dictGet avoids join machinery and streams from source; hourly staleness is usually acceptable.</p>
+  </details>
+  <details>
+    <summary>Q3: Why is denormalization cheaper in ClickHouse than in a row store?</summary>
+    <p class="answer">Repeated dimension values compress to almost nothing (dictionary/low-cardinality encoding + sort adjacency), while per-query joins cost real memory and time every execution.</p>
+  </details>
+</div>
+
+<div class="source">Primary sources: <a href="https://clickhouse.com/docs/en/sql-reference/statements/select/join">JOIN docs</a> (algorithms, right-table behavior), <a href="https://clickhouse.com/docs/en/sql-reference/dictionaries">dictionaries docs</a>.</div>
+
+<div class="ask">Your join is slow or OOMing? <b>Ask the agent</b> with both table sizes and the query.</div>
+
+<div class="nav"><a href="0009-sql-toolbox.html">Next: The SQL Toolbox →</a></div>
+</body>
+</html>

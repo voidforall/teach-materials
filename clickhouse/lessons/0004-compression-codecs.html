@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClickHouse · Lesson 4 — Compression, Codecs &amp; LowCardinality</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>ClickHouse · Lesson 4</span><span>Storage efficiency <a class="langbtn" href="0004-compression-codecs.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Compression, Codecs &amp; LowCardinality</h1>
+  <p class="dek">ClickHouse routinely beats row stores 10–100× on disk. That ratio is designed, not accidental — and you are the designer.</p>
+</div>
+
+<p>Compression is a <strong>query accelerator</strong>, not just a disk saver: fewer bytes on disk means fewer bytes to decompress and stream through memory. Two layers stack:</p>
+
+<h2>Layer 1: specialized codecs (transform before compression)</h2>
+<ul>
+  <li><code>CODEC(Delta(n))</code> — store differences; monotonic counters, timestamps.</li>
+  <li><code>CODEC(DoubleDelta)</code> — differences of differences; slowly-changing monotonic series (biggest wins on timestamps/ids).</li>
+  <li><code>CODEC(Gorilla)</code> — XOR-encoded floats; metrics gauge values.</li>
+  <li><code>CODEC(T64)</code> — packs the meaningful bits of ≤64-bit ints.</li>
+</ul>
+<p>These wrap a general codec: <code>ts DateTime CODEC(DoubleDelta, ZSTD(1))</code>. The general codec (LZ4 default, ZSTD(n) for more ratio) then compresses already-regularized bytes.</p>
+
+<h2>Layer 2: LowCardinality — dictionary encoding in the type system</h2>
+<p><code>LowCardinality(String)</code> stores each value as an 8-bit (auto-widening) index into a per-part dictionary. Columns with &lt; ~10k distinct values (country, status, event name) get smaller <em>and</em> faster — comparisons become integer comparisons. It's the closest thing ClickHouse has to a free lunch; use it aggressively, but not for high-cardinality strings (the dictionary becomes dead weight).</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Sort order is the master codec.</strong> Delta/DoubleDelta only work when consecutive values are predictable — which is exactly what ORDER BY guarantees for time-ish columns within a key group. Compression strategy is downstream of the ORDER BY decision from lesson 3.
+</div>
+
+<h2>Sizing intuition</h2>
+<ul>
+  <li>Raw event row ~1 KB in a row store → commonly 10–100 bytes/row in ClickHouse after key-aligned sorting + ZSTD.</li>
+  <li>Check yourself: <code>SELECT name, formatReadableSize(sum(data_compressed_bytes)) AS disk, formatReadableSize(sum(data_uncompressed_bytes)) AS raw, round(sum(data_uncompressed_bytes)/sum(data_compressed_bytes), 1) AS ratio FROM system.columns WHERE table = 'events' GROUP BY name ORDER BY disk DESC</code>.</li>
+</ul>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span> Blanket <code>ZSTD(22)</code> on every column. Max-level ZSTD is dramatically slower to decompress; LZ4-default usually wins on scan latency. Reserve heavy ZSTD for cold, huge, rarely-queried columns — and measure with <code>system.columns</code>, not vibes.
+</div>
+
+<div class="quiz">
+  <details>
+    <summary>Q1: Why does DoubleDelta help a timestamp column that is already in the ORDER BY?</summary>
+    <p class="answer">Within a key group timestamps are monotonically increasing with fairly regular steps; the second difference is near-constant (often zero), which compresses to almost nothing.</p>
+  </details>
+  <details>
+    <summary>Q2: When does LowCardinality hurt?</summary>
+    <p class="answer">High-cardinality strings: the per-part dictionary grows huge, lookups gain nothing, and merges pay to unify dictionaries. Rough ceiling: ~10k distinct values.</p>
+  </details>
+  <details>
+    <summary>Q3: Query latency is up after switching to ZSTD(19). Why?</summary>
+    <p class="answer">Decompression is on the scan path; extreme ZSTD levels trade decompression speed for ratio, so fewer bytes still means slower scans.</p>
+  </details>
+</div>
+
+<div class="task">
+  <span class="label">Task</span> In the <a href="https://play.clickhouse.com/play">playground</a>, run the <code>system.columns</code> query above for <code>github_events</code>. Find the best and worst-ratio columns, and predict what codec or type change would fix the worst one.
+</div>
+
+<div class="source">Primary sources: <a href="https://clickhouse.com/docs/en/sql-reference/statements/create/table#column_compression_codec">codec docs</a>, <a href="https://clickhouse.com/docs/en/sql-reference/data-types/lowcardinality">LowCardinality docs</a>, <a href="https://altinity.com/blog/">Altinity blog</a> for production compression war stories.</div>
+
+<div class="ask">Which codec for your weird column? <b>Ask the agent</b> with the column's shape.</div>
+
+<div class="nav"><a href="0005-mergetree-family.html">Next: The MergeTree Family →</a></div>
+</body>
+</html>
