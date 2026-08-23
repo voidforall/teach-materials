@@ -32,13 +32,13 @@ CREDITS = [
     ("apache-arrow", "Apache Arrow Logo — Apache Software Foundation", "Apache License 2.0", "https://commons.wikimedia.org/wiki/File:Apache_Arrow_Logo.png"),
     ("clickhouse", "ClickHouse Logomark — ClickHouse Inc.", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:ClickHouse_Logomark.svg"),
     ("event-driven-rabbitmq", "RabbitMQ logo — Pivotal/VMware", "Public domain", "https://commons.wikimedia.org/wiki/File:RabbitMQ_logo.svg"),
-    ("game-theory", "Chess game Staunton No. 6", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:Chess_game_Staunton_No._6.jpg"),
-    ("harness-engineering", "Circuit board after manual etching", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:Circuit_board_after_manual_etching.jpg"),
+    ("game-theory", "Go (13×13) — 2021", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Go_(13%C3%9713)_--_2021_--_6741.jpg"),
+    ("harness-engineering", "Study for a Marionette — Metropolitan Museum of Art", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:Study_for_a_Marionette_MET_DP213910.jpg"),
     ("linux-sockets", "Network-cables-1", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Network-cables-1.png"),
-    ("market-making-basics", "Frankfurt Stock Exchange — Ank Kumar, Infosys", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Frankfurt_Stock_Exchange_(Ank_Kumar,_Infosys)_01.jpg"),
+    ("market-making-basics", "Candlestick Chart in MetaTrader 5", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Candlestick_Chart_in_MetaTrader_5.png"),
     ("rl-for-kaggle", "Kaggle Logo — Kaggle Inc.", "Public domain", "https://commons.wikimedia.org/wiki/File:Kaggle_Logo.svg"),
     ("scp-foundation", "SCP Foundation emblem", "CC BY-SA 3.0", "https://commons.wikimedia.org/wiki/File:SCP_Foundation_(emblem).svg"),
-    ("valuation-basics", "Branch Mint Sovereigns", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:Branch_Mint_Sovereigns.jpg"),
+    ("valuation-basics", "Modern collapsible balance scale for jewellers 1", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Modern_collapsible_balance_scale_for_jewellers_1.jpg"),
 ]
 
 TITLE_RE = re.compile(r"<title>(.*?)</title>", re.S)
