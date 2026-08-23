@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 5 — std::atomic and the Memory Orders</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 5</span><span><a class="langbtn" href="0005-atomics-memory-orders.zh.html" title="切换到中文">中</a></span></div>
+  <h1>std::atomic and the Memory Orders</h1>
+  <p class="dek">std::atomic gives you indivisibility (no tearing) plus a role in happens-before; the six memory orders are the dial for how much ordering you're buying with each operation.</p>
+</div>
+
+<h2>Two guarantees, one template</h2>
+<p><a href="https://en.cppreference.com/w/cpp/atomic/atomic">std::atomic&lt;T&gt;</a> promises two things a plain <code>T</code> cannot: <strong>indivisibility</strong> — reads see some value that was actually written, never a half-written mix ("no tearing") — and <strong>participation in the inter-thread machinery</strong>: each access carries a memory order that may create synchronizes-with edges. The six orders (<a href="https://en.cppreference.com/w/cpp/atomic/memory_order">memory_order</a>):</p>
+<ul>
+<li><code>memory_order_seq_cst</code> — default; all seq_cst ops on all threads agree on one total order S.</li>
+<li><code>memory_order_acquire</code> — loads: nothing after you moves before you.</li>
+<li><code>memory_order_release</code> — stores: nothing before you moves after you.</li>
+<li><code>memory_order_acq_rel</code> — read-modify-write ops: acquire + release in one.</li>
+<li><code>memory_order_relaxed</code> — atomicity only, no ordering of surrounding memory.</li>
+<li><code>memory_order_consume</code> — data-dependency ordering; all implementations map it to acquire, and the standard discourages it. Skip it.</li>
+</ul>
+
+<h2>RMW: fetch_add and compare_exchange</h2>
+<p>Read-modify-write operations are the only ones that read and write <em>atomically as one step</em> — the difference between <code>++counter</code> losing a million updates and losing none.</p>
+<pre><code>std::atomic&lt;int&gt; c{0};
+c.fetch_add(1, std::memory_order_relaxed);   // atomic increment
+
+// CAS loop idiom: weak may fail spuriously, so loop
+int expected = head.load(std::memory_order_relaxed);
+while (!head.compare_exchange_weak(expected, node-&gt;next,
+                                    std::memory_order_acq_rel)) {}</code></pre>
+<p><code>compare_exchange_weak</code> is allowed to fail without the value differing (spurious failure — think LL/SC on ARM); <code>strong</code> is not. In a loop, weak can be cheaper, so <strong>weak-in-loop, strong-once</strong> is the rule.</p>
+
+<h2>Which orders are legal where?</h2>
+<ul>
+<li><code>load()</code>: seq_cst, acquire, relaxed (consume). Never release — a load releases nothing.</li>
+<li><code>store()</code>: seq_cst, release, relaxed. Never acquire.</li>
+<li>RMW (<code>fetch_add</code>, <code>exchange</code>, CAS): seq_cst, acq_rel, acquire, release, relaxed.</li>
+</ul>
+
+<h2>When atomic&lt;T&gt; is secretly a lock</h2>
+<p><code>is_lock_free()</code> tells you at runtime; <code>is_always_lock_free</code> is a compile-time constant. On mainstream ABIs anything up to 8 bytes is lock-free; <code>atomic&lt;double&gt;</code> on 32-bit, or a 16-byte struct with a non-trivial copy, may fall back to a hidden mutex per object — with all the deadlock-in-signal-handler and false-sharing pain that implies. Check before you assume; <code>atomic_ref</code> (C++20) is often a better shape for bulk data.</p>
+<p>One trap even lock-free doesn't dodge: <strong>the ABA problem</strong> — a CAS on pointer P succeeds even though P was freed and reallocated back to the same address between your load and your store. Atomicity can't see history; we deal with it in Lesson 10.</p>
+
+<h2>What compiles to what</h2>
+<p>From Compiler Explorer (clang, -O2), same source on two ISAs:</p>
+<pre><code>// x86-64                                    // ARM64
+x.store(1, seq_cst);   mov 1, eax            stlr wzr, [x0]
+                       xchg [x], eax         // (stlr = store-release,
+                       // (xchg is implicitly locked)  seq_cst when paired)
+x.store(1, release);   mov [x], eax          stlr w1, [x0]
+r = x.load(acquire);   mov eax, [x]          ldar w0, [x0]
+r = x.load(relaxed);   mov eax, [x]          ldr  w0, [x0]</code></pre>
+<p>x86-64 is total-store-ordered: every store already has release semantics and every load acquire, so acquire/release are free; only seq_cst stores must pay (<code>xchg</code> or <code>mov</code>+<code>mfence</code>, ~20-40 cycles). ARM64 is weakly ordered: <code>ldar</code>/<code>stlr</code> carry the ordering, relaxed ops are plain <code>ldr</code>/<code>str</code>. This is why Herb Sutter's <a href="https://youtu.be/A8eCGOqgvH4">atomic&lt;&gt; Weapons</a> talk spends an hour on "distinction between what you asked for and what you paid for": a seq_cst atomic increment is a <code>lock xadd</code> on x86-64 and a loop of <code>ldaxr/stlxr</code> on ARM64 — an order of magnitude more expensive than the plain <code>add</code> a non-atomic <code>++</code> becomes. Measure on your target ISA, not on folklore.</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>atomicity and ordering are separate purchases.</strong> Every order gives you no-tearing; only acquire/release/acq_rel/seq_cst give you happens-before edges. relaxed is "just indivisible".</div>
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>Assuming <code>atomic&lt;MyStruct&gt;</code> is lock-free because it compiles.</strong> Past the platform's lock-free width you get a hidden mutex: blocking ops, no signal safety, possible deadlock. Check <code>is_always_lock_free</code>.</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+<details><summary>Why does compare_exchange_weak exist if it can fail spuriously?</summary><p class="answer">Because on LL/SC architectures a strong CAS is just a weak CAS in a loop, so the loop you'd write anyway can use weak and save code size.</p><p class="why">A one-shot CAS that must not fail spuriously needs strong; the loop idiom absorbs spurious failures for free.</p></details>
+<details><summary>Why is a release order illegal on load()?</summary><p class="answer">Release orders earlier accesses against a write being published; a load publishes nothing, so the semantic is empty.</p><p class="why">The type system encodes it: load() only accepts orders meaningful for reads (seq_cst, acquire, relaxed).</p></details>
+<details><summary>On x86-64, which operation is dramatically more expensive: relaxed load or seq_cst store?</summary><p class="answer">The seq_cst store — it must drain the store buffer (xchg or mfence); the relaxed load is a plain mov.</p><p class="why">x86-64's TSO already gives acquire loads and release stores for free; only total order across threads costs.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 10 minutes</span>
+<p>Paste into <a href="https://godbolt.org">godbolt.org</a> (clang, -O2):</p>
+<pre><code>#include &lt;atomic&gt;
+std::atomic&lt;int&gt; x;
+void sc_store()  { x.store(1, std::memory_order_seq_cst); }
+void rel_store() { x.store(1, std::memory_order_release); }
+int  acq_load()  { return x.load(std::memory_order_acquire); }
+int  rx_load()   { return x.load(std::memory_order_relaxed); }</code></pre>
+<p>Switch the target between <code>x86_64</code> and <code>aarch64</code> and diff: count the <code>xchg</code>/<code>mfence</code> on x86-64 for sc_store, and the <code>ldar</code>/<code>stlr</code> vs <code>ldr</code> distinction on aarch64. Then change <code>x</code> to plain <code>int</code> and watch everything collapse to single mov/add instructions.</p>
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://en.cppreference.com/w/cpp/atomic/atomic">cppreference — std::atomic</a> — the exhaustive reference for orders, RMW semantics, and lock-freeness; pair with <a href="https://youtu.be/A8eCGOqgvH4">Herb Sutter, "atomic&lt;&gt; Weapons"</a> for the why.</p>
+
+<h2>Why this matters for the mission</h2>
+<p>Every memory order is a price/performance contract with the compiler. Knowing which instructions each order buys on your ISA is what lets you read generated code — and generated code, unlike prose, never lies.</p>
+
+<p class="next"><a href="0006-acquire-release-seq-cst-relaxed.html">Next: Acquire/Release vs seq_cst vs Relaxed in Practice →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

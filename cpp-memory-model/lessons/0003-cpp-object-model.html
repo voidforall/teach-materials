@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 3 — The C++ Object Model</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 3</span><span><a class="langbtn" href="0003-cpp-object-model.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The C++ Object Model</h1>
+  <p class="dek">Memory is bytes; an object is a language-level fiction whose lifetime, placement, and shape the compiler reasons about — and optimizes against.</p>
+</div>
+
+<h2>Four storage durations</h2>
+<p>The standard gives exactly four (<a href="https://en.cppreference.com/w/cpp/language/storage_duration">storage duration</a>): <strong>static</strong> (globals, <code>static</code> locals — lifetime = whole program), <strong>automatic</strong> (locals — the Lesson 2 stack frame), <strong>dynamic</strong> (<code>new</code>/<code>delete</code> — the heap), and <strong>thread_local</strong> (one object per thread — crucial later for per-thread data that needs no synchronization).</p>
+
+<h2>Lifetime is not scope</h2>
+<p>An object's <a href="https://en.cppreference.com/w/cpp/language/lifetime">lifetime</a> begins when its initialization <em>completes</em> (and, with a nontrivial destructor, ends when the destructor call starts). Scope is a lexical region. They usually coincide — but not always, and the gap is where UB lives:</p>
+
+<pre><code>alignas(T) unsigned char buf[sizeof(T)];
+T* p = new (buf) T{1};          // lifetime starts HERE (placement new)
+p-&gt;~T();                        // lifetime ends HERE (explicit destructor call)
+// scope still open, storage still there — but no T lives in buf</code></pre>
+
+<p>Reading <code>*p</code> after <code>~T()</code> — or the classic "exit the scope, re-enter it, reuse the object you kept a pointer to" (e.g. reusing a <code>std::optional</code>'s storage by hand) — is UB precisely because the compiler may <strong>cache the knowledge that the object is dead</strong>. <a href="https://en.cppreference.com/w/cpp/utility/launder"><code>std::launder</code></a> is the escape hatch: it returns a pointer through which the new object is reachable, defeating the compiler's stale assumptions (see <a href="https://eel.is/c++draft/intro.object#7">[intro.object]/7</a> on transparently replaceable objects — C++20 relaxed what reuse keeps alive, but only for same-type replacement).</p>
+
+<h2>Alignment and padding</h2>
+<p>Every object type has an alignment (<a href="https://en.cppreference.com/w/cpp/language/alignof"><code>alignof</code></a>): a power-of-2 byte stride its address must respect, because CPUs load aligned words. Members are padded so each keeps its natural alignment, and <code>sizeof</code> is rounded up to <code>alignof</code> so arrays work:</p>
+
+<pre><code>struct S {
+  char  c;   // offset 0
+  int   i;   // offset 4 (3 bytes padding after c)
+  char  d;   // offset 8
+};           // sizeof = 12 (padded to align 4), not 6
+static_assert(sizeof(S) == 12);        // x86-64/Linux — check by hand first!
+static_assert(alignof(S) == 4);</code></pre>
+
+<p><code>#pragma pack</code> / <code>__attribute__((packed))</code> removes padding (wire formats!) at the cost of potentially unaligned, slower or trapping accesses; <code>-Wpadded</code> warns when the compiler inserts padding. <code>malloc</code> guarantees alignment for any type with alignment &le; <a href="https://en.cppreference.com/w/cpp/types/max_align_t"><code>max_align_t</code></a> (16 bytes on x86-64) — <strong>over-aligned</strong> types (<code>alignas(64)</code> for cache lines, Lesson 8) need <code>aligned_alloc</code>/<code>operator new</code> overloads, and <a href="https://en.cppreference.com/w/cpp/memory/new/align_val_t"><code>std::align_val_t</code></a> plumbing.</p>
+
+<p>Why alignment matters <em>here</em>: hardware can only perform an atomic read-modify-write on a naturally <a href="https://en.cppreference.com/w/cpp/atomic/is_lock_free">divisible</a> access. A 8-byte <code>std::atomic&lt;uint64_t&gt;</code> split across two cache lines cannot be lock-free. That's Lesson 5's opening problem.</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>Bytes are the hardware's objects; lifetime, alignment, and identity are the language's.</strong> The compiler's license to assume an object is alive (or dead, or aligned) is exactly the license that makes unsynchronized access explode — every later lesson is about that boundary.</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>Equating storage with objects: "the memory is still there, so my pointer is still valid."</strong> After the destructor runs, or after the optional is reset, the bytes remain but the object does not — and UB means the optimizer may act on that fact while your stale pointer still "works" in debug builds.</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>When does lifetime begin?</summary><p class="answer">When initialization completes</p><p class="why">Not at scope entry, not at allocation — the constructor finishing is what creates the object; scope is just lexical syntax.</p></details>
+  <details><summary>What does std::launder return?</summary><p class="answer">A pointer to replacement</p><p class="why">It returns a pointer through which a newly constructed object in reused storage is reachable, discarding cached assumptions about the dead one.</p></details>
+  <details><summary>Why does sizeof pad?</summary><p class="answer">So arrays stay aligned</p><p class="why">sizeof must be a multiple of alignof, otherwise S[1] would break the alignment of every subsequent element.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 10 minutes</span> Compute by hand <code>sizeof</code>/<code>alignof</code> of: <code>struct A { char c; double d; char e; };</code>, <code>struct B { double d; char c; char e; };</code>, and <code>struct C { char c; int i; double d; };</code>. Then verify with a tiny program of <code>static_assert(sizeof(A)==16 &amp;&amp; alignof(A)==8)</code> etc. (compile <code>g++ -std=c++20 -Wpadded a.cpp</code> on macOS arm64 or Linux — expected sizes 16/10&rarr;16/16; note ARM64 agrees with x86-64 on these). Reorder members to minimize padding and watch the warning disappear.</div>
+
+<h2>Primary source</h2><p><a href="https://en.cppreference.com/w/cpp/language/lifetime">cppreference: Object lifetime</a> — the clearest statement of when objects exist; follow links into <a href="https://eel.is/c++draft/intro.object">[intro.object]</a> and <a href="https://eel.is/c++draft/basic.align">[basic.align]</a> on eel.is for the standardese.</p>
+
+<h2>Why this matters for the mission</h2><p><code>std::atomic</code> is not magic bytes: it's an object with a lifetime, an alignment, and a hardware divisibility requirement. Data races are UB for the same reason stale lifetime is UB — the optimizer reasons about objects, not bytes. Lessons 4–5 build the formal model (happens-before) that makes such reasoning safe.</p>
+
+<p class="next"><a href="0004-happens-before.html">Next: The Abstract Machine: Happens-Before →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

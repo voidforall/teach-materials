@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 1 课 — 虚拟内存：进程地址空间</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ 内存模型 · 第 1 课</span><span><a class="langbtn" href="0001-virtual-address-space.html" title="Switch to English">EN</a></span></div>
+  <h1>虚拟内存：进程地址空间</h1>
+  <p class="dek">你的 C++ 程序所操纵的每个地址，都是由 MMU 与操作系统共同维护的一个"虚构"，粒度是页。</p>
+</div>
+
+<p>当你写 <code>&amp;x</code> 时，这个值是<strong>虚拟地址</strong>（virtual address, VA）。它命名的是你进程私有地址空间里的一个字节，而不是 DRAM 里的一个字节。硬件的 <a href="https://en.wikipedia.org/wiki/Memory_management_unit">MMU</a> 在每次内存访问时把 VA 翻译成 PA（物理地址，physical address），由 CPU 遍历页表完成（x86-64 上是 4 级：PML4 &rarr; PDPT &rarr; PD &rarr; PT，覆盖 <a href="https://www.kernel.org/doc/html/latest/arch/x86/x86_64/mm.html">48 位规范地址</a>；ARM64 上级数更多或 radix 节点更大），并把翻译结果缓存在 <a href="https://en.wikipedia.org/wiki/Translation_lookaside_buffer">TLB</a> 里。TLB 命中几乎零成本；未命中则要付出多级页表遍历的代价。这是本课程所有内容的底座。</p>
+
+<h2>页、缺页与按需调页</h2>
+<p>翻译以<strong>页</strong>（page）为单位进行——通常是 4&nbsp;KiB。操作系统按页建立映射，而且是<strong>惰性</strong>的：<a href="https://man7.org/linux/man-pages/man2/mmap.2.html"><code>mmap</code></a> 和 <code>exec</code> 只更新页表；内存在首次访问、触发 <a href="https://en.wikipedia.org/wiki/Page_fault">缺页</a>（page fault）时才真正挂上。<strong>次要缺页</strong>（minor fault）从内存解决（映射一个零页、或复用一个回收的物理帧）；<strong>主要缺页</strong>（major fault）需要磁盘 I/O（读入二进制的代码页，或换出的页）。"分配器一碰内存就慢"通常就是"你触发了 N 个页的缺页"——这个话题我们在第 9 课量化，经典参考是 Drepper 的 <a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">"What Every Programmer Should Know About Memory"</a>。</p>
+
+<h2>Linux 进程的内存布局</h2>
+<p>自底向上读 /proc/pid/maps：<code>text</code>（代码，r-x）、<code>rodata</code>（r--）、<code>data</code>（rw-，已初始化全局变量）、<code>bss</code>（rw-，零初始化，demand-zero）、通过 <a href="https://man7.org/linux/man-pages/man2/brk.2.html"><code>brk</code></a> 增长的堆、<code>mmap</code> 区域（共享库、大块分配、文件映射）、栈，以及 <code>vsyscall</code>/vdso 页。<a href="https://man7.org/linux/man-pages/man5/proc.5.html">proc(5)</a> 文档化了这个文件；另见 <a href="https://man7.org/linux/man-pages/man1/pmap.1.html">pmap(1)</a>。<strong>ASLR</strong>（地址空间布局随机化，Address Space Layout Randomization）每次运行都会随机化栈、堆、mmap 和 PIE 二进制的基址——同一个程序打印两次地址，值会不同。</p>
+
+<pre><code>// addrs.cpp — g++ -O0 addrs.cpp; 运行两次，地址会变（ASLR）
+#include &lt;cstdio&gt;
+#include &lt;cstdlib&gt;
+int g_init = 42;            // .data
+int g_zero;                 // .bss
+int main() {
+  int local = 1;                    // 栈
+  static int s_local = 2;           // .data
+  int* heap = new int[3];           // 堆（经 mmap）
+  auto lam = []{ return 1; };       // 类代码：通常在 .text
+  std::printf("stack   %p\n", (void*)&amp;local);
+  std::printf("static  %p\n", (void*)&amp;s_local);
+  std::printf("global  %p\n", (void*)&amp;g_init);
+  std::printf("bss     %p\n", (void*)&amp;g_zero);
+  std::printf("heap    %p\n", (void*)heap);
+  std::printf("lambda  %p\n", (void*)&amp;lam);
+  delete[] heap;
+}</code></pre>
+
+<p>带 <code>MAP_ANONYMOUS|MAP_PRIVATE</code> 的 <code>mmap</code> 是万能原语：内核创建一个没有后备文件的映射，按需用零页填充。malloc 的大块分配、线程栈、<code>std::vector</code> 的扩容——最终都落在这里。大页（huge pages，2&nbsp;MiB/1&nbsp;GiB）可降低 TLB 压力；我们留到第 9 课细讲。</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>你的指针从来不是指向 RAM，而是指向一个操作系统可以按需、以页为粒度重写的进程内映射。</strong> 未映射？SIGSEGV。被换出或尚未缺页？同一个指针值会停顿到页到位。真正的"对象"是映射，而不是那个数字。</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>把地址当成稳定身份，或当成物理布局的证据。</strong> "能跑是因为指针值小"在 ASLR 和 mmap 面前毫无意义；"分配了 == 用了内存"在按需调页面前也是错的。基于地址而非缺页次数建立的代价模型每次都会预测失误。</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>MMU 的 TLB 缓存什么？</summary><p class="answer">虚拟到物理的页翻译</p><p class="why">TLB 缓存页表项，使对同一页的重复访问跳过多级遍历——所以散乱访问会带来"TLB 压力"。</p></details>
+  <details><summary>什么触发主要缺页？</summary><p class="answer">后备存储的磁盘 I/O</p><p class="why">次要缺页从内存解决（零页、复用帧）；主要缺页必须读磁盘（二进制代码页、swap）——慢几个数量级。</p></details>
+  <details><summary>brk 扩展的是什么？</summary><p class="answer">程序断点（堆）</p><p class="why">brk 移动数据段的末端来增长/收缩传统意义的堆；大块分配则改走 mmap 区域。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">试一试 — 10 分钟</span> 编译上面的程序，运行 <code>./a.out &amp;</code>，然后检查它：Linux 上 <code>cat /proc/$(pgrep a.out)/maps</code>，macOS 上 <code>vmmap $(pgrep a.out)</code>。把每个打印出的指针对应到一个映射区域——注意堆指针所在区域在两次运行间不同（ASLR），而全局变量之间的偏移保持不变。Linux 上再跑 <code>pmap -x $(pgrep a.out)</code>，把 "RSS" 列（已缺页进来的页）与映射大小对比：大多数被映射的页并不驻留内存。</div>
+
+<h2>一手来源</h2><p><a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">Drepper, "What Every Programmer Should Know About Memory", §1–2</a> —— 从金属层往上讲内存的硬件/操作系统视图的经典；配合 <a href="https://man7.org/linux/man-pages/man5/proc.5.html">proc(5)</a> 阅读你刚用过的 maps 文件。</p>
+
+<h2>为什么这对课程使命重要</h2><p>内存模型的约束关乎写入的<strong>可见性与顺序</strong>；但每次写入首先得落进一个别人最终能看到的页。缓存一致性（第 8 课）作用于物理内存；原子操作（第 5 课）只在 MMU 真正映射的内存上有效。当无锁 demo 神秘地坏掉时，页粒度、别名映射和按需调页是第一批物理层嫌疑人。</p>
+
+<p class="next"><a href="0002-stack-and-heap-allocation.zh.html">下一课：栈与堆：分配机制 →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

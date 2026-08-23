@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 2 — Stack vs Heap: Allocation Mechanics</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 2</span><span><a class="langbtn" href="0002-stack-and-heap-allocation.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Stack vs Heap: Allocation Mechanics</h1>
+  <p class="dek">Stack allocation is one register move; heap allocation is a data-structure algorithm plus, sooner or later, page faults.</p>
+</div>
+
+<h2>The stack: allocation = moving a register</h2>
+<p>Each call pushes a <em>stack frame</em>. The x86-64 SysV <a href="https://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64">prologue</a> is typically <code>push rbp; mov rbp,rsp; sub rsp,N</code> — "allocating" N bytes is the <code>sub</code>. Epilogue: <code>add rsp,N; pop rbp; ret</code> (or <code>leave; ret</code>). Deallocation is equally free. The <a href="https://en.wikipedia.org/wiki/Red_zone_(computing)">red zone</a> (128 bytes below RSP that leaf functions may use without moving SP) is why even the <code>sub</code> can vanish. In <a href="https://godbolt.org/">Compiler Explorer</a>, compile this and watch:</p>
+
+<pre><code>int sum(int a, int b) {      // x86-64 SysV: esi, edx
+  int t = a + b;             // eax, esi, edx... no frame needed
+  return t;                  // red zone: nothing pushed at all
+}
+int frame(int n) {
+  int buf[64];               // sub rsp, 272-ish
+  buf[0] = n;
+  return buf[0];
+}</code></pre>
+
+<p>Because allocation is just pointer arithmetic, nothing stops you from falling off the end. The kernel places a <a href="https://en.wikipedia.org/wiki/Guard_page">guard page</a> below the stack and enforces a size cap — <code>ulimit -s</code>, typically 8&nbsp;MiB on Linux. Blow through it (deep recursion, big <code>int buf[1&lt;&lt;20]</code> in a frame) and you get SIGSEGV; per-thread stacks are usually far smaller (pthread default ~8&nbsp;MiB virtual, but see <a href="https://man7.org/linux/man-pages/man3/pthread_create.3.html">pthread_create(3)</a>).</p>
+
+<h2>The heap: from brk to bins</h2>
+<p>The classic heap is the <a href="https://man7.org/linux/man-pages/man2/brk.2.html">brk</a> area: bump and shrink the program break. Modern glibc <code>malloc</code> layers real machinery on top (see the <a href="https://sourceware.org/glibc/wiki/MallocInternals">glibc malloc internals wiki</a>): a per-thread <strong>tcache</strong> of recently freed small chunks (no lock in the common case), then <strong>fastbins / smallbins / largebins</strong>, and per-thread <strong>arenas</strong> so threads don't serialize on one lock. Allocations larger than the dynamic <code>mmap</code> threshold (starting at 128&nbsp;KiB, <code>M_MMAP_THRESHOLD</code>) bypass the bins and go straight to <a href="https://man7.org/linux/man-pages/man2/mmap.2.html">mmap(2)</a> — freed immediately on <code>free</code>, which is why big <code>new</code>/<code>delete</code> cycles show up as RSS churn and <em>page faults on every reuse</em>.</p>
+
+<p>So the true cost of <code>new T(args)</code>: (1) allocator bookkeeping (fast: tcache pop), (2) the constructor, (3) possibly faulting in pages the allocator never touched before — and Lesson 1's rule: the mapping is free, the fault is not.</p>
+
+<pre><code>// grow.cpp — g++ -O2 grow.cpp && ./a.out
+#include &lt;vector&gt;
+#include &lt;chrono&gt;
+#include &lt;cstdio&gt;
+int main() {
+  using clk = std::chrono::steady_clock;
+  auto t0 = clk::now();
+  std::vector&lt;int&gt; v;
+  for (int i = 0; i &lt; 10'000'000; ++i) v.push_back(i);   // ~2x memcpy churn
+  auto t1 = clk::now();
+  std::vector&lt;int&gt; w;
+  w.reserve(10'000'000);                                  // one mmap, one fault sweep
+  for (int i = 0; i &lt; 10'000'000; ++i) w.push_back(i);
+  auto t2 = clk::now();
+  std::printf("push_back only : %lld ms\n",
+    (long long)std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(t1-t0).count());
+  std::printf("reserve first  : %lld ms\n",
+    (long long)std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(t2-t1).count());
+}</code></pre>
+
+<p>Second experiment: loop <code>new char[1&lt;&lt;20]</code> / <code>delete[]</code> and watch <code>ps -o rss</code> (or <code>grep VmRSS /proc/self/status</code>) — above the mmap threshold each cycle tears down and re-faults pages, so RSS oscillates and faults accumulate; below it, the tcache/bins reuse warm memory and RSS stays flat.</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>Stack allocation is pointer arithmetic; heap allocation is a library data structure whose worst cost is a page fault.</strong> Everything you pay for at runtime — locks, bin walks, zeroing, faults — lives on the heap side of that line.</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>"new is like a stack variable that lives longer."</strong> No: the stack cost is one <code>sub</code> and is reclaimed wholesale at return; heap cost is allocator state, constructor, and faulting, and is reclaimed one chunk at a time. Budgeting them identically produces programs that "randomly" jitter on allocation.</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>What does a frame prologue do?</summary><p class="answer">Saves RBP, subtracts RSP</p><p class="why"><code>push rbp; mov rbp,rsp; sub rsp,N</code> — the <code>sub</code> is the entire allocation for N bytes of locals.</p></details>
+  <details><summary>What is malloc's tcache?</summary><p class="answer">Per-thread free-chunk cache</p><p class="why">A lock-free-in-practice cache of recently freed small chunks, so the common free-then-same-size-alloc pattern skips arena locking entirely.</p></details>
+  <details><summary>When does malloc use mmap?</summary><p class="answer">Above ~128KB threshold</p><p class="why">Requests larger than the dynamic mmap threshold (M_MMAP_THRESHOLD, starting at 128 KiB) are mapped directly and returned to the OS on free.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 15 minutes</span> Run <code>grow.cpp</code> above — reserve-first is typically 2–5x faster; confirm in a profiler that the difference is memcpy of geometric growth, not push_back itself. Then run the churn loop <code>for(;;){ char* p = new char[1&lt;&lt;20]; p[0]=1; delete[] p; }</code> in one terminal while <code>ps -o rss= -p &lt;pid&gt;</code> loops in another: watch faults via <code>grep majflt /proc/&lt;pid&gt;/status</code> (Linux) or Instruments' Allocations (macOS arm64). Repeat with <code>new char[4096]</code> — RSS and faults go flat because the bins recycle warm pages.</div>
+
+<h2>Primary source</h2><p><a href="https://sourceware.org/glibc/wiki/MallocInternals">glibc wiki: MallocInternals</a> — the authoritative description of tcache, bins, and arenas; read alongside <a href="https://man7.org/linux/man-pages/man2/brk.2.html">brk(2)</a> and <a href="https://man7.org/linux/man-pages/man2/mmap.2.html">mmap(2)</a> for the syscalls underneath.</p>
+
+<h2>Why this matters for the mission</h2><p>Lock-free code is usually motivated by allocation on the hot path: shared state must live somewhere stable. Knowing exactly when <code>new</code> turns into mmap+faults tells you why a "lock-free" queue that allocates per item can lose to a blocking one that doesn't — and Lesson 3 formalizes what "the object" you allocated actually is.</p>
+
+<p class="next"><a href="0003-cpp-object-model.html">Next: The C++ Object Model →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

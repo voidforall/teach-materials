@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 6 课 — 实战中的 Acquire/Release、seq_cst 与 Relaxed</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · 第 6 课</span><span><a class="langbtn" href="0006-acquire-release-seq-cst-relaxed.html" title="Switch to English">EN</a></span></div>
+  <h1>实战中的 Acquire/Release、seq_cst 与 Relaxed</h1>
+  <p class="dek">Acquire/release 用来发布数据，relaxed 用在没人借它排序的数据上，seq_cst 用在多个原子操作必须被所有人以同一顺序观察时。</p>
+</div>
+
+<h2>经典的发布（publish）模式</h2>
+<p>一次 release store 与一次 acquire load 配对；synchronizes-with 边让生产者写入的一切对消费者在 load 之后的操作可见（见 <a href="https://preshing.com/20120913/acquire-and-release-semantics/">Preshing《Acquire and Release Semantics》</a>）：</p>
+<pre><code>struct Widget { int a, b; std::string name; };
+Widget payload;                       // 普通数据
+std::atomic&lt;bool&gt; ready{false};
+
+// 生产者线程
+payload.a = 1; payload.b = 2; payload.name = "hi";   // (1)
+ready.store(true, std::memory_order_release);        // (2) 发布 (1)
+
+// 消费者线程
+while (!ready.load(std::memory_order_acquire)) {}    // (3) 看到 (2)
+// (2) synchronizes-with (3)：(1) happens-before 下面的一切
+assert(payload.a == 1 &amp;&amp; payload.name == "hi");      // 不可能触发</code></pre>
+<p>把任一侧换成 <code>relaxed</code>，assert 就变成掷硬币：标志位依然原子地翻转，但边不存在，payload 的写可能不可见。</p>
+
+<h2>Relaxed：计数器正确，生命周期错误</h2>
+<p>当没有其他内存借助该原子排序时，relaxed 正确且高效：统计、进度计数、序列号生成。但<strong>引用计数递减绝不能 relaxed</strong>。对象的最后一次释放必须 happens-after 其他所有持有引用的线程的全部访问——这就是"last-release"模式，要求递减用 <code>acq_rel</code>（或 seq_cst）：acquire 让析构函数看到其他线程对对象的所有访问，release 让你自己的访问排在析构之前。relaxed 递减可能让析构与另一个线程仍在执行的方法并发。</p>
+
+<h2>seq_cst：需要一个人人认同的全序时</h2>
+<p>Acquire/release 给的是成对的边。有时你需要多个原子操作在多个线程眼中构成<strong>全序（total order）</strong>。两个典型案例：</p>
+<p><strong>IRIW（Independent Reads of Independent Writes，独立写各自的独立读）</strong>——四个线程：</p>
+<pre><code>// T1: x.store(1, release);        // T2: y.store(1, release);
+// T3: r1 = x.load(acquire);  r2 = y.load(acquire);
+// T4: r3 = y.load(acquire);  r4 = x.load(acquire);
+// 可能观察到 r1==1, r2==0, r3==1, r4==0 吗？acquire/release：可以。
+// seq_cst：不可能——所有线程都认同 x 的写先于 y 的写。</code></pre>
+<p><strong>Dekker 式先存后读</strong>——两个线程各写自己的标志再查对方的：</p>
+<pre><code>// T1: a.store(1, release);  if (b.load(acquire) == 0) enter();
+// T2: b.store(1, release);  if (a.load(acquire) == 0) enter();
+// 用 release+acquire，两个线程都可能看到对方标志 == 0 而同时进入。
+// 每个 load 确实 acquire 到了对方的 store……但顺序各不相同，
+// 因为不存在共享的全序。
+// 用 seq_cst，至少一方会看到 1——两次 store 被全序化了。</code></pre>
+
+<h2>决策表</h2>
+<ul>
+<li><strong>默认：seq_cst。</strong>在上述所有模式中都正确；只在 TSO ISA 上、只对 store 付一条 fence 的代价。</li>
+<li><strong>放宽为 release（store）/ acquire（load）</strong>：当你通过单个标志发布或消费数据——成对的边正是你需要的。</li>
+<li><strong>放宽为 relaxed</strong>：只用于没人借其值排序其他内存的独立计数器/统计量。</li>
+<li><strong>acq_rel</strong>：既发布又消费的 RMW——引用计数上的 fetch_sub 是教科书案例。</li>
+</ul>
+<p>同一原子上混用不同序是一种坏味道——说明有人只优化了一处访问而没有证明边依然成形。但混用有时是对的：同一引用计数上 <code>relaxed</code> 递增配 <code>acq_rel</code> 递减正是正确的非对称（递增不发布任何东西；最后一次递减终结一个生命周期）。</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>问自己"谁在观察什么、方向是哪边？"</strong>发布：release store + acquire load。终结生命周期：acq_rel RMW。多个原子、多个观察者、一个故事：seq_cst。没人借它观察：relaxed。</div>
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>对引用计数使用 <code>fetch_sub(1, std::memory_order_relaxed)</code>。</strong>减到零的那次递减不与其他线程对对象的读排序，析构函数可能与仍在运行的方法竞争——披着优化外衣的 UB。</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+<details><summary>发布模式为什么必须在 store 上用 release，而只在 load 上用 seq_cst 不行？</summary><p class="answer">因为 synchronizes-with 需要一次 release 写与读到该值的 acquire 读配对；边需要两个端点。</p><p class="why">单独一个 seq_cst load 无法对 relaxed 或普通 store 排序任何东西；排序是这一对的属性，不是单侧的。</p></details>
+<details><summary>在 Dekker 模式中，acquire/release 会让两个线程观察到什么 seq_cst 禁止的现象？</summary><p class="answer">双方都可能把对方的标志读为 0，从而同时进入临界区。</p><p class="why">两组 store→load 顺序互相冲突，而 acquire/release 允许各自独立成立；只有全部 seq_cst 操作的单一全序才能排除该结果。</p></details>
+<details><summary>为什么引用计数递增用 relaxed 正确、递减却不行？</summary><p class="answer">递增不发布数据、不守护生命周期；减到零的递减必须 happens-after 其他所有线程的访问。</p><p class="why">递减上的 acq_rel 创建这些边；relaxed 递减会在仍有读者在对象内部时析构它。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">Try it — 25 分钟</span>
+<pre><code>// refcount.cpp — 编译：clang++ -std=c++20 -O2 -pthread refcount.cpp
+#include &lt;atomic&gt;
+#include &lt;thread&gt;
+#include &lt;cstdio&gt;
+
+struct Handle {
+  std::atomic&lt;int&gt; refs{1};
+  int value = 42;
+  void add_ref()   { refs.fetch_add(1, std::memory_order_relaxed); }
+  void release_ref() {
+    if (refs.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;
+  }
+};
+
+int main() {
+  auto* h = new Handle;
+  h-&gt;add_ref();
+  std::thread t([h]{ h-&gt;add_ref(); h-&gt;release_ref(); });  // 使用 value
+  std::thread u([h]{ std::printf("%d\n", h-&gt;value); });    // 普通读
+  t.join(); u.join();
+  h-&gt;release_ref();   // 只有在所有读者结束后才析构
+}</code></pre>
+<p>1. 编译运行——输出 42，正常退出。再在 <code>-fsanitize=thread</code> 下运行：无报告（acq_rel 边为最终 delete 排序）。<br>
+2. 把递减改为 <code>memory_order_relaxed</code>，在纸上推理：现在哪一对访问无序？解释为什么 TSAN 可能仍抓不到它（delete 之后对 <code>this</code> 的竞争）。<br>
+3. 恢复 acq_rel；把递增改为 seq_cst 并测一个紧凑的 add/release 循环——吞吐下降就是你拒绝支付的那笔钱。</p>
+</div>
+
+<h2>一手资料</h2>
+<p><a href="https://preshing.com/20120913/acquire-and-release-semantics/">Jeff Preshing — Acquire and Release Semantics</a>——对"边的每一半各自保证什么、在哪些 CPU 上免费"最清晰的单一阐述。</p>
+
+<h2>为什么这对课程使命重要</h2>
+<p>本课是后续所有主题的决策层：fence（第 7 课）是这些边的手工版本，无锁结构（第 9-10 课）是发布模式与 RMW 的大规模组合。</p>
+
+<p class="next"><a href="0007-fences-and-data-races.zh.html">下一课：Fence、数据竞争与 UB →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">速查表</a></p>
+<p class="ask">有不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

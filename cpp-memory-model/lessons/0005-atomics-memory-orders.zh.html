@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 5 课 — std::atomic 与内存序</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · 第 5 课</span><span><a class="langbtn" href="0005-atomics-memory-orders.html" title="Switch to English">EN</a></span></div>
+  <h1>std::atomic 与内存序</h1>
+  <p class="dek">std::atomic 给你不可分割性（不撕裂）并参与 happens-before；六种内存序（memory order）是调节"每次操作买多少排序"的旋钮。</p>
+</div>
+
+<h2>两个保证，一个模板</h2>
+<p><a href="https://en.cppreference.com/w/cpp/atomic/atomic">std::atomic&lt;T&gt;</a> 承诺普通 <code>T</code> 给不了的两件事：<strong>不可分割性（indivisibility，不撕裂）</strong>——读到的必然是某次真实写入的值，绝不是写了一半的混合体——以及<strong>参与跨线程机制</strong>：每次访问携带一个内存序，可能创建 synchronizes-with 边。六种内存序（<a href="https://en.cppreference.com/w/cpp/atomic/memory_order">memory_order</a>）：</p>
+<ul>
+<li><code>memory_order_seq_cst</code>——默认；所有线程的全部 seq_cst 操作对同一个全序 S 达成一致。</li>
+<li><code>memory_order_acquire</code>——用于 load：后面的不能重排到它前面。</li>
+<li><code>memory_order_release</code>——用于 store：前面的不能重排到它后面。</li>
+<li><code>memory_order_acq_rel</code>——用于读-改-写：acquire + release 二合一。</li>
+<li><code>memory_order_relaxed</code>——只保证原子性，不排序周边内存。</li>
+<li><code>memory_order_consume</code>——数据依赖排序；所有实现都把它当 acquire，标准也不鼓励。跳过它。</li>
+</ul>
+
+<h2>RMW：fetch_add 与 compare_exchange</h2>
+<p>读-改-写（read-modify-write）操作是唯一"读+写作为一步原子完成"的操作——这正是 <code>++counter</code> 丢一百万次更新与一次不丢的区别。</p>
+<pre><code>std::atomic&lt;int&gt; c{0};
+c.fetch_add(1, std::memory_order_relaxed);   // 原子自增
+
+// CAS 循环惯用法：weak 可能伪失败（spurious failure），所以要循环
+int expected = head.load(std::memory_order_relaxed);
+while (!head.compare_exchange_weak(expected, node-&gt;next,
+                                    std::memory_order_acq_rel)) {}</code></pre>
+<p><code>compare_exchange_weak</code> 允许在值并未不同时失败（伪失败——想想 ARM 上的 LL/SC）；<code>strong</code> 不允许。循环里 weak 可能更便宜，所以口诀是<strong>循环用 weak，单发用 strong</strong>。</p>
+
+<h2>哪些序用在哪里是合法的？</h2>
+<ul>
+<li><code>load()</code>：seq_cst、acquire、relaxed（consume）。绝不能 release——load 无所 release。</li>
+<li><code>store()</code>：seq_cst、release、relaxed。绝不能 acquire。</li>
+<li>RMW（<code>fetch_add</code>、<code>exchange</code>、CAS）：seq_cst、acq_rel、acquire、release、relaxed。</li>
+</ul>
+
+<h2>atomic&lt;T&gt; 什么时候偷偷变成锁</h2>
+<p><code>is_lock_free()</code> 在运行时告诉你；<code>is_always_lock_free</code> 是编译期常量。在主流 ABI 上不超过 8 字节都免锁；32 位平台上的 <code>atomic&lt;double&gt;</code>、或拷贝非平凡的 16 字节结构体，可能退化为每个对象一把隐藏 mutex——伴随信号处理器里死锁与 false sharing 的一切麻烦。先检查再假设；对批量数据，C++20 的 <code>atomic_ref</code> 往往是更好的形态。</p>
+<p>即使免锁也有一个躲不开的坑：<strong>ABA 问题</strong>——即使指针 P 在你 load 与 store 之间被释放又重新分配回同一地址，CAS 也会成功。原子性看不见历史；第 10 课处理它。</p>
+
+<h2>各编译成什么指令</h2>
+<p>来自 Compiler Explorer（clang，-O2），同一份源码在两种 ISA 上：</p>
+<pre><code>// x86-64                                    // ARM64
+x.store(1, seq_cst);   mov 1, eax            stlr wzr, [x0]
+                       xchg [x], eax         //（stlr = store-release，
+                       //（xchg 隐含 lock 前缀）    与 ldar 配对即 seq_cst）
+x.store(1, release);   mov [x], eax          stlr w1, [x0]
+r = x.load(acquire);   mov eax, [x]          ldar w0, [x0]
+r = x.load(relaxed);   mov eax, [x]          ldr  w0, [x0]</code></pre>
+<p>x86-64 是全存储排序（TSO）：每条 store 天然带 release、每条 load 天然带 acquire，所以 acquire/release 免费；只有 seq_cst store 要付钱（<code>xchg</code> 或 <code>mov</code>+<code>mfence</code>，约 20-40 周期）。ARM64 是弱排序：<code>ldar</code>/<code>stlr</code> 携带排序，relaxed 操作就是普通 <code>ldr</code>/<code>str</code>。这正是 Herb Sutter 的 <a href="https://youtu.be/A8eCGOqgvH4">atomic&lt;&gt; Weapons</a> 演讲花一个小时讲"你要的与你付的之间的差别"的原因：一次 seq_cst 原子自增在 x86-64 上是 <code>lock xadd</code>，在 ARM64 上是 <code>ldaxr/stlxr</code> 循环——比非原子 <code>++</code> 编译出的普通 <code>add</code> 贵一个数量级。在目标 ISA 上测量，别信传说。</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>原子性与排序是分开购买的两样东西。</strong>每种序都给你不撕裂；只有 acquire/release/acq_rel/seq_cst 给你 happens-before 边。relaxed 只是"仅仅不可分割"。</div>
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>以为 <code>atomic&lt;MyStruct&gt;</code> 能编译就一定免锁。</strong>超过平台免锁宽度你会得到一把隐藏 mutex：操作会阻塞、不能进信号处理器、可能死锁。查 <code>is_always_lock_free</code>。</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+<details><summary>compare_exchange_weak 会伪失败，为什么还要有它？</summary><p class="answer">因为在 LL/SC 架构上 strong CAS 本身就是 weak CAS 套循环，所以你反正要写的循环直接用 weak，还省了代码。</p><p class="why">必须一次成功、不能伪失败的 CAS 用 strong；循环惯用法顺带免费吸收了伪失败。</p></details>
+<details><summary>为什么 load() 不允许 release 序？</summary><p class="answer">release 是把更早的访问与一次将被发布的写排序；load 不发布任何东西，语义为空。</p><p class="why">类型系统编码了这一点：load() 只接受对读有意义的序（seq_cst、acquire、relaxed）。</p></details>
+<details><summary>在 x86-64 上，relaxed load 与 seq_cst store 哪个贵得多？</summary><p class="answer">seq_cst store——必须排空 store buffer（xchg 或 mfence）；relaxed load 就是普通 mov。</p><p class="why">x86-64 的 TSO 已让 acquire load 与 release store 免费；只有跨线程全序才要付钱。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">Try it — 10 分钟</span>
+<p>粘贴到 <a href="https://godbolt.org">godbolt.org</a>（clang，-O2）：</p>
+<pre><code>#include &lt;atomic&gt;
+std::atomic&lt;int&gt; x;
+void sc_store()  { x.store(1, std::memory_order_seq_cst); }
+void rel_store() { x.store(1, std::memory_order_release); }
+int  acq_load()  { return x.load(std::memory_order_acquire); }
+int  rx_load()   { return x.load(std::memory_order_relaxed); }</code></pre>
+<p>在 <code>x86_64</code> 与 <code>aarch64</code> 之间切换目标并对比：数一数 x86-64 上 sc_store 的 <code>xchg</code>/<code>mfence</code>，以及 aarch64 上 <code>ldar</code>/<code>stlr</code> 与 <code>ldr</code> 的区别。然后把 <code>x</code> 改成普通 <code>int</code>，看一切塌缩成单条 mov/add。</p>
+</div>
+
+<h2>一手资料</h2>
+<p><a href="https://en.cppreference.com/w/cpp/atomic/atomic">cppreference — std::atomic</a>——内存序、RMW 语义与免锁性的详尽参考；配合 <a href="https://youtu.be/A8eCGOqgvH4">Herb Sutter《atomic&lt;&gt; Weapons》</a>理解背后原因。</p>
+
+<h2>为什么这对课程使命重要</h2>
+<p>每种内存序都是与编译器签订的性能/价格合同。知道每种序在你的 ISA 上买到哪些指令，你才能读懂生成的代码——而生成的代码不像文章，它从不说谎。</p>
+
+<p class="next"><a href="0006-acquire-release-seq-cst-relaxed.zh.html">下一课：实战中的 Acquire/Release、seq_cst 与 Relaxed →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">速查表</a></p>
+<p class="ask">有不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

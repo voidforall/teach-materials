@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 2 课 — 栈与堆：分配机制</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ 内存模型 · 第 2 课</span><span><a class="langbtn" href="0002-stack-and-heap-allocation.html" title="Switch to English">EN</a></span></div>
+  <h1>栈与堆：分配机制</h1>
+  <p class="dek">栈分配是一次寄存器移动；堆分配是一个数据结构算法，外加迟早会来的缺页。</p>
+</div>
+
+<h2>栈：分配 = 移动一个寄存器</h2>
+<p>每次调用压入一个<strong>栈帧</strong>（stack frame）。x86-64 SysV 的<a href="https://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64">序言</a>（prologue）通常是 <code>push rbp; mov rbp,rsp; sub rsp,N</code> —— "分配"N 个字节就是那条 <code>sub</code>。尾声（epilogue）：<code>add rsp,N; pop rbp; ret</code>（或 <code>leave; ret</code>）。释放同样免费。<a href="https://en.wikipedia.org/wiki/Red_zone_(computing)">红区</a>（red zone，RSP 之下 128 字节、叶子函数可直接使用而不必移动 SP）解释了为什么连 <code>sub</code> 都可以消失。在 <a href="https://godbolt.org/">Compiler Explorer</a> 里编译下面这段，仔细看：</p>
+
+<pre><code>int sum(int a, int b) {      // x86-64 SysV: esi, edx
+  int t = a + b;             // eax, esi, edx... 根本不需要帧
+  return t;                  // 红区：什么都没压栈
+}
+int frame(int n) {
+  int buf[64];               // sub rsp, 272 左右
+  buf[0] = n;
+  return buf[0];
+}</code></pre>
+
+<p>因为分配只是指针算术，没有任何东西阻止你越界。内核在栈底放了一页 <a href="https://en.wikipedia.org/wiki/Guard_page">guard page</a>，并施加大小上限——<code>ulimit -s</code>，Linux 上通常 8&nbsp;MiB。冲破它（深递归、帧里巨大的 <code>int buf[1&lt;&lt;20]</code>）就得到 SIGSEGV；每线程栈通常小得多（pthread 默认约 8&nbsp;MiB 虚拟内存，见 <a href="https://man7.org/linux/man-pages/man3/pthread_create.3.html">pthread_create(3)</a>）。</p>
+
+<h2>堆：从 brk 到 bins</h2>
+<p>传统意义的堆是 <a href="https://man7.org/linux/man-pages/man2/brk.2.html">brk</a> 区域：推进和回退 program break。现代 glibc 的 <code>malloc</code> 在其上叠了真正的机器（见 <a href="https://sourceware.org/glibc/wiki/MallocInternals">glibc malloc internals wiki</a>）：每线程的 <strong>tcache</strong> 缓存最近释放的小块（常见路径无锁），然后是 <strong>fastbins / smallbins / largebins</strong>，以及每线程 <strong>arena</strong>，使线程不必在一把锁上排队。大于动态 <code>mmap</code> 阈值（初始 128&nbsp;KiB，<code>M_MMAP_THRESHOLD</code>）的分配绕过 bins 直接走 <a href="https://man7.org/linux/man-pages/man2/mmap.2.html">mmap(2)</a> —— <code>free</code> 时立刻归还，这正是大块 <code>new</code>/<code>delete</code> 循环表现为 RSS 抖动、且<strong>每次复用都缺页</strong>的原因。</p>
+
+<p>所以 <code>new T(args)</code> 的真实代价：(1) 分配器簿记（快：tcache 弹出），(2) 构造函数，(3) 可能要为分配器从未碰过的页触发缺页——第 1 课的法则：映射免费，缺页不免费。</p>
+
+<pre><code>// grow.cpp — g++ -O2 grow.cpp && ./a.out
+#include &lt;vector&gt;
+#include &lt;chrono&gt;
+#include &lt;cstdio&gt;
+int main() {
+  using clk = std::chrono::steady_clock;
+  auto t0 = clk::now();
+  std::vector&lt;int&gt; v;
+  for (int i = 0; i &lt; 10'000'000; ++i) v.push_back(i);   // ~2x 的 memcpy 翻腾
+  auto t1 = clk::now();
+  std::vector&lt;int&gt; w;
+  w.reserve(10'000'000);                                  // 一次 mmap，一轮缺页
+  for (int i = 0; i &lt; 10'000'000; ++i) w.push_back(i);
+  auto t2 = clk::now();
+  std::printf("push_back only : %lld ms\n",
+    (long long)std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(t1-t0).count());
+  std::printf("reserve first  : %lld ms\n",
+    (long long)std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(t2-t1).count());
+}</code></pre>
+
+<p>第二个实验：循环 <code>new char[1&lt;&lt;20]</code> / <code>delete[]</code>，同时观察 <code>ps -o rss</code>（或 <code>grep VmRSS /proc/self/status</code>）——超过 mmap 阈值时每轮都拆掉并重新缺页，RSS 震荡、fault 累积；低于阈值时，tcache/bins 复用热内存，RSS 平坦。</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>栈分配是指针算术；堆分配是一个最坏代价是缺页的库数据结构。</strong> 运行时你要付出的一切——锁、bin 遍历、清零、缺页——都在这条线的堆那一侧。</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>"new 就是活得久一点的栈变量。"</strong> 不对：栈的代价是一次 <code>sub</code>，return 时整帧回收；堆的代价是分配器状态、构造函数和缺页，并且一块一块地归还。把两者等量齐观，会写出在分配上"随机"抖动的程序。</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>栈帧序言做什么？</summary><p class="answer">保存 RBP、减 RSP</p><p class="why"><code>push rbp; mov rbp,rsp; sub rsp,N</code> —— 那条 <code>sub</code> 就是 N 字节局部变量的全部分配成本。</p></details>
+  <details><summary>malloc 的 tcache 是什么？</summary><p class="answer">每线程空闲块缓存</p><p class="why">一个实践中无锁的、缓存最近释放小块的结构，使"释放后立刻同尺寸再分配"的常见模式完全跳过 arena 加锁。</p></details>
+  <details><summary>malloc 何时用 mmap？</summary><p class="answer">超过约 128KB 阈值</p><p class="why">大于动态 mmap 阈值（M_MMAP_THRESHOLD，初始 128 KiB）的请求直接映射，free 时归还操作系统。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">试一试 — 15 分钟</span> 运行上面的 <code>grow.cpp</code> —— 先 reserve 通常快 2–5 倍；用 profiler 确认差异来自几何增长带来的 memcpy 而不是 push_back 本身。然后在循环里跑 <code>for(;;){ char* p = new char[1&lt;&lt;20]; p[0]=1; delete[] p; }</code>，另一个终端里循环 <code>ps -o rss= -p &lt;pid&gt;</code>：Linux 上用 <code>grep majflt /proc/&lt;pid&gt;/status</code> 看缺页（macOS arm64 用 Instruments 的 Allocations）。换 <code>new char[4096]</code> 再试 —— RSS 和 fault 都变平，因为 bins 在回收热页。</div>
+
+<h2>一手来源</h2><p><a href="https://sourceware.org/glibc/wiki/MallocInternals">glibc wiki: MallocInternals</a> —— tcache、bins、arena 的权威描述；配合底层系统调用 <a href="https://man7.org/linux/man-pages/man2/brk.2.html">brk(2)</a> 与 <a href="https://man7.org/linux/man-pages/man2/mmap.2.html">mmap(2)</a> 阅读。</p>
+
+<h2>为什么这对课程使命重要</h2><p>无锁代码的动机通常是热路径上的分配：共享状态必须住在稳定的地方。确切知道 <code>new</code> 何时变成 mmap+缺页，就能解释为什么"每个元素都分配"的'无锁'队列可能输给不分配的阻塞队列——而第 3 课会把"你分配的那个对象"究竟是什么讲清楚。</p>
+
+<p class="next"><a href="0003-cpp-object-model.zh.html">下一课：C++ 对象模型 →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

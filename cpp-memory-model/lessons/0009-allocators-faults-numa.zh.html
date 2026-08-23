@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>第 9 课 — 分配器、缺页、THP 与 NUMA</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ 内存模型 · 第 9 课</span><span><a class="langbtn" href="0009-allocators-faults-numa.html" title="Switch to English">EN</a></span></div>
+  <h1>分配器、缺页、THP 与 NUMA</h1>
+  <p class="dek"><code>new</code> 预约的是地址空间而不是内存——内核只在首次写入时才交出物理页，而物理页<em>放在哪</em>、<em>有多大</em>才决定你真实的延迟。</p>
+</div>
+
+<h2>内存不是分配时就有，而是触碰时才有</h2>
+<p>当你 <code>new char[1&lt;&lt;30]</code> 分配 1&nbsp;GB 时，glibc 的 malloc 发现请求远超 <code>M_MMAP_THRESHOLD</code>（默认 128&nbsp;KB），于是调用 <code>mmap(NULL, 1&lt;&lt;30, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, ...)</code>。内核的举动令人意外：它只是把一段<em>虚拟</em>地址映射到"保留且清零"的状态，微秒级返回。RSS 几乎不动。</p>
+<p>物理内存是惰性出现的。对每个 4&nbsp;KB 页的首次<em>写入</em>触发一次 <strong>minor page fault</strong>（次缺页）；缺页处理函数映射一个清零的物理页，即"按需清零分页"（demand-zero paging，见 man7 的 <a href="https://man7.org/linux/man-pages/man2/mmap.2.html">mmap(2)</a> 以及 Ulrich Drepper《What Every Programmer Should Know About Memory》§4.1–4.3）。对未触碰的匿名页首次<em>读取</em>则映射共享零页（写时复制），纯读取几乎不占内存。</p>
+<p>你早就感受过后果只是不知道原因：新分配的容器有"热身期"（第一遍被缺页卡住而非 CPU）、1&nbsp;GB 缓冲的 <code>memset</code> 是 ~25 万次缺页加 DRAM 带宽、fork 出的服务进程写共享页会触发 COW 缺页。测量方式：</p>
+<pre><code>#include &lt;sys/resource.h&gt;
+#include &lt;cstdio&gt;
+
+long minflt() {
+    struct rusage ru; getrusage(RUSAGE_SELF, &amp;ru);
+    return ru.ru_minflt;               // 次缺页 = 被按需清零的页数
+}
+
+int main() {
+    constexpr size_t N = 1 &lt;&lt; 30;      // 1 GiB
+    char* p = new char[N];
+    long before = minflt();
+    for (size_t i = 0; i &lt; N; i += 4096) p[i] = 1;   // 每页摸一个字节
+    std::printf("faults=%ld (expect ~%zu)\n", minflt() - before, N / 4096);
+}</code></pre>
+<p>或者从外部观测：<code>perf stat -e page-faults,minor-faults ./a.out</code>，用 <code>pmap -x &lt;pid&gt;</code> 或 <code>top</code> 看 RSS 一页一页地爬升。</p>
+
+<h2>NUMA：页住在首次写入它的地方</h2>
+<p>在双路机器上，每个 CPU 封装有各自的内存控制器和本地 DRAM。物理页归属哪个 NUMA 节点由<strong>首次触碰策略</strong>（默认策略，见 man7 的 <code>numa(7)</code>）决定：谁引发缺页，页就归谁的节点。如果 socket 0 上的线程 A 初始化一个大数组、socket 1 上的线程 B 来处理它，B 的每次访存都要跨互连（x86 的 UPI、ARM 服务器的一致性网格）——延迟约 1.5–2 倍，带宽只剩一部分。</p>
+<p>这是多线程数值计算中最常被漏掉的性能 bug：代码是对的，布局是错的。用 <code>numastat -p &lt;pid&gt;</code> 诊断（看 <code>numa_miss</code>/<code>numa_foreign</code> 是否增长）或 <code>perf c2c</code>。修复方法：谁用谁初始化，或者显式绑核绑存：</p>
+<pre><code>numactl --cpunodebind=1 --membind=1 ./worker   # 全部放在节点 1
+numactl --interleave=all ./worker              # 页轮询分布（带宽受限型）</code></pre>
+<p>macOS arm64 桌面是 UMA——单芯片统一内存——所以本节最好在 Linux 服务器或 CI 上做实验；但概念同样解释了 Apple Silicon 核心簇间的 L2 不对称。</p>
+
+<h2>透明大页：更少 TLB miss，偶发的尾延迟</h2>
+<p>TLB 表项有限；用 4&nbsp;KB 页时 1&nbsp;GB 工作集要 ~26 万个表项。一个 2&nbsp;MB 大页用一个 TLB 项覆盖 512 个小页——对数组扫描类负载（哈希表、GC 堆、稠密矩阵）可把 TLB miss 减少一个数量级，遍历提速 10–30%（Drepper §6.2.2 有精确测量）。</p>
+<p>THP 有 <code>always</code>、<code>madvise</code>、<code>never</code> 三档（<code>/sys/kernel/mm/transparent_hugepage/enabled</code>）。<code>always</code> 的问题：内核的 <code>khugepaged</code> 线程激进地合并、整理内存，一个每 2&nbsp;MB 只写 4&nbsp;KB 的程序会发现 RSS 被向上取整 ~512 倍，而内存整理会把线程卡住几毫秒——这就是经典的数据库运维事故（MongoDB、Redis、PostgreSQL 的官方文档都建议改成 <code>madvise</code>）。生产环境的调优答案是：</p>
+<pre><code>echo madvise &gt; /sys/kernel/mm/transparent_hugepage/enabled
+// 再在程序里对真正需要的热点区域：
+madvise(buf, len, MADV_HUGEPAGE);   // 该区间显式启用 THP</code></pre>
+<p>验证：查 <code>/proc/&lt;pid&gt;/smaps</code>，看每个区域是否出现 <code>AnonHugePages: 2048 kB</code>。macOS 没有用户可见的 THP 开关；改用 <code>vmmap &lt;pid&gt;</code> 观察 16&nbsp;KB 基础页和各区域大小。</p>
+
+<h2>分配器版图</h2>
+<p><strong>glibc malloc</strong>（ptmalloc2 血统）：小分配来自每线程<em>arena</em>（64 位下最多 8×核数），线程之间几乎不抢锁；每个线程还有 <em>tcache</em>——一个无锁的每线程空闲链表缓存，优先于一切被检查。尺寸分桶：≤~160&nbsp;B 走 tcache/fastbin（单链表 push，无锁），到 1&nbsp;KB 走 smallbin，更大走 unsorted/largebin。大请求（默认 ≥128&nbsp;KB）直接 <code>mmap</code>，<code>free()</code> 即 <code>munmap</code>——内存立刻还给操作系统。而 arena 的堆块只有顶部连续空闲时才归还（<code>M_TRIM_THRESHOLD</code>），所以长期运行的服务的 RSS 通常是历史高水位而非当前用量。调优：<code>mallopt()</code>、环境变量 <code>MALLOC_ARENA_MAX</code>（JVM 侧运维常设 2–4，以争用换抗碎片）。</p>
+<p><strong>tcmalloc</strong>（Google）：每个线程有线程缓存，按 size class 组织空闲链表——快路径上的 malloc/free 只是几条指令、零原子操作；缓存空了/满了就批量向 central cache 补货/退货，后者通过 pagemap 元数据管理 page-heap 的 span。内存经 <code>ReleaseFreeMemory()</code> / 后台释放线程延迟归还。文档见 <a href="https://github.com/google/tcmalloc/blob/master/docs/design.md">google/tcmalloc design.md</a>。</p>
+<p><strong>jemalloc</strong>：按 size class 从 per-CPU/arena 的 extent 里分配，并有显式的<em>衰减式清理</em>——脏页按指数衰减计划归还操作系统（<code>dirty_decay_ms</code> / <code>muzzy_decay_ms</code>），三者中 RSS 曲线最温和，代价是更多 madvise 流量。</p>
+<p><strong>自定义 arena 与 slab</strong>在分配<em>形态</em>已知时获胜：游戏用帧 arena（bump 指针分配，帧末整体丢弃——零碎片、零单对象开销）；HFT 与嵌入式用定长对象 slab，把 malloc 彻底赶出热路径并让碎片不可能存在。第 8 课的 cache-line 思维同样适用：能从快路径上删掉分配器，就删。</p>
+<table>
+  <tr><th>负载</th><th>选</th><th>理由</th></tr>
+  <tr><td>通用服务、混合大小</td><td>glibc 默认或 jemalloc</td><td>若痛点是 RSS 膨胀/碎片则 jemalloc</td></tr>
+  <tr><td>海量短命小对象、线程多</td><td>tcmalloc / mimalloc</td><td>线程缓存消灭锁争用</td></tr>
+  <tr><td>长期稳定服务、RSS 涨</td><td>jemalloc 或限制 arena 数</td><td>衰减清理、arena 有界</td></tr>
+  <tr><td>帧式（游戏、仿真）</td><td>arena / bump 分配器</td><td>free 就是指针算术</td></tr>
+  <tr><td>定长对象（HFT、嵌入式）</td><td>slab / 空闲链表池</td><td>确定性、热身后无锁</td></tr>
+  <tr><td>大数组、顺序访问</td><td>mmap + MADV_HUGEPAGE</td><td>TLB 覆盖、缺页节奏自己掌控</td></tr>
+</table>
+
+<div class="keystone"><span class="label">Keystone</span><strong>分配是承诺，首次触碰才是行动。</strong><code>new</code> 只是预订虚拟地址空间；首次写入触发的缺页才真正决定物理内存、NUMA 归属与页大小——所以初始化循环就是<em>放置策略</em>，而分配器的选择是页何时归还的策略。</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>一个线程初始化、另一个线程计算。</strong>所有页都落在初始化线程的 socket 上，计算循环的每次 cache miss 都要付跨节点延迟。同理：延迟敏感服务把 THP 设为 <code>always</code>——RSS 膨胀且 khugepaged 带来毫秒级停顿。</div>
+
+<h2>检索它</h2>
+<div class="quiz">
+  <details><summary>为什么 <code>new char[1&lt;&lt;30]</code> 之后 RSS 几乎为零？</summary><p class="answer">匿名 mmap 只保留虚拟地址空间，物理页在首次触碰缺页时才挂上。</p><p class="why">按需清零分页：写一页触发一次 minor fault，内核映射一个清零物理帧；只读触碰可能映射共享零页（COW）。</p></details>
+  <details><summary>Linux 默认策略下，哪个 NUMA 节点拥有一页由什么决定？</summary><p class="answer">首次写入该页的线程所在 CPU 的节点（first-touch）。</p><p class="why">本地分配策略让缺页节点出内存，所以初始化即放置——用 <code>numactl --cpunodebind --membind</code>，或者在哪算就在哪初始化。</p></details>
+  <details><summary>说出透明大页的一个收益和一个代价。</summary><p class="answer">收益：每表项 512 倍 TLB 覆盖；代价：RSS 向上取整膨胀与 khugepaged 整理停顿。</p><p class="why">所以生产上的调优是 <code>madvise</code> 档 + 对热点区域显式 <code>madvise(MADV_HUGEPAGE)</code>，而非全局 <code>always</code>。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">试一试 — 20 分钟</span>
+<p>在 Linux（或 VM/容器）上：</p>
+<pre><code>// faultdemo.cpp — clang++ -std=c++20 -O2 faultdemo.cpp
+#include &lt;sys/mman.h&gt;
+#include &lt;sys/resource.h&gt;
+#include &lt;chrono&gt;
+#include &lt;cstdio&gt;
+#include &lt;vector&gt;
+
+long minflts() { struct rusage ru; getrusage(RUSAGE_SELF, &amp;ru); return ru.ru_minflt; }
+
+int main(int argc, char**) {
+    constexpr size_t GB = 1 &lt;&lt; 30;
+    bool huge = argc &gt; 1;                       // argv[1] =&gt; MADV_HUGEPAGE
+    std::vector&lt;char*&gt; bufs;
+    char* p = (char*)mmap(nullptr, GB, PROT_READ|PROT_WRITE,
+                          MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    if (huge) madvise(p, GB, MADV_HUGEPAGE);
+    auto t0 = std::chrono::steady_clock::now();
+    long f0 = minflts();
+    for (size_t i = 0; i &lt; GB; i += 4096) p[i] = 1;   // "触碰每一页"
+    auto t1 = std::chrono::steady_clock::now();
+    std::printf("faults=%ld  time=%.1f ms (huge=%d)\n",
+        minflts() - f0,
+        std::chrono::duration&lt;double, std::milli&gt;(t1 - t0).count(), huge);
+}</code></pre>
+<p>先 <code>./a.out</code> 再 <code>./a.out huge</code>：预期 ~26.2 万次缺页、每页 10–25 ns；THP 以 2&nbsp;MB 页 backing 后预期 ~512 次缺页（循环仍触碰 26 万个地址，但只有 512 个页成真）且耗时明显下降。用 <code>perf stat -e page-faults,minor-faults,dTLB-load-misses ./a.out</code> 交叉验证，并 <code>cat /proc/$(pgrep a.out)/smaps | grep AnonHuge</code>。macOS arm64：THP 部分不适用，但缺页计数有效——用 <code>vmmap &lt;pid&gt;</code> 观察匿名 MALLOC_LARGE 区域的增长。</p>
+</div>
+
+<h2>一手来源</h2>
+<p><a href="https://man7.org/linux/man-pages/man2/mmap.2.html">man7 的 mmap(2)</a> 加 Drepper 的 <a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">《What Every Programmer Should Know About Memory》</a>：手册页定义了你测量所依赖的按需分页契约，Drepper §6 给出了你刚复现的 NUMA 与大页基准。</p>
+
+<h2>这与课程使命的关系</h2>
+<p>本课从原子操作一路下探到硅；这一层是地板下面的地板——虚拟内存与分配器机制决定了你精心做 cache-line 对齐、写对 acquire/release 的数据结构是否真的<em>住</em>在核心附近。明天的大作业环形队列默认这一切都正常：它的缓冲区必须在基准测试前预热触碰，否则你测的是缺页，不是队列。</p>
+
+<p class="next"><a href="0010-lock-free-spsc-capstone.zh.html">下一课：大作业——无锁 SPSC 环形队列 →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

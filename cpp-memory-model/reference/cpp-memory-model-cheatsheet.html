@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>C++ Memory Model — Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Reference</span><span><a class="langbtn" href="cpp-memory-model-cheatsheet.zh.html" title="切换到中文">中</a></span></div>
+  <h1>C++ Memory Model Cheat Sheet</h1>
+  <p class="dek">One page from silicon to std::atomic.</p>
+</div>
+
+<h2>Happens-before mini-map</h2>
+<pre><code>sequenced-before (same thread)   ┐
+                                  ├─&gt; happens-before ─&gt; visible side effects
+synchronizes-with (release/acquire)┘
+  release store X  ──synchronizes-with──&gt;  acquire load that reads X
+  A happens-before B  ⇒  writes before A are visible after B; race-free order
+</code></pre>
+
+<h2>The six memory orders</h2>
+<table>
+<tr><th>Order</th><th>Allowed on</th><th>Guarantee</th><th>Typical use</th></tr>
+<tr><td><code>relaxed</code></td><td>load, store, RMW</td><td>atomicity + single modification order only</td><td>counters, stats, owned indices</td></tr>
+<tr><td><code>consume</code></td><td>load</td><td>deprecated; treated as acquire</td><td>don't</td></tr>
+<tr><td><code>acquire</code></td><td>load, RMW</td><td>later reads/writes can't move before it</td><td>receiving end of publish, lock()</td></tr>
+<tr><td><code>release</code></td><td>store, RMW</td><td>earlier reads/writes can't move after it</td><td>publishing end, unlock()</td></tr>
+<tr><td><code>acq_rel</code></td><td>RMW only</td><td>acquire + release in one op</td><td>fetch_add on flags, CAS in algorithms</td></tr>
+<tr><td><code>seq_cst</code></td><td>all</td><td>acq_rel + one global total order</td><td>default; fences, flag pairs, when unsure</td></tr>
+</table>
+
+<h2>Publish pattern</h2>
+<pre><code>// Producer                                  // Consumer
+data = 42;                    // plain        while (!flag.load(std::memory_order_acquire))
+flag.store(1, std::memory_order_release);          ;
+                              assert(data == 42); // guaranteed
+</code></pre>
+
+<h2>x86-64 vs ARM64 codegen</h2>
+<table>
+<tr><th>Operation</th><th>x86-64</th><th>ARM64</th></tr>
+<tr><td>relaxed / acquire load</td><td><code>mov</code> (free)</td><td><code>ldr</code> / <code>ldar</code></td></tr>
+<tr><td>release store</td><td><code>mov</code> (free)</td><td><code>stlr</code></td></tr>
+<tr><td>seq_cst load</td><td><code>mov</code></td><td><code>ldar</code></td></tr>
+<tr><td>seq_cst store</td><td><code>xchg</code> or <code>mov</code>+<code>mfence</code></td><td><code>stlr</code></td></tr>
+<tr><td>seq_cst RMW</td><td><code>lock cmpxchg</code> / <code>lock xadd</code></td><td><code>ldaxr</code>/<code>stlxr</code> loops</td></tr>
+</table>
+
+<h2>Address space of a process</h2>
+<pre><code>high  ┌──────────────┐ stack (grows down, ~8MB default, auto-grow)
+      │      ...      │
+      ├──────────────┤ mmap region: libs, big mallocs (≥128KB), thread stacks
+      ├──────────────┤ heap (brk, grows up)
+      ├──────────────┤ .bss   zero-initialized globals (demand-zero)
+      ├──────────────┤ .data  initialized globals
+      ├──────────────┤ .rodata  string literals, const tables
+low   └──────────────┘ .text  code (r-x)
+</code></pre>
+
+<h2>glibc malloc: size → mechanism</h2>
+<table>
+<tr><th>Request size</th><th>Mechanism</th><th>free() behavior</th></tr>
+<tr><td>≤ ~160 B</td><td>tcache / fastbin (per-thread, lockless)</td><td>returned to free list</td></tr>
+<tr><td>~160 B – 1 KB</td><td>smallbin, per-thread arena</td><td>free list, arena keeps pages</td></tr>
+<tr><td>1 KB – 128 KB</td><td>unsorted/largebin, arena heap</td><td>free list; top-trim only</td></tr>
+<tr><td>≥ 128 KB (<code>M_MMAP_THRESHOLD</code>)</td><td>direct <code>mmap</code></td><td><code>munmap</code> — instant return to OS</td></tr>
+</table>
+
+<h2>MESI in four lines</h2>
+<ul>
+<li><strong>M</strong>odified — this cache has it, memory is stale; must write back on eviction.</li>
+<li><strong>E</strong>xclusive — this cache alone has a clean copy; can write silently.</li>
+<li><strong>S</strong>hared — clean, possibly in many caches; writes need invalidation.</li>
+<li><strong>I</strong>nvalid — no valid copy; a read is a cache miss (possibly cross-core).</li>
+</ul>
+
+<h2>False sharing fix</h2>
+<pre><code>struct alignas(64) Counters {          // one hot counter per cache line
+    std::atomic&lt;uint64_t&gt; a{0};
+    char pad[64 - sizeof(std::atomic&lt;uint64_t&gt;)];
+};                                      // x86: 64; Apple arm64: prefer 128
+</code></pre>
+
+<h2>Latency ladder (order of magnitude)</h2>
+<table>
+<tr><td>register / L1</td><td>~1 ns / ~4 cycles</td><td>L2</td><td>~4 ns / ~12 cy</td></tr>
+<tr><td>L3</td><td>~15–40 ns</td><td>DRAM (local)</td><td>~80–100 ns</td></tr>
+<tr><td>cross-NUMA DRAM</td><td>~130–200 ns</td><td>mutex uncontended</td><td>~15–25 ns</td></tr>
+<tr><td>mutex contended</td><td>~100 ns–µs</td><td>page fault (minor)</td><td>~1–5 µs</td></tr>
+<tr><td>context switch</td><td>~1–10 µs</td><td>major fault (disk)</td><td>ms</td></tr>
+</table>
+
+<h2>Data-race decision flow</h2>
+<pre><code>Is a memory location accessed from multiple threads?
+├─ no  ─&gt; plain code, done.
+└─ yes ─&gt; any non-atomic write? any atomic+non-atomic mix?
+         ├─ yes ─&gt; establish happens-before (mutex, acquire/release)
+         │        or make ALL accesses atomic — otherwise: DATA RACE = UB.
+         └─ no (all atomic) ─&gt; pick the WEAKEST order that is still correct,
+                                not the strongest you know.
+</code></pre>
+
+<h2>Tool commands</h2>
+<pre><code>clang++ -std=c++20 -g -fsanitize=thread prog.cpp   # TSAN: race + HB checker
+perf stat -e page-faults,minor-faults ./a.out       # fault counts
+perf stat -e dTLB-load-misses,L1-dcache-load-misses ./a.out
+pmap -x &lt;pid&gt;            # memory map + RSS       numactl --cpunodebind=0 --membind=0 ./a.out
+numastat -p &lt;pid&gt;        # NUMA placement          vmmap &lt;pid&gt;   # macOS
+godbolt.org             # codegen: check mov vs xchg vs ldar/stlr
+</code></pre>
+
+<p class="next"><a href="../lessons/0001-what-is-a-memory-model.html">Lesson 1: What is a memory model? →</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

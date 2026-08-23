@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — Acquire/Release vs seq_cst vs Relaxed in Practice</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 6</span><span><a class="langbtn" href="0006-acquire-release-seq-cst-relaxed.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Acquire/Release vs seq_cst vs Relaxed in Practice</h1>
+  <p class="dek">Acquire/release is for publishing data, relaxed is for data nobody orders through, and seq_cst is for when multiple atomics must be seen in one order by everyone.</p>
+</div>
+
+<h2>The canonical publish pattern</h2>
+<p>One release store pairs with one acquire load; the synchronizes-with edge makes everything the producer wrote visible to everything the consumer does after the load (per <a href="https://preshing.com/20120913/acquire-and-release-semantics/">Preshing, Acquire and Release Semantics</a>):</p>
+<pre><code>struct Widget { int a, b; std::string name; };
+Widget payload;                       // plain data
+std::atomic&lt;bool&gt; ready{false};
+
+// Producer thread
+payload.a = 1; payload.b = 2; payload.name = "hi";   // (1)
+ready.store(true, std::memory_order_release);        // (2) publishes (1)
+
+// Consumer thread
+while (!ready.load(std::memory_order_acquire)) {}    // (3) sees (2)
+// (2) synchronizes-with (3): (1) happens-before everything below
+assert(payload.a == 1 &amp;&amp; payload.name == "hi");      // cannot fire</code></pre>
+<p>Swap either order for <code>relaxed</code> and the assert becomes a coin-flip: the flag still flips atomically, but no edge exists, so the payload writes may not be visible.</p>
+
+<h2>Relaxed: right for counters, wrong for lifetimes</h2>
+<p>When no other memory is ordered <em>through</em> the atomic, relaxed is correct and fast: statistics, progress counters, sequence-number generation. But a <strong>refcount decrement must never be relaxed</strong>. The last release of a shared object must happen-after every access by every other thread that held a reference — that's the "last-release" pattern, and it requires the decrement to be <code>acq_rel</code> (or seq_cst): acquire so the destructor sees all other threads' accesses to the object, release so your own accesses are ordered before destruction. A relaxed decrement can let the destructor run while another thread is still inside a method.</p>
+
+<h2>seq_cst: when you need one order everyone agrees on</h2>
+<p>Acquire/release gives pairwise edges. Sometimes you need a <strong>total order</strong> over several atomics observed from several threads. Two canonical cases:</p>
+<p><strong>IRIW (Independent Reads of Independent Writes)</strong> — four threads:</p>
+<pre><code>// T1: x.store(1, release);        // T2: y.store(1, release);
+// T3: r1 = x.load(acquire);  r2 = y.load(acquire);
+// T4: r3 = y.load(acquire);  r4 = x.load(acquire);
+// Can observe r1==1, r2==0, r3==1, r4==0? With acquire/release: YES.
+// With seq_cst: NO — all threads agree x's store preceded y's.</code></pre>
+<p><strong>Dekker-style store-then-load</strong> — two threads each store their flag then check the other's:</p>
+<pre><code>// T1: a.store(1, release);  if (b.load(acquire) == 0) enter();
+// T2: b.store(1, release);  if (a.load(acquire) == 0) enter();
+// With release+acquire, BOTH threads can see the other's flag == 0
+// and both enter. Each load acquired the other's store... in
+// different orders, because there is no shared total order.
+// With seq_cst, at least one sees 1 — the stores are totally ordered.</code></pre>
+
+<h2>The decision table</h2>
+<ul>
+<li><strong>Default: seq_cst.</strong> Correct in every pattern above; costs a fence only on stores, and only on TSO ISAs.</li>
+<li><strong>Relax to release (store) / acquire (load)</strong> when you're publishing or consuming data through a single flag — the pairwise edge is exactly what you need.</li>
+<li><strong>Relax to relaxed</strong> only for standalone counters/statistics whose value nobody uses to order other memory.</li>
+<li><strong>acq_rel</strong> for RMWs that both publish and consume — fetch_sub on a refcount is the textbook case.</li>
+</ul>
+<p>Mixed orders on the same atomic are a smell — they signal someone optimized one access without proving the edges still form. But mixed is sometimes right: <code>relaxed</code> increments with an <code>acq_rel</code> decrement on the same refcount is precisely the correct asymmetry (increments publish nothing; the final decrement terminates a lifetime).</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>Ask "who observes what, in which direction?"</strong> Publishing: release store + acquire load. Lifetime termination: acq_rel RMW. Multiple atomics, multiple observers, one story: seq_cst. Nobody observes through it: relaxed.</div>
+<div class="antipattern"><span class="label">Anti-pattern</span><strong><code>fetch_sub(1, std::memory_order_relaxed)</code> on a refcount.</strong> The last decrement doesn't order against other threads' reads of the object, so the destructor can race with a still-running method — UB dressed up as an optimization.</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+<details><summary>Why does the publish pattern need release on the store and not just seq_cst on the load?</summary><p class="answer">Because synchronizes-with requires a releasing write paired with an acquiring read of that same value; the edge needs both endpoints.</p><p class="why">A seq_cst load alone orders nothing against a relaxed or plain store; ordering is a property of the pair, not one side.</p></details>
+<details><summary>In the Dekker pattern, what do both threads observe with release/acquire that seq_cst forbids?</summary><p class="answer">Both can load the other's flag as 0 and enter the critical section simultaneously.</p><p class="why">The two store→load orders conflict but acquire/release permits each pair independently; only a single total order over all seq_cst ops rules the outcome out.</p></details>
+<details><summary>Why is relaxed correct for refcount increments but not the decrement?</summary><p class="answer">An increment publishes no data and guards no lifetime; the decrement that reaches zero must happen-after all other threads' accesses.</p><p class="why">acq_rel on the decrement creates the edges; a relaxed decrement destroys objects with readers still inside.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 25 minutes</span>
+<pre><code>// refcount.cpp — build: clang++ -std=c++20 -O2 -pthread refcount.cpp
+#include &lt;atomic&gt;
+#include &lt;thread&gt;
+#include &lt;cstdio&gt;
+
+struct Handle {
+  std::atomic&lt;int&gt; refs{1};
+  int value = 42;
+  void add_ref()   { refs.fetch_add(1, std::memory_order_relaxed); }
+  void release_ref() {
+    if (refs.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;
+  }
+};
+
+int main() {
+  auto* h = new Handle;
+  h-&gt;add_ref();
+  std::thread t([h]{ h-&gt;add_ref(); h-&gt;release_ref(); });  // exercises value
+  std::thread u([h]{ std::printf("%d\n", h-&gt;value); });    // plain read
+  t.join(); u.join();
+  h-&gt;release_ref();   // destructor runs only after every reader finished
+}</code></pre>
+<p>1. Compile and run — output 42, clean exit. Then run under <code>-fsanitize=thread</code>: no report (the acq_rel edge orders the final delete).<br>
+2. Change the decrement to <code>memory_order_relaxed</code> and reason on paper: which pair of accesses is now unordered? Explain why TSAN may still not catch it (races on <code>this</code> after deletion).<br>
+3. Restore acq_rel; switch increment to seq_cst and measure a tight add/release loop — the drop in throughput is the price you refused to pay.</p>
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://preshing.com/20120913/acquire-and-release-semantics/">Jeff Preshing — Acquire and Release Semantics</a> — the clearest single articulation of what each half of the edge guarantees and on which CPUs it's free.</p>
+
+<h2>Why this matters for the mission</h2>
+<p>This lesson is the decision layer every later topic sits on: fences (Lesson 7) are hand-rolled versions of these edges, and lock-free structures (Lessons 9-10) are publish patterns and RMWs composed at scale.</p>
+
+<p class="next"><a href="0007-fences-and-data-races.html">Next: Fences, Data Races, and UB →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

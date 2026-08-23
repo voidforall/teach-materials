@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>第 10 课 — 大作业：无锁 SPSC 环形队列</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ 内存模型 · 第 10 课</span><span><a class="langbtn" href="0010-lock-free-spsc-capstone.html" title="Switch to English">EN</a></span></div>
+  <h1>大作业：无锁 SPSC 环形队列</h1>
+  <p class="dek">课程的一切——顺序、原子变量的所有权、伪共享——压缩成正确的四十行：一个单生产者/单消费者环形队列，relaxed、acquire、release 各司其职，一个都不多余。</p>
+</div>
+
+<h2>为什么 SPSC 是完美的大作业</h2>
+<p>一个生产者线程、一个消费者线程、一个有界缓冲。这个约束让每个下标只有<em>唯一的写者</em>，而单写者原子正是内存模型变得优雅的地方：下标的主人可以用 <code>relaxed</code> 更新自己的下标（暂时没别人需要与它排序），而读<em>对方</em>下标的一侧需要 <code>acquire</code>/<code>release</code>，让槽内容在下标移动之前/之后变得可见。没有 CAS、没有重试循环——每步操作在有限步内完成，所以它<strong>wait-free</strong>（无等待），而不只是 lock-free。</p>
+
+<h2>带注释的实现</h2>
+<pre><code>#include &lt;atomic&gt;
+#include &lt;cstddef&gt;
+#include &lt;array&gt;
+#include &lt;optional&gt;
+
+// 缓存行填充（第 8 课）：head 与 tail 绝不能同行，
+// 否则生产者与消费者会让该行在缓存之间打乒乓。
+struct alignas(64) PaddedAtomic {                 // x86 用 64；Apple arm64
+    std::atomic&lt;size_t&gt; v{0};                     // 用 128（fetchadd 碰撞域）
+    PaddedAtomic() = default;
+    PaddedAtomic(const PaddedAtomic&amp; o) : v(o.v.load()) {}
+};
+
+template &lt;typename T, size_t Cap&gt;                 // Cap 必须是 2 的幂
+class SpscRing {
+    static_assert((Cap &amp; (Cap - 1)) == 0);
+    std::array&lt;T, Cap&gt; buf_{};
+    PaddedAtomic head_{};   // 消费者侧位置（下一个读）
+    PaddedAtomic tail_{};   // 生产者侧位置（下一个写）
+    char pad_[64 - sizeof(PaddedAtomic) % 64];     // 数据也别挤上这两行
+
+    static size_t idx(size_t v) { return v &amp; (Cap - 1); }   // 廉价取模
+
+public:
+    bool push(const T&amp; t) {
+        size_t tail = tail_.v.load(std::memory_order_relaxed); // tail 归我
+        size_t head = head_.v.load(std::memory_order_acquire); // 看见消费者腾位
+        if (tail - head == Cap) return false;      // 满
+        buf_[idx(tail)] = t;                       // 先写槽……
+        tail_.v.store(tail + 1, std::memory_order_release);   // ……再发布
+        return true;                               // release 与消费者的
+    }                                              // acquire load 配对
+    std::optional&lt;T&gt; pop() {
+        size_t head = head_.v.load(std::memory_order_relaxed); // head 归我
+        size_t tail = tail_.v.load(std::memory_order_acquire); // 看见生产者的数据
+        if (head == tail) return std::nullopt;     // 空
+        T t = buf_[idx(head)];                     // 先读槽……
+        head_.v.store(head + 1, std::memory_order_release);   // ……再腾位
+        return t;                                  // release 与生产者的
+    }                                              // acquire load 配对
+};
+</code></pre>
+<p>把注释读成前面课程的三条规则：(1)<em>自己的下标用 relaxed</em>——只有你写它，而你自己对它的读由 sequenced-before 排序；(2)<em>对方的下标用 acquire</em>——这次 load 必须与对面的 release store 同步，使 store <em>之前</em>写入的槽内容在 load <em>之后</em>可见（第 3 课的发布模式）；(3)<em>自己的下标更新用 release</em>——让对面 acquire 读到它时也看见你对槽做的事。下标单调递增、按掩码折进数组，所以容量判断 <code>tail - head == Cap</code> 在无符号回绕下依然成立。</p>
+<p>为什么 <code>alignas(64)</code>？不加的话 head 和 tail 常常挤在同一缓存行；生产者写 tail、消费者写 head，这一行每次操作都在两核私有缓存间打乒乓（第 8 课的伪共享）——实测代价通常是 2–5 倍。可移植写法：<code>alignas(std::hardware_destructive_interference_size)</code>，以字面量 64/128 作后备，因为 libstdc++ 历史上把这个常量藏在特性宏后面。</p>
+
+<h2>为什么它不能朴素地推广</h2>
+<p><strong>MPMC 破坏 wait-free。</strong>多生产者时"读 tail、检查、写槽、递增 tail"不再是单写者：两个生产者可能读到同一个 tail，通用解法只有 CAS 循环（<code>compare_exchange_weak</code> 直到成功），争用下会重试——lock-free 但<em>不</em> wait-free，每次失败 CAS 都是白费的跨核流量。真正的 MPMC 队列（Vyukov、Folly）按生产者分格，把单写者性质夺回来。</p>
+<p><strong>ABA，以及我们为何躲开了。</strong>读到值 A、做点事、再"仅当仍是 A 才 CAS"的算法，会被 A→B→A 的变化欺骗——经典的"从空闲链表弹出两个节点"事故。我们的环形队列根本不比较下标：每一侧<em>独占</em>自己的下标，另一侧只读。单调计数器要绕完整个无符号范围（2<sup>64</sup> 次操作）才回绕，"同值不同代"在实践中不可能。教训：带相等比较的 CAS 招 ABA；带计数器的所有权转移绕开它。</p>
+<p><strong>现代点缀。</strong>C++20 的 <code>std::atomic_ref&lt;T&gt;</code> 让你对非原子存储施加同样的纪律（比如槽位数组的视图）——顺序规则相同，生命周期规则要注意（被引用对象必须活得比所有 atomic_ref 长）。C++20 的 <code>std::atomic::wait()/notify_one()/notify_all()</code>（Linux 背后是 futex，Darwin 是 <code>os_sync_wait_on_address</code> 一类原语）给出这个队列的阻塞版：发现队列满的生产者可以在 tail 上 <code>wait()</code>，不必自旋也不必返回 false。</p>
+
+<h2>验证与基准</h2>
+<p>先证对：两线程推弹数百万个元素、累加校验和的测试，在 <code>-fsanitize=thread</code> 下必须干净（TSAN 理解 acquire/release——它会建模我们建立的 happens-before 边）。然后测吞吐。现代 x86-64 笔记本上、两线程经共享 L3 乒乓、每次一格的典型数字：</p>
+<table>
+  <tr><th>队列</th><th>往返</th><th>备注</th></tr>
+  <tr><td>std::mutex + deque</td><td>~90–150 ns/op</td><td>争用锁 + 分配器噪声</td></tr>
+  <tr><td>SPSC 环（填充）</td><td>~20–40 ns/op</td><td>两个原子 + 一对 acquire-load</td></tr>
+  <tr><td>SPSC 环（未填充）</td><td>~60–150 ns/op</td><td>伪共享主导</td></tr>
+  <tr><td>SPSC 环（批 64）</td><td>~5–10 ns/元素</td><td>摊薄跨核信号</td></tr>
+</table>
+<p>正确的比较对象是你自己的机器；<em>比值</em>（互斥 ≈ 填充环的 3–5 倍）才是可移植的结论。没有 Linux 机器就在 <a href="https://godbolt.org">godbolt</a> 上复现。</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>单写者 ⇒ 自己 relaxed、发布 release、观察 acquire。</strong>一旦每块状态都有唯一主人，六个内存序的表坍缩成三个动词——是所有权、不是聪明，让环形队列 wait-free。</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>因为"听起来更快"而上无锁。</strong>互斥队列正确、可调试、离最优只差 3–5 倍；搞砸的无锁队列是海森 bug 工厂。用互斥，直到性能分析器证明锁争用是瓶颈、<em>而且</em>你付得起验证成本（TSAN、litmus 测试、以及有能解释 diff 中每个内存序的同事来评审）。</div>
+
+<h2>检索它</h2>
+<div class="quiz">
+  <details><summary>为什么生产者读自己的 <code>tail_</code> 可以用 <code>relaxed</code>？</summary><p class="answer">只有生产者写 tail_，它自己的读由 sequenced-before 排序。</p><p class="why">relaxed 仍保证原子性与单一全序修改；与其他线程的排序只在 acquire/release 边界需要，而槽内容可见性恰好由那里决定。</p></details>
+  <details><summary>为什么 SPSC 环 wait-free，而 CAS 循环的 MPMC 队列不是？</summary><p class="answer">SPSC 每次操作是固定的 load/store 序列；CAS 循环在争用下可能无界重试。</p><p class="why">wait-free 指任何线程无论别人如何都能在有限步完成。每个下标的单一所有权彻底消灭了比较-重试的需要。</p></details>
+  <details><summary>单调下标如何在这里绕开 ABA？</summary><p class="answer">代码从不按下标做相等比较；所有权转让让"同值"不可能意味着"不同代"。</p><p class="why">ABA 需要一次可能在旧值回收后仍成功的比较。环形队列的下标只增（每 2⁶⁴ 次操作才回绕），且每侧独占写自己的下标。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">试一试 — 40 分钟</span>
+<p>逐字敲入这个环形队列（敲，而不是粘贴，本身就是练习）。然后：</p>
+<pre><code>// bench.cpp — 一对线程，乒乓 N 个元素
+// clang++ -std=c++20 -O2 -pthread bench.cpp &amp;&amp; ./a.out
+// clang++ -std=c++20 -O2 -g -fsanitize=thread bench.cpp &amp;&amp; ./a.out   # TSAN 必须干净
+
+SpscRing&lt;uint64_t, 1024&gt; q;
+constexpr uint64_t N = 1'000'000;
+
+void producer() {
+    for (uint64_t i = 0; i &lt; N; ) {
+        if (q.push(i)) ++i;                    // 满时自旋重试即可
+        else std::this_thread::yield();
+    }
+}
+void consumer() {
+    uint64_t expect = 0, sum = 0;
+    while (expect &lt; N) {
+        if (auto v = q.pop()) { sum += *v; ++expect; }
+    }
+    assert(sum == N*(N-1)/2);                  // 正确性判据
+}</code></pre>
+<p>预期：TSAN 干净；给这对生产者-消费者计时并打印 ns/op——填充过的环预期几十 ns，而你十行写出的 <code>std::mutex</code>+<code>std::deque</code> 版本 ~100+ ns。然后<em>蓄意破坏</em>：把生产者的 tail store 从 <code>memory_order_release</code> 改成 <code>memory_order_relaxed</code>。x86-64 上 store 本来就有 release 语义，可能继续通过——那是你的机器宽容，不是代码正确。跑 TSAN 版（TSAN 建模抽象机，会报出缺失的 release），或在 godbolt/qemu 上以 ARM64 编译同一份代码，或者把 payload 加宽到超过一条 store，让撕裂/重排在足够多次迭代后可观测。观察，还原，再跑一遍干净的。</p>
+</div>
+
+<h2>一手来源</h2>
+<p><a href="https://en.cppreference.com/w/cpp/atomic/memory_order">cppreference：std::memory_order</a>——release/acquire 配对的规范性摘要，你注释里依赖的 happens-before 措辞正是原文；配合 C++20 wait/notify 页面读阻塞扩展。</p>
+
+<h2>这与课程使命的关系</h2>
+<p>这一份代码就是整个课程：硅（缓存行隔开）、抽象机（三个内存序个个承重）、工程判断（知道何时不该用它）。如果你能向同事解释这个文件里的每一个内存序，你就出师了——去拿速查表，然后去构建。</p>
+
+<p class="next"><a href="../reference/cpp-memory-model-cheatsheet.zh.html">课程完结——带走速查表 →</a></p>
+<p class="ask">有不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 8 课 — 缓存、MESI 与伪共享</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ 内存模型 · 第 8 课</span><span><a class="langbtn" href="0008-caches-mesi-false-sharing.html" title="Switch to English">EN</a></span></div>
+  <h1>缓存、MESI 与伪共享</h1>
+  <p class="dek">硬件让每个核心的缓存保持一致 —— 但一条 64 字节的缓存行同一时刻只能有一个写者，这个事实会让看起来完美并行的代码慢 5–10 倍。</p>
+</div>
+
+<h2>延迟阶梯</h2>
+<p>本课的一切都源于一张近似成本表（现代 x86 / Apple Silicon 级别核心）：</p>
+<ul>
+<li>L1 命中：约 4 个周期。L2：约 12 个周期。L3：约 40 个周期。</li>
+<li>DRAM：200+ 个周期 —— 而且每跨一个 NUMA 跳到另一路插槽的内存还会更糟。</li>
+<li>私有缓存间的一致性流量：跨核心传输一条缓存行是与 L3/DRAM 同量级（几十到几百个周期）的往返。</li>
+</ul>
+<p>缓存行 —— 当前几乎所有 CPU 上都是 <strong>64 字节</strong> —— 既是分配的基本单位，也是<strong>一致性的基本单位</strong>。就一致性协议而言，同一行里的两个变量就是一个变量。</p>
+
+<h2>一分钟讲清 MESI</h2>
+<p>每个缓存中的每一行都处于四个状态之一（状态图见 <a href="https://en.wikipedia.org/wiki/MESI_protocol">维基百科 MESI 条目</a>）：</p>
+<ul>
+<li><strong>M</strong>odified（已修改）—— 本缓存持有唯一有效副本，且是脏的（内存已过期）。</li>
+<li><strong>E</strong>xclusive（独占）—— 唯一有效副本，干净。你可以静默写入：E→M 零成本。</li>
+<li><strong>S</strong>hared（共享）—— 其他缓存可能也有有效副本，只读。</li>
+<li><strong>I</strong>nvalid（无效）—— 没有可用副本。</li>
+</ul>
+<p>对处于 <strong>S</strong> 状态的行写入会触发 <strong>RFO —— Read For Ownership（为所有权而读）</strong>：核心必须先让所有其他缓存的副本失效，并等行送达后其存储才能退休。这是你循环关键路径上的跨核心往返，而且每次冲突写都重复一次。（Intel 后来加了 F 状态；AMD 用 MOESI —— 两者都是让共享者能继续读脏行的优化，但你感受到的"写前失效"成本是一样的。）</p>
+
+<h2>一致 ≠ 一致性</h2>
+<p>这正是这门课之所以存在的微妙之处：硬件<em>是</em>缓存一致的 —— 两个核心永远不会长期对一行的内容产生分歧。那为什么还需要 <code>std::atomic</code> 和内存序？因为<strong>存储缓冲区</strong>（写操作先进入每核心的缓冲区再到达 L1，所以核心会早看到自己的写、晚看到别人的写）和<strong>指令重排</strong>。一致性说的是每个位置最终会达成一致；它对<em>不同位置的写以什么顺序变得可见</em>只字未提。正如 Sorin、Hill 与 Wood 的《A Primer on Memory Consistency and Cache Coherence》反复强调的：<strong>一致性（coherency）关乎单个位置；一致性模型（consistency，即内存模型）关乎所有操作的顺序</strong>。C++ 内存模型的存在就是为了让你可以移植地约束这个顺序。</p>
+
+<h2>伪共享</h2>
+<p>两个线程写入<em>不同</em>字段，而它们恰好共享一条 64 字节的行：没有数据竞争（不同对象），完全正确的 C++ —— 但这条行每次自增都在两个核心之间 M↔I 乒乓。你为每次迭代付出一次 RFO，而不是约 1 个周期一次自增。</p>
+<pre><code>// bench.cpp
+#include &lt;thread&gt;
+#include &lt;chrono&gt;
+#include &lt;cstdio&gt;
+
+struct Counters { long a; long b; };                      // 同一行
+struct Padded   { alignas(64) long a; alignas(64) long b; };
+
+template&lt;class C&gt;
+long run() {
+    C c{0,0};
+    auto t0 = std::chrono::steady_clock::now();
+    std::thread t1([&]{ for (long i = 0; i &lt; 100'000'000; ++i) ++c.a; });
+    std::thread t2([&]{ for (long i = 0; i &lt; 100'000'000; ++i) ++c.b; });
+    t1.join(); t2.join();
+    auto ms = std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(
+        std::chrono::steady_clock::now() - t0).count();
+    return ms;
+}
+
+int main() {
+    std::printf("shared:  %ld ms\n", run&lt;Counters&gt;());
+    std::printf("padded:  %ld ms\n", run&lt;Padded&gt;());
+}</code></pre>
+<p>在多核 x86 或 Apple Silicon 上的典型结果：共享版比填充版慢约 5–10 倍，而两个循环体生成的汇编完全相同。C++ 抽象机里没有任何东西能解释这个差距 —— 只有 64 字节的行能。</p>
+
+<h2>检测与工具</h2>
+<ul>
+<li><strong>硬件计数器</strong>：Linux 的 <code>perf c2c</code> 专为伪共享而生；普通的 HITM 类事件也能指向争用的行。macOS 则用 Instruments 的 Cache/TLB 模板。</li>
+<li><strong>源码排查</strong>：热结构体中任意两个相邻且都被频繁写入的成员。</li>
+<li><strong>修复</strong>：<code>alignas(64)</code>，或更好的 <code>alignas(std::hardware_destructive_interference_size)</code>（仅当平台提供时才有定义 —— GCC/libstdc++ 用 <code>__cpp_lib_hardware_interference_size</code> 守卫）。</li>
+<li><strong>注意</strong>：<code>[[no_unique_address]]</code> 会让空成员共享地址 —— 对 tag 类型没问题，但它也可能让编译器把你以为有填充的东西挤在一起；不要指望它避免干扰。同时也别什么都填充：填充浪费缓存容量，可能损害单线程局部性。</li>
+<li>同类思路：<strong>AoS vs SoA</strong> —— 如果你只循环一个字段，就让该字段连续存放。预取器奖励顺序访问模式；跨步指针追踪会挫败它们。（NUMA 是第 9 课的问题。）</li>
+</ul>
+
+<div class="keystone"><span class="label">关键点</span><strong>一致性的单位是 64 字节的行，不是变量。</strong>两个对象在逻辑上互不相关并不能换来性能上的互不相关 —— 只要它们共享一行且都被写入，你就会为毫无竞争的代码付出 RFO 往返的代价。</div>
+<div class="antipattern"><span class="label">反模式</span><strong>把每线程计数器打包成 <code>std::atomic&lt;long&gt;</code> 数组。</strong>八个计数器、一行、八个线程：每次自增都让行在其他人那里失效。把每个元素填充到一行（或 <code>hardware_destructive_interference_size</code>），争用就消失了。</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+<details><summary>对处于 Shared 状态的行写入代价是什么？为什么？</summary><p class="answer">一次 RFO：先跨核心往返让所有其他副本失效。</p><p class="why">MESI 要求单一写者所有权；只有从 E 或 M 才能写，所以共享行必须先在别处失效，你的存储才能退休。</p></details>
+<details><summary>缓存是一致的 —— 那 C++ 为什么还需要内存模型？</summary><p class="answer">存储缓冲区和重排会打乱不同位置之间的可见性顺序。</p><p class="why">一致性管辖单个位置；一致性模型（内存顺序）约束的是不同位置的写以何种顺序出现 —— 按 Sorin/Hill/Wood 的说法，这是两个不同的问题。</p></details>
+<details><summary>两个线程自增同一结构体中相邻的两个 <code>long</code>。这是数据竞争吗？为什么慢？</summary><p class="answer">不是竞争 —— 不同对象。慢是因为两次写落在同一条 64 字节的行上。</p><p class="why">这行在私有缓存之间 M↔I 乒乓，每次写一次 RFO；用 alignas(64) 填充把行分开即可。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">试一试 —— 15 分钟</span>
+<p>编译并运行上面的基准测试：在你的机器（macOS arm64 或 Linux）上 <code>clang++ -std=c++20 -O2 bench.cpp &amp;&amp; ./a.out</code>。记下两个数字并计算加速比 —— 预期约 5–10 倍。然后把 <code>Padded</code> 改成 <code>alignas(128)</code>。在 Apple Silicon（以及某些带相邻行预取器的 Intel）上，128 字节间距可能带来进一步提升，也可能毫无变化 —— 观察现象，并用预取器的两行窗口来解释。Linux 可选：在 <code>perf c2c record</code> / <code>perf c2c report</code> 下运行，在输出中找到你争用的那条缓存行。</p>
+</div>
+
+<h2>一手资料</h2>
+<p><a href="https://www.morganclaypool.com/doi/abs/10.2200/S00362ED1V01Y201910DCP049">Sorin, Hill &amp; Wood《A Primer on Memory Consistency and Cache Coherence》第二版第 2–4 章</a> —— 严谨又可读地讲清了一致性在哪里结束、一致性模型从哪里开始。（Drepper 的 "What Every Programmer Should Know About Memory" 是关于阶梯与缓存行的免费配套读物。）</p>
+
+<h2>为什么这对课程使命很重要</h2>
+<p>这是抽象内存模型与物理世界相遇的地方。你现在掌握了三种在源码中看起来一模一样的失效模式 —— 数据竞争（UB，第 7 课）、可见性顺序（原子操作，第 5–6 课）、一致性争用（本课）—— 并且能把它们区分开。第 9 课加上最后一个维度：内存本身在哪里（分配器、缺页、NUMA）。</p>
+
+<p class="next"><a href="0009-allocators-faults-numa.zh.html">下一课：分配器、缺页与 NUMA →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">速查表</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师 —— 这就是这个代理存在的意义。</p>
+</body>
+</html>

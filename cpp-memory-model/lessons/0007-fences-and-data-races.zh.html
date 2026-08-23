@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 7 课 — 屏障、数据竞争与未定义行为</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ 内存模型 · 第 7 课</span><span><a class="langbtn" href="0007-fences-and-data-races.html" title="Switch to English">EN</a></span></div>
+  <h1>屏障、数据竞争与未定义行为</h1>
+  <p class="dek">屏障本身不排序任何东西 —— 它只有与原子操作配对才生效；至于"有竞争但在我的机器上能跑"，那全是未定义行为。</p>
+</div>
+
+<h2>屏障三明治问题</h2>
+<p><code>std::atomic_thread_fence(memory_order_release)</code> 看起来应该表示"把之前的一切都刷出去"。并不是。附近没有原子操作的屏障实际上等于空操作：<strong>屏障不排序内存，它排序的是原子操作</strong>。Jeff Preshing 的表述（<a href="https://preshing.com/20131125/acquire-and-release-fences/">Acquire and Release Fences</a>）给出了精确规则：</p>
+<ul>
+<li><strong>释放屏障 F</strong> 与原子对象 M 上的某个<strong>获取操作 B</strong> 同步（synchronizes-with），当且仅当存在某个对 M 的<strong>原子存储 A</strong>（任意排序 —— 甚至是 <code>memory_order_relaxed</code>）<strong>先序于 F</strong>，且 B 读到 A 写入的值（或 M 修改序中更晚的值）。</li>
+<li>获取屏障的镜像规则：<strong>获取屏障 F</strong> 与 M 上的某个<strong>释放操作 A</strong> 同步，当且仅当某个对 M 的<strong>原子加载 B</strong> 在 F 之后被排序（sequenced after F），且 B 读到 A 写入的值。</li>
+</ul>
+<p>所以这个模式是一个三明治：生产者一侧是 <em>relaxed 存储 → release 屏障</em>，消费者一侧是 <em>acquire 屏障 → relaxed 加载</em>。缺少任何成分 —— 没有被屏障排序的 relaxed 加载，没有先序于 release 屏障的存储 —— 就没有 synchronizes-with 边，没有 happens-before，于是就是数据竞争。</p>
+
+<h2>屏障存在的意义</h2>
+<p>如果 acquire/release 原子操作已经能同步，还要屏障干什么？因为<strong>一个屏障可以排序许多廉价的 relaxed 原子操作</strong>。经典模式是"没有原子负载的数据依赖"：发布一组 relaxed 计数器或标志，然后在发布单个哨兵之前放一个 release 屏障；读者在看到哨兵后执行一个 acquire 屏障，于是屏障之前写入的每个 relaxed 值都保证可见。你付出一次昂贵的屏障，而不是 N 次 release 存储。无锁库（Dmitry Vyukov 的 mpmc 队列、RCU 风格的发布）就是这样构建的。</p>
+
+<h2>volatile 不是原子</h2>
+<p><code>volatile</code> 只有两个正当用途：内存映射 I/O 寄存器，以及与信号处理函数通信的 <code>sig_atomic_t</code> 风格变量。它只保证编译器不会消除或合并访问 —— 仅此而已：</p>
+<ul>
+<li>没有撕裂保护：32 位硬件上 volatile <code>int64_t</code> 的存储可能被观察到写了一半。</li>
+<li>没有 happens-before：volatile 访问既不参与 synchronizes-with，也不参与使竞争有定义的修改序。</li>
+<li>没有硬件屏障：在弱排序的 ARM 上，volatile 加载/存储编译为普通的 <code>ldr</code>/<code>str</code>，没有 <code>dmb</code>。</li>
+</ul>
+<p>在信号处理函数中，标准只认可无锁原子（用 <code>std::atomic_signal_fence</code> 做排序）和 <code>volatile std::sig_atomic_t</code>。一个非无锁原子如果在其内部堆锁的持有者被信号打断时再去找同一把锁，就是死锁。</p>
+
+<div class="keystone"><span class="label">关键点</span><strong>屏障排序的是原子操作，不是变量。</strong>释放屏障只是 synchronizes-with 边的一半；另一半是先序于它的原子存储，配上读到该值的原子加载。没有原子操作，就没有排序。</div>
+<div class="antipattern"><span class="label">反模式</span><strong>"因为更快"用 <code>volatile</code> 替换互斥量。</strong>数据竞争依然存在 —— 整个程序的行为是未定义的，而且恰好在演示时失败。volatile 只用于 MMIO 和信号处理函数；别无他用。</div>
+
+<h2>TSAN 就是事实标准</h2>
+<p>数据竞争是 UB，所以不能靠观察输出测试。ThreadSanitizer（<code>-fsanitize=thread</code>）在运行时对真实的 happens-before 图插桩，即使交错碰巧无害也会报告竞争。学会读报告：它指出两个冲突访问、内存位置，以及最有价值的 —— <em>两个线程的创建栈</em>，让你看到自己忘了建立哪条同步边。TSAN 与 ASAN 不兼容，分开跑；CI 里保留一个始终开启 TSAN 的配置。</p>
+<pre><code>$ clang++ -std=c++20 -O1 -g -fsanitize=thread race.cpp &amp;&amp; ./a.out
+WARNING: ThreadSanitizer: data race (pid=12345)
+  Write of size 4 at 0x7b0c00000c20 by thread T2:
+    #0 publish() race.cpp:12:9 (a.out+0x100003f70)
+    #1 void std::__invoke&lt;void(*)()&gt; ...
+  Previous read of size 4 at 0x7b0c00000c20 by main thread:
+    #0 consume() race.cpp:20:12 (a.out+0x100004040)
+  Location is global 'payload' of size 4
+  Thread T2 (running) created by main thread at:
+    #0 pthread_create &lt;null&gt;:12345
+    #1 main race.cpp:31:5</code></pre>
+
+<h2>互斥量 vs 原子 vs 屏障 —— 决策规则</h2>
+<ul>
+<li><strong>互斥量</strong>：默认选择。任何大于一个字的状态、任何包含多个操作的关键区、任何阻塞等待。</li>
+<li><strong>原子</strong>：单字标志、计数器、序列号 —— 操作确实只有一个字，且你能说清它的排序。</li>
+<li><strong>屏障</strong>：只属于库作者。如果你在写应用代码却伸手拿 <code>atomic_thread_fence</code>，你几乎肯定在重新发明 <code>&lt;atomic&gt;</code> 已经更安全表达的东西。</li>
+</ul>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+<details><summary>陈述 Preshing 关于释放屏障何时与获取加载同步的规则。</summary><p class="answer">当对同一对象的某个原子存储先序于该屏障，且该加载读到了存储的值。</p><p class="why">一侧的"存储+屏障"加上另一侧读到该值的加载构成这条边；单独任何一半都不排序任何东西。</p></details>
+<details><summary>为什么一个 release 屏障能发布许多 relaxed 原子变量？</summary><p class="answer">屏障的排序作用于先序于它的每一个原子存储，而不只是一个。</p><p class="why">happens-before 是传递的：屏障前的所有 relaxed 写在配对的获取读取之后都可见 —— 一次屏障，N 次发布。</p></details>
+<details><summary>C++ 信号处理函数可以安全访问什么？</summary><p class="answer">无锁原子、sig_atomic_t，以及用于排序的 atomic_signal_fence。</p><p class="why">处理函数可能打断任意代码，所以任何可能在锁持有者被挂起时再去拿同一把锁的东西都永远无法返回。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">试一试 —— 20 分钟</span>
+<p>经典的"标志+负载"竞争：</p>
+<pre><code>// race.cpp
+#include &lt;atomic&gt;
+#include &lt;thread&gt;
+#include &lt;cstdio&gt;
+int payload = 0;
+bool flag = false;                       // 有竞争的普通类型
+int main() {
+    std::thread t([]{ payload = 42; flag = true; });
+    while (!flag) {}
+    std::printf("%d\n", payload);        // TSAN 下可能打印 0 = UB
+    t.join();
+}</code></pre>
+<p>1) 用 <code>clang++ -std=c++20 -O1 -g -fsanitize=thread race.cpp</code> 编译；读报告 —— 注意即使输出"正确"它也标记竞争。2) 修复 #1：把 <code>flag</code> 改成 <code>atomic&lt;bool&gt;</code>，用 <code>release</code> 存储、<code>acquire</code> 加载。确认 TSAN 干净。3) 修复 #2：所有原子操作保持 <code>relaxed</code>，在 payload 存储之后插入 <code>atomic_thread_fence(memory_order_release)</code>，在观察到值的加载之后插入 acquire 屏障 —— Preshing 的三明治。再次确认 TSAN 干净。两种修复都正确；第二种是库在大量 relaxed 操作下共用一个屏障的做法。</p>
+</div>
+
+<h2>一手资料</h2>
+<p><a href="https://preshing.com/20131125/acquire-and-release-fences/">Preshing — Acquire and Release Fences</a> —— 关于独立屏障精确 synchronizes-with 规则的最清晰陈述，附三明治完整示例。</p>
+
+<h2>为什么这对课程使命很重要</h2>
+<p>数据竞争带来的未定义行为是"x86 上正常、ARM 上损坏"的代码上线最常见的途径。一旦你能读懂 TSAN 报告并掌握屏障规则，你既能诊断竞争，也能看懂无锁库 API 之下的实现。</p>
+
+<p class="next"><a href="0008-caches-mesi-false-sharing.zh.html">下一课：缓存、MESI 与伪共享 →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">速查表</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师 —— 这就是这个代理存在的意义。</p>
+</body>
+</html>

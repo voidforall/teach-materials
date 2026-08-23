@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 4 课 — 抽象机：Happens-Before</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · 第 4 课</span><span><a class="langbtn" href="0004-happens-before.html" title="Switch to English">EN</a></span></div>
+  <h1>抽象机：Happens-Before</h1>
+  <p class="dek">C++11 并不只是加了"一些原子操作"——它定义了一台形式化的抽象机（abstract machine），合法程序即该机允许的执行集合；其余一切（包括数据竞争）都是未定义行为。</p>
+</div>
+
+<h2>一台机器，三个关系</h2>
+<p>标准（见 <a href="https://eel.is/c++draft/intro.races">eel.is [intro.races]</a> 与 <a href="https://en.cppreference.com/w/cpp/language/memory_model">cppreference 内存模型页</a>）用求值之间的关系来定义并发：</p>
+<ul>
+<li><strong>sequenced-before（先后顺序）</strong>——你早已熟悉的单线程内排序：<code>a;</code> sequenced-before 其后的 <code>b;</code>。单线程语义自 C 以来未变。</li>
+<li><strong>synchronizes-with（同步于）</strong>——跨线程的边：线程 A 解锁 mutex、线程 B 加锁后，A 在解锁前做的一切与 B 在加锁后做的一切形成 synchronizes-with。release/acquire 原子操作也能创建同样的边（第 6 课）。</li>
+<li><strong>happens-before（发生于先）</strong>——两者的传递闭包：若 A sequenced-before B，B synchronizes-with C，C sequenced-before D，则 A happens-before D——即使跨越三个从未直接交互的线程。</li>
+</ul>
+<p>关键在于：这些是<strong>语义</strong>关系，不是硬件关系。编译器和 CPU 可以任意重排，只要保持每个线程 sequenced-before 的全序不变（<strong>as-if 规则</strong>）——对单线程程序而言这就是全部内容，所以你早已信赖的单线程推理只是本模型的一个退化特例。</p>
+
+<h2>带注释的例子：mutex 解锁 → 加锁</h2>
+<pre><code>std::mutex m;
+int payload = 0;                       // 普通、非原子
+
+// 线程 A
+payload = 42;                          // (1) sequenced-before (2)
+{ std::lock_guard&lt;std::mutex&gt; g(m); }   // (2) unlock(m)：release
+                                      //      (2) synchronizes-with (3)
+
+// 线程 B
+{ std::lock_guard&lt;std::mutex&gt; g(m); }   // (3) lock(m)：acquire
+assert(payload == 42);                 // (4) sequenced-after (3)
+                                       // (1) happens-before (4) → 定义良好</code></pre>
+<p>这个 assert 永远不会触发。不是因为 mutex"刷新了缓存"（它不需要），而是因为抽象机禁止任何让 (4) 看到旧值的执行。游戏规则全在于此：<strong>你在抽象机上推理；实现负责让它在硅片上成立</strong>。</p>
+
+<h2>数据竞争规则——是 UB，不是"读到垃圾"</h2>
+<p>两个冲突访问（同一对象、至少一个是写、且不都是原子）若不被 happens-before 排序，即构成<strong>数据竞争（data race）</strong>，含数据竞争的程序是<strong>未定义行为（UB）</strong>。这不是"你可能读到旧值"——标准对后果不做任何限制，因为优化器假设竞争不存在。最经典的表现是寄存器缓存：编译器有权把非原子 load 提升到循环外，于是循环只读一次变量、再也不读：</p>
+<pre><code>bool stop = false;               // 非原子 —— 错误
+
+// 线程 A
+while (!stop) { work(); }        // 编译器改写为：while(true) { work(); }
+                                 // load 被提升出循环；A 永远看不到 stop=true
+
+// 线程 B
+stop = true;                     // 在 as-if 下合法：任何定义良好的执行
+                                 // 都无法观察到循环"没忽略它"</code></pre>
+<p>在 <code>-O2</code> 下，所有编译器、所有 ISA 都会把它编译成死循环。这不是硬件可见性 bug——而是一个在每个定义良好的执行中都不可见的编译器变换。而这里根本没有定义良好的执行。</p>
+
+<h2>你并不孤单</h2>
+<p>每个严肃的生态都收敛到了同构的模型：Java 的 happens-before（JMM，JSR-133）、LLVM 的原子指令（编译器实际实现的 IR 级排序）、以及 Linux 内核内存模型（LKMM）。学会 C++ 这一套，词汇可直接迁移。</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>happens-before = sequenced-before ∪ synchronizes-with 的传递闭包。</strong>它是让一个线程的读与另一个线程的写有序的唯一合法方式；缺了它，你得到的不是旧值，而是 UB。</div>
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>把竞争当作"读到垃圾数据"。</strong>UB 允许编译器提升 load、下沉 store、并假设单线程不变量——失败通常是死循环或被删除的分支，而不是撕裂的值。</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+<details><summary>为什么单线程推理是内存模型的子集？</summary><p class="answer">因为限定在单线程内，happens-before 恰好就是 sequenced-before，而 as-if 规则只允许在该约束内重排。</p><p class="why">模型的设计目标就是让 C++11 之前的全部单线程语义原样保留；并发在其上叠加新的关系。</p></details>
+<details><summary>一个线程循环等待非原子 bool，另一个线程把它置真。编译器层面出了什么问题？</summary><p class="answer">该 bool 的 load 被提升出循环——缓存进寄存器——循环条件从此不再读内存。</p><p class="why">没有 synchronizes-with 边，任何定义良好的执行都无法区分提升前后的版本，as-if 因此允许它。结果就是死循环。</p></details>
+<details><summary>mutex 解锁会"刷新"此前的写吗？</summary><p class="answer">不会——它创建到下一次加锁的 synchronizes-with 边，形成 happens-before，从而保证可见性。</p><p class="why">机制是抽象的：实现用 ISA 需要的任何屏障达成它，在 x86-64 上往往根本不需要屏障。</p></details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task"><span class="label">Try it — 15 分钟</span>
+<p>竞争、观察、修复。保存：</p>
+<pre><code>// race.cpp
+#include &lt;thread&gt;
+#include &lt;cstdio&gt;
+int counter = 0;                      // 非原子
+int main() {
+  std::thread t1([]{ for (int i=0;i&lt;1'000'000;++i) ++counter; });
+  std::thread t2([]{ for (int i=0;i&lt;1'000'000;++i) ++counter; });
+  t1.join(); t2.join();
+  std::printf("%d\n", counter);       // 期望 2000000；通常更少
+}</code></pre>
+<p>1. 编译并运行 5 次：<code>clang++ -std=c++20 -O2 race.cpp &amp;&amp; for i in 1 2 3 4 5; do ./a.out; done</code>——注意丢失的更新。<br>
+2. 用 <code>-fsanitize=thread -g -O1</code> 重新编译并运行一次。阅读报告：它会给出两次访问的调用栈，并指出两者之间缺失的 happens-before 边。<br>
+3. 用 <code>std::mutex</code> 包住自增，重新在 TSAN 下运行（干净）和普通运行（总是 2000000）。你亲手创建了 synchronizes-with 边。</p>
+</div>
+
+<h2>一手资料</h2>
+<p><a href="https://eel.is/c++draft/intro.races">eel.is — [intro.races] Multi-threaded executions and data races</a>——sequenced-before、happens-before 与竞争规则的规范性定义，不到十段。</p>
+
+<h2>为什么这对课程使命重要</h2>
+<p>后续每一课——原子操作、fence、无锁队列——都是"廉价制造 happens-before 边"的机器。如果关系本身是模糊的，其余一切都是迷信。</p>
+
+<p class="next"><a href="0005-atomics-memory-orders.zh.html">下一课：std::atomic 与内存序 →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">速查表</a></p>
+<p class="ask">有不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

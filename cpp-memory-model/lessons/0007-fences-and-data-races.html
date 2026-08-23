@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 7 — Fences, Data Races, and UB</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 7</span><span><a class="langbtn" href="0007-fences-and-data-races.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Fences, Data Races, and UB</h1>
+  <p class="dek">A fence orders nothing by itself — it only works in partnership with atomic operations, and everything else about "racy but works on my machine" is undefined behavior.</p>
+</div>
+
+<h2>The fence sandwich problem</h2>
+<p><code>std::atomic_thread_fence(memory_order_release)</code> looks like it should mean "flush everything before this point". It does not. A fence with no atomic operation nearby is a no-op in practice: <strong>fences don't order memory, they order atomic operations</strong>. Jeff Preshing's formulation (<a href="https://preshing.com/20131125/acquire-and-release-fences/">Acquire and Release Fences</a>) gives the exact rule:</p>
+<ul>
+<li>A <strong>release fence F</strong> synchronizes-with an <strong>acquire operation B</strong> on atomic object M if there exists some <strong>atomic store A</strong> to M (any ordering — even <code>memory_order_relaxed</code>) that is <strong>sequenced before F</strong>, and B reads the value written by A (or a later value in M's modification order).</li>
+<li>Mirror rule for acquire fences: an acquire fence F synchronizes-with a release operation A on M if some atomic <strong>load B</strong> from M is sequenced after F and B reads the value A wrote.</li>
+</ul>
+<p>So the pattern is a sandwich: <em>relaxed store → release fence</em> on the producer side, and <em>acquire fence → relaxed load</em> on the consumer side. Miss any ingredient — no fence-ordered relaxed load, no store sequenced before the release fence — and there is no synchronizes-with edge, no happens-before, and a data race.</p>
+
+<h2>Why fences exist at all</h2>
+<p>If acquire/release atomics already synchronize, why fences? Because <strong>one fence can order many cheap relaxed atomics</strong>. The classic pattern is "data dependency without atomic payload": publish a group of relaxed counters or flags, then one release fence before publishing a single sentinel; the reader takes one acquire fence after seeing the sentinel, and every relaxed value written before the fence is now guaranteed visible. You pay one expensive barrier instead of N release stores. This is how lock-free libraries (Dmitry Vyukov's mpmc queue, RCU-style publication) are built.</p>
+
+<h2>volatile is NOT atomic</h2>
+<p><code>volatile</code> has exactly two legitimate jobs: memory-mapped I/O registers and <code>sig_atomic_t</code>-style communication with signal handlers. It guarantees the compiler will not elide or merge accesses — nothing more:</p>
+<ul>
+<li>No tearing protection: a volatile <code>int64_t</code> store on 32-bit hardware can be observed half-written.</li>
+<li>No happens-before: volatile accesses participate in neither synchronizes-with nor the modification order that makes races defined.</li>
+<li>No hardware barrier: on weakly-ordered ARM, volatile loads/stores compile to plain <code>ldr</code>/<code>str</code> with no <code>dmb</code>.</li>
+</ul>
+<p>In signal handlers, the standard only blesses lock-free atomics (<code>std::atomic_signal_fence</code> for ordering) and <code>volatile std::sig_atomic_t</code>. A non-lock-free atomic that touches a heap lock inside a handler that interrupted the lock's owner is deadlock.</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>Fences order atomics, not variables.</strong> A release fence is only half of a synchronizes-with edge; the other half is an atomic store sequenced before it paired with an atomic load that reads that value. No atomics, no ordering.</div>
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>Replacing a mutex with <code>volatile</code> "because it's faster".</strong> The data race is still there — the whole program's behavior is undefined, and it will fail precisely during the demo. volatile is for MMIO and signal handlers; nothing else.</div>
+
+<h2>TSAN is ground truth</h2>
+<p>Data races are UB, so you cannot test for them by observing output. ThreadSanitizer (<code>-fsanitize=thread</code>) instruments the actual happens-before graph at runtime and reports races even when the interleaving happened to be benign. Learn to read the report: it names the two conflicting accesses, the memory location, and — most valuably — the <em>creation stacks of both threads</em>, so you can see which synchronization edge you forgot to create. Keep TSAN runs separate from ASAN runs (they're incompatible); CI one configuration with TSAN always on.</p>
+<pre><code>$ clang++ -std=c++20 -O1 -g -fsanitize=thread race.cpp &amp;&amp; ./a.out
+WARNING: ThreadSanitizer: data race (pid=12345)
+  Write of size 4 at 0x7b0c00000c20 by thread T2:
+    #0 publish() race.cpp:12:9 (a.out+0x100003f70)
+    #1 void std::__invoke&lt;void(*)()&gt; ...
+  Previous read of size 4 at 0x7b0c00000c20 by main thread:
+    #0 consume() race.cpp:20:12 (a.out+0x100004040)
+  Location is global 'payload' of size 4
+  Thread T2 (running) created by main thread at:
+    #0 pthread_create &lt;null&gt;:12345
+    #1 main race.cpp:31:5</code></pre>
+
+<h2>Mutex vs atomic vs fence — the decision rule</h2>
+<ul>
+<li><strong>Mutex</strong>: default choice. Any state bigger than a word, any critical section with more than one operation, any blocking wait.</li>
+<li><strong>Atomic</strong>: single-word flags, counters, sequence numbers — when the operation is genuinely one word and you can name its ordering.</li>
+<li><strong>Fence</strong>: library builders only. If you're writing application code and reach for <code>atomic_thread_fence</code>, you are almost certainly re-inventing something <code>&lt;atomic&gt;</code> already expresses more safely.</li>
+</ul>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+<details><summary>State Preshing's rule for when a release fence synchronizes-with an acquire load.</summary><p class="answer">When some atomic store to the same object is sequenced before the fence, and the load reads that stored value.</p><p class="why">The store–fence pair on one side plus a reading load on the other forms the edge; either half alone orders nothing.</p></details>
+<details><summary>Why can one release fence publish many relaxed atomics?</summary><p class="answer">The fence's ordering applies to every atomic store sequenced before it, not just one.</p><p class="why">Happens-before is transitive: all relaxed writes before the fence become visible after the paired acquire read — one barrier, N publications.</p></details>
+<details><summary>What may a C++ signal handler safely touch?</summary><p class="answer">Lock-free atomics, sig_atomic_t, and atomic_signal_fence for ordering.</p><p class="why">A handler can interrupt arbitrary code, so anything that might take a lock with the lock-holder suspended can never return.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 20 minutes</span>
+<p>Classic racy flag+payload:</p>
+<pre><code>// race.cpp
+#include &lt;atomic&gt;
+#include &lt;thread&gt;
+#include &lt;cstdio&gt;
+int payload = 0;
+bool flag = false;                       // racy plain types
+int main() {
+    std::thread t([]{ payload = 42; flag = true; });
+    while (!flag) {}
+    std::printf("%d\n", payload);        // may print 0 under TSAN = UB
+    t.join();
+}</code></pre>
+<p>1) Compile with <code>clang++ -std=c++20 -O1 -g -fsanitize=thread race.cpp</code>; read the report — note it flags the race even if the output is "correct". 2) Fix #1: make <code>flag</code> an <code>atomic&lt;bool&gt;</code>, store with <code>release</code>, load with <code>acquire</code>. Verify TSAN clean. 3) Fix #2: keep all atomic ops <code>relaxed</code> and insert <code>atomic_thread_fence(memory_order_release)</code> after the payload store / <code>acquire</code> fence after the observing load — Preshing's sandwich. Verify TSAN clean again. Both fixes are correct; the second is what libraries do to batch many relaxed ops under one barrier.</p>
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://preshing.com/20131125/acquire-and-release-fences/">Preshing — Acquire and Release Fences</a> — the clearest statement anywhere of the exact synchronizes-with rule for standalone fences, with the sandwich worked example.</p>
+
+<h2>Why this matters for the mission</h2>
+<p>Undefined behavior from data races is the single most common way "works on x86, corrupts on ARM" ships. Once you can read a TSAN report and know the fence rule, you can both diagnose races and understand what lock-free library code is doing beneath its API.</p>
+
+<p class="next"><a href="0008-caches-mesi-false-sharing.html">Next: Caches, MESI, and False Sharing →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

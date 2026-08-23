@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 10 — Capstone: A Lock-Free SPSC Ring Buffer</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 10</span><span><a class="langbtn" href="0010-lock-free-spsc-capstone.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Capstone: A Lock-Free SPSC Ring Buffer</h1>
+  <p class="dek">Everything in the course — ordering, ownership of atomics, false sharing — compresses into forty correct lines: a single-producer/single-consumer ring buffer where relaxed, acquire, and release each do exactly one job.</p>
+</div>
+
+<h2>Why SPSC is the perfect capstone</h2>
+<p>One producer thread, one consumer thread, one bounded buffer. That constraint lets each index have exactly <em>one writer</em>, and single-writer atomics are where the memory model becomes elegant: the owner of an index can use <code>relaxed</code> stores for its own updates (nobody needs to be ordered against them yet), while the reader of the <em>other</em> side's index needs <code>acquire</code>/<code>release</code> so the slot contents become visible before/after the index moves. No CAS, no retry loops — every operation completes in a bounded number of steps, which makes this structure <strong>wait-free</strong>, not merely lock-free.</p>
+
+<h2>The implementation, annotated</h2>
+<pre><code>#include &lt;atomic&gt;
+#include &lt;cstddef&gt;
+#include &lt;array&gt;
+#include &lt;optional&gt;
+
+// Cache-line padding (Lesson 8): head and tail must not share a line,
+// or producer and consumer ping-pong that line between caches.
+struct alignas(64) PaddedAtomic {                 // 64 on x86; use 128 on
+    std::atomic&lt;size_t&gt; v{0};                     // Apple arm64 (fetchadd
+    PaddedAtomic() = default;                     // collision domain)
+    PaddedAtomic(const PaddedAtomic&amp; o) : v(o.v.load()) {}
+};
+
+template &lt;typename T, size_t Cap&gt;                 // Cap MUST be a power of two
+class SpscRing {
+    static_assert((Cap &amp; (Cap - 1)) == 0);
+    std::array&lt;T, Cap&gt; buf_{};
+    PaddedAtomic head_{};   // consumer-side position (next to read)
+    PaddedAtomic tail_{};   // producer-side position (next to write)
+    char pad_[64 - sizeof(PaddedAtomic) % 64];     // keep data off the lines too
+
+    static size_t idx(size_t v) { return v &amp; (Cap - 1); }   // cheap modulo
+
+public:
+    bool push(const T&amp; t) {
+        size_t tail = tail_.v.load(std::memory_order_relaxed); // I own tail
+        size_t head = head_.v.load(std::memory_order_acquire); // see consumer's frees
+        if (tail - head == Cap) return false;      // full
+        buf_[idx(tail)] = t;                       // write the slot...
+        tail_.v.store(tail + 1, std::memory_order_release);   // ...then publish
+        return true;                               // release pairs with the
+    }                                              // consumer's acquire load
+    std::optional&lt;T&gt; pop() {
+        size_t head = head_.v.load(std::memory_order_relaxed); // I own head
+        size_t tail = tail_.v.load(std::memory_order_acquire); // see producer's data
+        if (head == tail) return std::nullopt;     // empty
+        T t = buf_[idx(head)];                     // read the slot...
+        head_.v.store(head + 1, std::memory_order_release);   // ...then free it
+        return t;                                  // release pairs with the
+    }                                              // producer's acquire load
+};
+</code></pre>
+<p>Read the annotations as three rules from earlier lessons: (1) <em>your own index is relaxed</em> — only you write it, and your own reads of it are ordered by sequenced-before; (2) <em>the other side's index is acquire</em> — the load must synchronize with the release store so the slot payload written <em>before</em> the store is visible <em>after</em> the load (Lesson 3's publish pattern); (3) <em>your index update is release</em> — so the other side, acquire-loading it, also sees what you did to the slot. Indices grow monotonically and are masked into the array, so the capacity check <code>tail - head == Cap</code> works across wraparound in unsigned arithmetic.</p>
+<p>Why <code>alignas(64)</code>? Without it, head and tail typically land on one cache line; the producer stores to tail and the consumer stores to head, and that line ping-pongs between their private caches on every operation (Lesson 8's false sharing) — measured cost is typically 2–5× on contended pipelines. Portable spelling: <code>alignas(std::hardware_destructive_interference_size)</code>, with the literal 64/128 as the fallback because GCC's libstdc++ historically gated the constant behind <code>&lt;new&gt;</code> availability flags.</p>
+
+<h2>Why this doesn't generalize naively</h2>
+<p><strong>MPMC breaks wait-freedom.</strong> With multiple producers, "read tail, check, write slot, bump tail" is no longer single-writer: two producers can read the same tail, and the only general fix is a CAS loop (<code>compare_exchange_weak</code> until you win), which retries under contention — lock-free but <em>not</em> wait-free, and each failed CAS is wasted cross-core traffic. Real MPMC queues (Vyukov, Fol ly) shard into per-producer cells to claw back the single-writer property.</p>
+<p><strong>ABA, and why we dodged it.</strong> A CAS algorithm that reads value A, does work, and CASes "only if still A" is fooled if the value went A→B→A in between — a classic pop-two-nodes-off-a-freelist hazard. Our ring never compares indices at all: each side <em>owns</em> its index outright and the other side only ever reads it. Monotonic counters that wrap only through the full unsigned range (2<sup>64</sup> operations) make "same number, different epoch" impossible in practice. The lesson: CAS-with-equality-check invites ABA; ownership transfer with counters sidesteps it.</p>
+<p><strong>Modern touches.</strong> C++20 <code>std::atomic_ref&lt;T&gt;</code> lets you apply this discipline to non-atomic storage (e.g., the slot array views) — same ordering rules, lifetime rules apply (the referred object must outlive all atomic_refs). C++20 <code>std::atomic::wait()/notify_one()/notify_all()</code> (futex-backed on Linux, <code>os_sync_wait_on_address</code>-class primitives on Darwin) gives you the blocking variant of this queue without condition variables: a producer that finds the queue full can <code>wait()</code> on tail instead of spinning or returning false.</p>
+
+<h2>Verify and benchmark</h2>
+<p>Correctness first: a harness that pushes/pops millions of items across two threads, summing checksums, must run clean under <code>-fsanitize=thread</code> (TSAN understands acquire/release — it models the happens-before edges we built). Then throughput. Typical numbers on a modern x86-64 laptop, ping-pong two threads over shared L3, single slot at a time:</p>
+<table>
+  <tr><th>Queue</th><th>Round-trip</th><th>Notes</th></tr>
+  <tr><td>std::mutex + deque</td><td>~90–150 ns/op</td><td>contended lock/unlock, allocator noise</td></tr>
+  <tr><td>SPSC ring, padded</td><td>~20–40 ns/op</td><td>two atomics + one acquire-load pair</td></tr>
+  <tr><td>SPSC ring, unpadded</td><td>~60–150 ns/op</td><td>false sharing dominates</td></tr>
+  <tr><td>SPSC ring, batched by 64</td><td>~5–10 ns/item</td><td>amortizes the cross-core signal</td></tr>
+</table>
+<p>The right comparison is your own machine's; the <em>ratio</em> (mutex ≈ 3–5× the padded ring) is the portable result. Reproduce on <a href="https://godbolt.org">godbolt</a> if you lack a Linux box.</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>Single writer ⇒ relaxed for self, release to publish, acquire to observe.</strong> The whole six-order table collapses to three verbs once each piece of state has one owner — that ownership, not cleverness, is what makes the ring wait-free.</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>Going lock-free because it sounds faster.</strong> A mutex queue is correct, debuggable, and within 3–5× of optimal; a botched lock-free queue is a heisenbug factory. Use mutexes until a profiler shows lock contention is your bottleneck <em>and</em> you can afford the verification cost (TSAN, litmus tests, review by someone who can explain every memory order in the diff).</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why can the producer's load of its own <code>tail_</code> be <code>relaxed</code>?</summary><p class="answer">Only the producer writes tail_, and its own reads are ordered by sequenced-before.</p><p class="why">Relaxed still guarantees atomicity and single total modification order; ordering with other threads is only needed at the acquire/release boundaries, which is where the payload visibility is decided.</p></details>
+  <details><summary>Why is the SPSC ring wait-free while a CAS-loop MPMC queue is not?</summary><p class="answer">Each SPSC operation is a fixed sequence of loads/stores; CAS loops can retry unboundedly under contention.</p><p class="why">Wait-free means every thread finishes in bounded steps regardless of others. Single ownership of each index removes the need to compare-and-retry at all.</p></details>
+  <details><summary>How do monotonic indices sidestep ABA here?</summary><p class="answer">Nothing ever compares indices for equality; ownership transfer means "same value" cannot mean "different epoch".</p><p class="why">ABA needs a compare that can succeed on a recycled old value. The ring's indices only increase (wrapping once per 2⁶⁴ ops), and each side exclusively writes its own.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 40 minutes</span>
+<p>Type the ring in verbatim (typing, not pasting, is the point). Then:</p>
+<pre><code>// bench.cpp — pair of threads, ping-pong N items
+// clang++ -std=c++20 -O2 -pthread bench.cpp &amp;&amp; ./a.out
+// clang++ -std=c++20 -O2 -g -fsanitize=thread bench.cpp &amp;&amp; ./a.out   # TSAN must be clean
+
+SpscRing&lt;uint64_t, 1024&gt; q;
+constexpr uint64_t N = 1'000'000;
+
+void producer() {
+    for (uint64_t i = 0; i &lt; N; ) {
+        uint64_t h = 0, t = q.tail_debug();
+        if (q.push(i)) ++i;                    // spin-retry on full is fine
+        else std::this_thread::yield();
+    }
+}
+void consumer() {
+    uint64_t expect = 0, sum = 0;
+    while (expect &lt; N) {
+        if (auto v = q.pop()) { sum += *v; ++expect; }
+    }
+    assert(sum == N*(N-1)/2);                  // the correctness oracle
+}</code></pre>
+<p>Expected: clean TSAN run; time the producer-consumer pair and print ns/op — expect tens of ns on the padded ring vs. ~100+ ns for a <code>std::mutex</code>+<code>std::deque</code> version you write in ten lines. Then the <em>sabotage</em>: change the producer's tail store from <code>memory_order_release</code> to <code>memory_order_relaxed</code>. On x86-64 stores are release anyway, so it may keep passing — that's your machine being forgiving, not the code being right. Run the TSAN build (TSAN models the abstract machine and will flag the missing release), or compile the same code as ARM64 via godbolt/qemu, or add a payload that's wider than one store so store tearing/reordering becomes observable with enough iterations. Observe, revert, re-run clean.</p>
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://en.cppreference.com/w/cpp/atomic/memory_order">cppreference: std::memory_order</a> — the normative summary of release/acquire pairing, with the exact happens-before wording your annotated lines rely on; pair it with the C++20 wait/notify page for the blocking extension.</p>
+
+<h2>Why this matters for the mission</h2>
+<p>This is the course in one artifact: silicon (cache lines padded apart), the abstract machine (three memory orders, each load-bearing), and engineering judgment (knowing when not to use it). If you can explain every memory order in this file to a colleague, you're done — grab the cheat sheet and go build.</p>
+
+<p class="next"><a href="../reference/cpp-memory-model-cheatsheet.html">Course complete — grab the cheat sheet →</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

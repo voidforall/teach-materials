@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # transparent wordmark/logomark covers are letterboxed on a brand background
 LOGO_BG = {
     "apache-arrow": "#ffffff",
+    "cpp-memory-model": "#ffffff",
     "clickhouse": "#ffcc01",
     "event-driven-rabbitmq": "#ffffff",
     "rl-for-kaggle": "#f5f7f9",
@@ -31,6 +32,7 @@ CREDITS = [
     ("accounting-basics", "Wachovia National Bank 1906 statement", "Public domain", "https://commons.wikimedia.org/wiki/File:Wachovia_National_Bank_1906_statement.jpg"),
     ("apache-arrow", "Apache Arrow Logo — Apache Software Foundation", "Apache License 2.0", "https://commons.wikimedia.org/wiki/File:Apache_Arrow_Logo.png"),
     ("clickhouse", "ClickHouse Logomark — ClickHouse Inc.", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:ClickHouse_Logomark.svg"),
+    ("cpp-memory-model", "C-memlayout — Yanpas", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:C-memlayout.svg"),
     ("event-driven-rabbitmq", "RabbitMQ logo — Pivotal/VMware", "Public domain", "https://commons.wikimedia.org/wiki/File:RabbitMQ_logo.svg"),
     ("game-theory", "Go (13×13) — 2021", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Go_(13%C3%9713)_--_2021_--_6741.jpg"),
     ("harness-engineering", "Study for a Marionette — Metropolitan Museum of Art", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:Study_for_a_Marionette_MET_DP213910.jpg"),

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 1 — Virtual Memory: The Process Address Space</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 1</span><span><a class="langbtn" href="0001-virtual-address-space.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Virtual Memory: The Process Address Space</h1>
+  <p class="dek">Every address your C++ program manipulates is a fiction maintained jointly by the MMU and the OS, at page granularity.</p>
+</div>
+
+<p>When you write <code>&amp;x</code>, the value is a <em>virtual address</em> (VA). It names a byte in your process's private address space, not a byte in DRAM. The hardware's <a href="https://en.wikipedia.org/wiki/Memory_management_unit">MMU</a> translates VA&rarr;PA (physical address) on every memory access, using page tables walked by the CPU (4 levels on x86-64: PML4 &rarr; PDPT &rarr; PD &rarr; PT, covering <a href="https://www.kernel.org/doc/html/latest/arch/x86/x86_64/mm.html">48-bit canonical addresses</a>; more levels or bigger radix nodes on ARM64), and caches translations in the <a href="https://en.wikipedia.org/wiki/Translation_lookaside_buffer">TLB</a>. A TLB hit costs ~nothing; a miss costs a multi-level walk. This is the substrate everything else in the course sits on.</p>
+
+<h2>Pages, faults, demand paging</h2>
+<p>Translation happens in units of <strong>pages</strong> — typically 4&nbsp;KiB. The OS maps in pages, and it does so <em>lazily</em>: <a href="https://man7.org/linux/man-pages/man2/mmap.2.html"><code>mmap</code></a> and <code>exec</code> only update page tables; memory is attached on first touch, when the access raises a <a href="https://en.wikipedia.org/wiki/Page_fault">page fault</a>. A <strong>minor fault</strong> is satisfied from memory (e.g. map a zero page, or steal a recycled frame); a <strong>major fault</strong> requires disk I/O (reading in a text page of the binary, or a swap-backed page). "Your allocator touched memory and it was slow" is usually "you faulted in N pages", a story we quantify in <a href="https://preshing.com/2015wintercon/talk/"><i>Lesson 9</i></a> and in Drepper's classic <a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">"What Every Programmer Should Know About Memory"</a>.</p>
+
+<h2>Layout of a Linux process</h2>
+<p>Reading /proc/pid/maps bottom-up: <code>text</code> (code, r-x), <code>rodata</code> (r--), <code>data</code> (rw-, initialized globals), <code>bss</code> (rw-, zero-initialized, demand-zero), the heap grown via <a href="https://man7.org/linux/man-pages/man2/brk.2.html"><code>brk</code></a>, the <code>mmap</code> region (shared libraries, large allocations, file mappings), the stack, and the <code>vsyscall</code>/vdso pages. <a href="https://man7.org/linux/man-pages/man5/proc.5.html">proc(5)</a> documents the file; see also <a href="https://man7.org/linux/man-pages/man1/pmap.1.html">pmap(1)</a>. <strong>ASLR</strong> (<a href="https://en.wikipedia.org/wiki/Address_space_layout_randomization">Address Space Layout Randomization</a>) randomizes the base of stack, heap, mmap, and PIE binaries each run — print an address twice and it will differ.</p>
+
+<pre><code>// addrs.cpp — g++ -O0 addrs.cpp; run twice, addresses shift (ASLR)
+#include &lt;cstdio&gt;
+#include &lt;cstdlib&gt;
+int g_init = 42;            // .data
+int g_zero;                 // .bss
+int main() {
+  int local = 1;                    // stack
+  static int s_local = 2;           // .data
+  int* heap = new int[3];           // heap (mmap'd)
+  auto lam = []{ return 1; };       // code-ish: usually .text
+  std::printf("stack   %p\n", (void*)&amp;local);
+  std::printf("static  %p\n", (void*)&amp;s_local);
+  std::printf("global  %p\n", (void*)&amp;g_init);
+  std::printf("bss     %p\n", (void*)&amp;g_zero);
+  std::printf("heap    %p\n", (void*)heap);
+  std::printf("lambda  %p\n", (void*)&amp;lam);
+  delete[] heap;
+}</code></pre>
+
+<p><code>mmap</code> with <code>MAP_ANONYMOUS|MAP_PRIVATE</code> is the universal primitive: the kernel creates a mapping with no backing file, filled with zero pages on demand. <code>malloc</code>'s big allocations, thread stacks, <code>std::vector</code> growth — all end here. Huge pages (2&nbsp;MiB/1&nbsp;GiB) reduce TLB pressure; we defer them to Lesson 9.</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>Your pointers never address RAM; they address a per-process mapping the OS can rewrite, on demand, at page granularity.</strong> Unmapped? SIGSEGV. Swapped or not-yet-faulted? The same pointer value stalls until the page arrives. The mapping, not the number, is the real object.</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>Treating an address as stable identity or as evidence of physical layout.</strong> "It worked because the pointer was small" is nonsense under ASLR and mmap; "allocation == memory used" is wrong under demand paging. Cost models built on addresses instead of page-fault counts mispredict every time.</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>What does an MMU TLB cache?</summary><p class="answer">Virtual-to-physical page translations</p><p class="why">The TLB caches page-table entries so repeated accesses to a page skip the multi-level walk — hence "TLB pressure" from scattered access.</p></details>
+  <details><summary>What triggers a major fault?</summary><p class="answer">Disk I/O for backing storage</p><p class="why">Minor faults are resolved from memory (zero page, recycled frame); major faults must read from disk (binary text, swap) — orders of magnitude slower.</p></details>
+  <details><summary>What does brk extend?</summary><p class="answer">The program break (heap)</p><p class="why">brk moves the end of the data segment to grow/shrink the classic heap; large allocations go to the mmap region instead.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 10 minutes</span> Compile the program above, run <code>./a.out &amp;</code>, then inspect it: <code>cat /proc/$(pgrep a.out)/maps</code> (Linux) or <code>vmmap $(pgrep a.out)</code> (macOS). Match each printed pointer to a mapped region — note the heap pointer's region differs between runs (ASLR), while the offset between globals stays constant. On Linux, also run <code>pmap -x $(pgrep a.out)</code> and compare the "RSS" column (faulted-in pages) to mapping sizes: most mapped pages are not resident.</div>
+
+<h2>Primary source</h2><p><a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">Drepper, "What Every Programmer Should Know About Memory", §1–2</a> — the canonical hardware/OS view of memory from the metal up; pair with <a href="https://man7.org/linux/man-pages/man5/proc.5.html">proc(5)</a> for the maps file you just used.</p>
+
+<h2>Why this matters for the mission</h2><p>The memory model's guarantees are about <em>visibility and ordering of writes</em>; but every write first has to land in a page someone else can eventually see. Cache coherence (Lesson 8) operates on physical memory; atomics (Lesson 5) only work on memory the MMU actually maps. When a lock-free demo mysteriously corrupts, page granularity, aliasing mappings, and demand paging are among the first physical suspects.</p>
+
+<p class="next"><a href="0002-stack-and-heap-allocation.html">Next: Stack vs Heap: Allocation Mechanics →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

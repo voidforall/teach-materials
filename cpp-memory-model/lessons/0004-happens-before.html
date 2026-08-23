@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 4 — The Abstract Machine: Happens-Before</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 4</span><span><a class="langbtn" href="0004-happens-before.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Abstract Machine: Happens-Before</h1>
+  <p class="dek">C++11 didn't add "some atomics" — it defined a formal abstract machine, and every legal program is the set of executions the machine permits; everything else, including races, is undefined behavior.</p>
+</div>
+
+<h2>One machine, three relations</h2>
+<p>The standard (see <a href="https://eel.is/c++draft/intro.races">eel.is [intro.races]</a> and the <a href="https://en.cppreference.com/w/cpp/language/memory_model">cppreference memory model page</a>) defines concurrency in terms of relations between evaluations:</p>
+<ul>
+<li><strong>sequenced-before</strong> — the ordering you already know within one thread: <code>a;</code> is sequenced before <code>b;</code> that follows it. Single-threaded, unchanged since C.</li>
+<li><strong>synchronizes-with</strong> — the inter-thread edge: when thread A releases a mutex and thread B acquires it, everything A did before unlocking <em>synchronizes-with</em> everything B does after locking. Release/acquire atomics create the same edge (Lesson 6).</li>
+<li><strong>happens-before</strong> — the transitive closure of both: if A is sequenced before B, and B synchronizes with C, and C is sequenced before D, then A happens-before D, even across three threads that never touch each other directly.</li>
+</ul>
+<p>Crucially, these are <em>semantic</em> relations, not hardware ones. The compiler and CPU may reorder anything as long as the single total order of each thread's sequenced-before edges is preserved (the <strong>as-if rule</strong>) — for a single-threaded program that's the whole story, which is why single-threaded reasoning you already trust is just the degenerate case of this model.</p>
+
+<h2>Annotated: mutex unlock → lock</h2>
+<pre><code>std::mutex m;
+int payload = 0;                       // plain, non-atomic
+
+// Thread A
+payload = 42;                          // (1) sequenced-before (2)
+{ std::lock_guard&lt;std::mutex&gt; g(m); }   // (2) unlock(m): release
+                                      //      (2) synchronizes-with (3)
+
+// Thread B
+{ std::lock_guard&lt;std::mutex&gt; g(m); }   // (3) lock(m): acquire
+assert(payload == 42);                 // (4) sequenced-after (3)
+                                       // (1) happens-before (4) → defined</code></pre>
+<p>The assert can never fire. Not because the mutex "flushes cache" (it doesn't need to), but because the abstract machine forbids any execution where (4) sees the old value. That's the entire game: <strong>you reason on the abstract machine; the implementation makes it true on silicon</strong>.</p>
+
+<h2>The data race rule — UB, not "reads garbage"</h2>
+<p>Two conflicting accesses (same object, at least one write, not both atomic) not ordered by happens-before constitute a <strong>data race</strong>, and a program with a data race has <strong>undefined behavior</strong>. This is not "you might read a stale value" — the standard places no limit on the consequences, because the optimizer assumes no races exist. The classic manifestation is register caching: the compiler is allowed to hoist a non-atomic load out of a loop, so the loop reads the variable once and never again:</p>
+<pre><code>bool stop = false;               // non-atomic — WRONG
+
+// Thread A
+while (!stop) { work(); }        // compiler: while(true) { work(); }
+                                 // load hoisted out; A never sees stop=true
+
+// Thread B
+stop = true;                     // legal under as-if: no thread may
+                                 // observe the loop NOT ignoring it</code></pre>
+<p>At <code>-O2</code> this compiles to an infinite loop on every compiler and every ISA. Not a hardware visibility bug — a compiler transformation that is provably invisible in every defined execution. There are none here.</p>
+
+<h2>You are not alone</h2>
+<p>Every serious ecosystem converged on the same shape of model: Java's happens-before (JMM, JSR-133), LLVM's atomics (the IR-level ordering the compilers actually implement), and the Linux Kernel Memory Model (LKMM) for kernel code. Learn the C++ one and the vocabulary transfers.</p>
+
+<div class="keystone"><span class="label">Keystone</span><strong>happens-before = sequenced-before ∪ synchronizes-with, closed under transitivity.</strong> It is the only legal way to order a read against a write in another thread; without it you don't have a stale value, you have UB.</div>
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>Thinking of a race as "reads garbage data".</strong> UB licenses the compiler to hoist loads, sink stores, and assume single-threaded invariants — the failure is usually an infinite loop or a deleted branch, not a torn value.</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+<details><summary>Why is single-threaded reasoning a subset of the memory model?</summary><p class="answer">Because happens-before restricted to one thread is exactly sequenced-before, and the as-if rule permits reordering only within that constraint.</p><p class="why">The model was designed so that all pre-C++11 single-threaded semantics survive unchanged; concurrency adds new relations on top.</p></details>
+<details><summary>A thread loops on a non-atomic bool while another sets it. What went wrong at the compiler level?</summary><p class="answer">The load of the bool was hoisted out of the loop — cached in a register — so the loop condition never re-reads memory.</p><p class="why">With no synchronizes-with edge, no defined execution can distinguish the hoisted version, so as-if permits it. The result is an infinite loop.</p></details>
+<details><summary>Does a mutex unlock "flush" the writes before it?</summary><p class="answer">No — it creates a synchronizes-with edge with the next lock, giving happens-before, which guarantees visibility.</p><p class="why">The mechanism is abstract: the implementation achieves it with whatever barriers the ISA needs, often none on x86-64.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 15 minutes</span>
+<p>Race, observe, fix. Save:</p>
+<pre><code>// race.cpp
+#include &lt;thread&gt;
+#include &lt;cstdio&gt;
+int counter = 0;                      // non-atomic
+int main() {
+  std::thread t1([]{ for (int i=0;i&lt;1'000'000;++i) ++counter; });
+  std::thread t2([]{ for (int i=0;i&lt;1'000'000;++i) ++counter; });
+  t1.join(); t2.join();
+  std::printf("%d\n", counter);       // expect 2000000; usually less
+}</code></pre>
+<p>1. Build and run 5 times: <code>clang++ -std=c++20 -O2 race.cpp &amp;&amp; for i in 1 2 3 4 5; do ./a.out; done</code> — note the lost updates.<br>
+2. Rebuild with <code>-fsanitize=thread -g -O1</code> and run once. Read the report: it names both access stacks and shows the missing happens-before edge between them.<br>
+3. Wrap the increments in a <code>std::mutex</code>, re-run under TSAN (clean) and plain (always 2000000). You created the synchronizes-with edge.</p>
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://eel.is/c++draft/intro.races">eel.is — [intro.races] Multi-threaded executions and data races</a> — the normative definitions of sequenced-before, happens-before, and the race rule, in under ten paragraphs.</p>
+
+<h2>Why this matters for the mission</h2>
+<p>Every later lesson — atomics, fences, lock-free queues — is machinery for manufacturing happens-before edges cheaply. If the relation itself is fuzzy, the rest is superstition.</p>
+
+<p class="next"><a href="0005-atomics-memory-orders.html">Next: std::atomic and the Memory Orders →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 8 — Caches, MESI, and False Sharing</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 8</span><span><a class="langbtn" href="0008-caches-mesi-false-sharing.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Caches, MESI, and False Sharing</h1>
+  <p class="dek">Hardware keeps every core's cache coherent — but a 64-byte line can only be owned by one writer at a time, and that fact costs you 5–10x on code that looks perfectly parallel.</p>
+</div>
+
+<h2>The latency ladder</h2>
+<p>Everything in this lesson follows from one table of approximate costs on a modern x86/Apple-Silicon-class core:</p>
+<ul>
+<li>L1 hit: ~4 cycles. L2: ~12 cycles. L3: ~40 cycles.</li>
+<li>DRAM: ~200+ cycles — and each NUMA hop to another socket's memory makes it worse.</li>
+<li> coherence traffic between private caches: a cross-core line transfer is a round trip in the same tens-to-hundreds-of-cycles regime as L3/DRAM.</li>
+</ul>
+<p>The cache line — <strong>64 bytes</strong> on essentially all current CPUs — is the actual unit of allocation <em>and</em> the unit of coherency. Two variables in the same line are, as far as the coherency protocol is concerned, one variable.</p>
+
+<h2>MESI in one minute</h2>
+<p>Every line in every cache is in one of four states (see <a href="https://en.wikipedia.org/wiki/MESI_protocol">Wikipedia's MESI article</a> for the state diagram):</p>
+<ul>
+<li><strong>M</strong>odified — this cache has the only valid copy, and it's dirty (memory is stale).</li>
+<li><strong>E</strong>xclusive — only valid copy, clean. You may write it silently: E→M costs nothing.</li>
+<li><strong>S</strong>hared — possibly valid in other caches, read-only.</li>
+<li><strong>I</strong>nvalid — no usable copy.</li>
+</ul>
+<p>Writing to a line in <strong>S</strong>tate forces an <strong>RFO — Read For Ownership</strong>: the core must invalidate every other cache's copy and wait for the line to arrive before its store retires. That's a cross-core round trip on the critical path of your loop, repeated on every conflicting write. (Intel later added F; AMD uses MOESI — both optimizations let sharers keep reading a dirty line, but the invalidation-before-write cost you feel is the same.)</p>
+
+<h2>Coherent ≠ consistent</h2>
+<p>Here's the subtlety that makes this course necessary at all: hardware <em>is</em> cache-coherent — two cores will never long-term disagree about the contents of a line. So why do we need <code>std::atomic</code> and memory orders? Because of <strong>store buffers</strong> (writes sit in a per-core buffer before they reach L1, so a core observes its own writes early and others' late) and <strong>instruction reordering</strong>. Coherency says each location eventually agrees; it says nothing about the <em>order in which different locations' writes become visible</em>. As Sorin, Hill &amp; Wood's <em>A Primer on Memory Consistency and Cache Coherence</em> hammers home: <strong>coherency is about single locations; consistency (the memory model) is about the order of all operations</strong>. C++'s memory model exists to let you constrain that order portably.</p>
+
+<h2>False sharing</h2>
+<p>Two threads writing <em>different</em> fields that happen to share one 64-byte line: no data race (different objects), fully correct C++ — and the line ping-pongs M↔I between the cores on every increment. You pay an RFO per iteration instead of ~1 cycle per increment.</p>
+<pre><code>// bench.cpp
+#include &lt;thread&gt;
+#include &lt;chrono&gt;
+#include &lt;cstdio&gt;
+
+struct Counters { long a; long b; };                      // same line
+struct Padded   { alignas(64) long a; alignas(64) long b; };
+
+template&lt;class C&gt;
+long run() {
+    C c{0,0};
+    auto t0 = std::chrono::steady_clock::now();
+    std::thread t1([&]{ for (long i = 0; i &lt; 100'000'000; ++i) ++c.a; });
+    std::thread t2([&]{ for (long i = 0; i &lt; 100'000'000; ++i) ++c.b; });
+    t1.join(); t2.join();
+    auto ms = std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(
+        std::chrono::steady_clock::now() - t0).count();
+    return ms;
+}
+
+int main() {
+    std::printf("shared:  %ld ms\n", run&lt;Counters&gt;());
+    std::printf("padded:  %ld ms\n", run&lt;Padded&gt;());
+}</code></pre>
+<p>Typical result on multicore x86 or Apple Silicon: the shared version takes ~5–10x longer than the padded one, with identical assembly for the loop bodies. Nothing in the C++ abstract machine explains the gap — only the 64-byte line does.</p>
+
+<h2>Detection and tools</h2>
+<ul>
+<li><strong>Hardware counters</strong>: Linux <code>perf c2c</code> is purpose-built for false sharing; plain <code>perf stat -e cache-memories,l2-deallocation-from-x-core ...</code> style HITM events point at contended lines. macOS exposes Instruments' Cache/TLB templates instead.</li>
+<li><strong>Source suspicion</strong>: any frequently-written member adjacent to another frequently-written member in a hot struct.</li>
+<li><strong>Fix</strong>: <code>alignas(64)</code>, or better, <code>alignas(std::hardware_destructive_interference_size)</code> (defined only where the platform provides it — GCC/libstdc++ guards it behind <code>__cpp_lib_hardware_interference_size</code>).</li>
+<li><strong>Caution</strong>: <code>[[no_unique_address]]</code> can make empty members share an address — fine for tags, but it also lets the compiler pack things you assumed were padded; don't rely on it for interference avoidance. And don't pad everything: padding wastes cache capacity and can hurt single-threaded locality.</li>
+<li>Same family of thinking: <strong>AoS vs SoA</strong> — if you loop over one field, store that field contiguously. And prefetchers reward sequential access patterns; strided pointer-chasing defeats them. (NUMA is Lesson 9's problem.)</li>
+</ul>
+
+<div class="keystone"><span class="label">Keystone</span><strong>The unit of coherency is the 64-byte line, not the variable.</strong> Logical independence of two objects doesn't buy performance independence — if they share a line and both are written, you pay RFO round trips for code that has no race at all.</div>
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>Per-thread counters packed in an array of <code>std::atomic&lt;long&gt;</code>.</strong> Eight counters, one line, eight threads: every increment invalidates the line for all others. Pad each element to a line (or to <code>hardware_destructive_interference_size</code>) and the contention vanishes.</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+<details><summary>What does writing a line in Shared state cost, and why?</summary><p class="answer">An RFO: a cross-core round trip to invalidate all other copies first.</p><p class="why">MESI requires single-writer ownership; you can only write from E or M, so a Shared line must be invalidated elsewhere before your store can retire.</p></details>
+<details><summary>Caches are coherent — so why does C++ need a memory model?</summary><p class="answer">Store buffers and reordering reorder visibility across different locations.</p><p class="why">Coherency governs each single location; consistency — which locations' writes appear in what order — is what the memory model constrains. Different questions, per Sorin/Hill/Wood.</p></details>
+<details><summary>Two threads increment adjacent <code>long</code>s in one struct. Is it a data race? Why is it slow?</summary><p class="answer">No race — different objects. Slow because both writes hit one 64-byte line.</p><p class="why">The line ping-pongs M↔I between private caches, one RFO per write; pad with alignas(64) to separate the lines.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 15 minutes</span>
+<p>Compile and run the benchmark above: <code>clang++ -std=c++20 -O2 bench.cpp &amp;&amp; ./a.out</code> on your machine (macOS arm64 or Linux). Record your two numbers and compute the speedup — expect ~5–10x. Then change <code>Padded</code> to use <code>alignas(128)</code>. On Apple Silicon (and some Intel with adjacent-line prefetchers) 128-byte spacing can improve further or change nothing — observe, and explain with the prefetcher's two-line window. Optional on Linux: run under <code>perf c2c record</code> / <code>perf c2c report</code> and find your contended cache line in the output.</p>
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://www.morganclaypool.com/doi/abs/10.2200/S00362ED1V01Y201910DCP049">Sorin, Hill &amp; Wood, <em>A Primer on Memory Consistency and Cache Coherence</em>, 2nd ed., ch. 2–4</a> — the rigorous but readable treatment of exactly where coherency ends and consistency begins. (Drepper's "What Every Programmer Should Know About Memory" is the free companion for the ladder and lines.)</p>
+
+<h2>Why this matters for the mission</h2>
+<p>This is where the abstract memory model meets physics. You now know three separate failure modes that look identical in source — data race (UB, Lesson 7), visibility ordering (atomics, Lessons 5–6), and coherency contention (this lesson) — and can tell them apart. Lesson 9 adds the last axis: where the memory itself lives (allocators, faults, NUMA).</p>
+
+<p class="next"><a href="0009-allocators-faults-numa.html">Next: Allocators, Page Faults, and NUMA →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>C++ 内存模型 — 速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ 内存模型 · 参考</span><span><a class="langbtn" href="cpp-memory-model-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>C++ 内存模型速查表</h1>
+  <p class="dek">一页纸，从硅到 std::atomic。</p>
+</div>
+
+<h2>happens-before 微型地图</h2>
+<pre><code>sequenced-before（同线程内）  ┐
+                              ├─&gt; happens-before ─&gt; 可见的副作用
+synchronizes-with（release/acquire）┘
+  release store X  ──synchronizes-with──&gt;  读到 X 的 acquire load
+  A happens-before B  ⇒  A 之前的写在 B 之后可见；无竞争的顺序
+</code></pre>
+
+<h2>六个内存序</h2>
+<table>
+<tr><th>顺序</th><th>可用于</th><th>保证</th><th>典型用途</th></tr>
+<tr><td><code>relaxed</code></td><td>load、store、RMW</td><td>仅原子性 + 单一修改全序</td><td>计数器、统计、自有下标</td></tr>
+<tr><td><code>consume</code></td><td>load</td><td>已弃用；按 acquire 处理</td><td>别用</td></tr>
+<tr><td><code>acquire</code></td><td>load、RMW</td><td>之后的读写不能前移到它之前</td><td>发布的接收端、lock()</td></tr>
+<tr><td><code>release</code></td><td>store、RMW</td><td>之前的读写不能后移到它之后</td><td>发布的发送端、unlock()</td></tr>
+<tr><td><code>acq_rel</code></td><td>仅 RMW</td><td>一次操作同时 acquire + release</td><td>标志位的 fetch_add、算法中的 CAS</td></tr>
+<tr><td><code>seq_cst</code></td><td>全部</td><td>acq_rel + 一个全局全序</td><td>默认值；栅栏、成对标志、拿不准时</td></tr>
+</table>
+
+<h2>发布模式</h2>
+<pre><code>// 生产者                                    // 消费者
+data = 42;                    // 普通写      while (!flag.load(std::memory_order_acquire))
+flag.store(1, std::memory_order_release);          ;
+                              assert(data == 42); // 有保证
+</code></pre>
+
+<h2>x86-64 与 ARM64 代码生成</h2>
+<table>
+<tr><th>操作</th><th>x86-64</th><th>ARM64</th></tr>
+<tr><td>relaxed / acquire load</td><td><code>mov</code>（免费）</td><td><code>ldr</code> / <code>ldar</code></td></tr>
+<tr><td>release store</td><td><code>mov</code>（免费）</td><td><code>stlr</code></td></tr>
+<tr><td>seq_cst load</td><td><code>mov</code></td><td><code>ldar</code></td></tr>
+<tr><td>seq_cst store</td><td><code>xchg</code> 或 <code>mov</code>+<code>mfence</code></td><td><code>stlr</code></td></tr>
+<tr><td>seq_cst RMW</td><td><code>lock cmpxchg</code> / <code>lock xadd</code></td><td><code>ldaxr</code>/<code>stlxr</code> 循环</td></tr>
+</table>
+
+<h2>进程地址空间</h2>
+<pre><code>高  ┌──────────────┐ 栈（向下生长，默认 ~8MB，自动扩展）
+    │      ...      │
+    ├──────────────┤ mmap 区：动态库、大块 malloc（≥128KB）、线程栈
+    ├──────────────┤ 堆（brk，向上生长）
+    ├──────────────┤ .bss   零初始化全局变量（按需清零）
+    ├──────────────┤ .data  已初始化全局变量
+    ├──────────────┤ .rodata  字符串字面量、const 表
+低  └──────────────┘ .text  代码（r-x）
+</code></pre>
+
+<h2>glibc malloc：大小 → 机制</h2>
+<table>
+<tr><th>请求大小</th><th>机制</th><th>free() 行为</th></tr>
+<tr><td>≤ ~160 B</td><td>tcache / fastbin（每线程、无锁）</td><td>进空闲链表</td></tr>
+<tr><td>~160 B – 1 KB</td><td>smallbin，每线程 arena</td><td>进链表，arena 留着页</td></tr>
+<tr><td>1 KB – 128 KB</td><td>unsorted/largebin，arena 堆</td><td>进链表；仅顶部裁剪</td></tr>
+<tr><td>≥ 128 KB（<code>M_MMAP_THRESHOLD</code>）</td><td>直接 <code>mmap</code></td><td><code>munmap</code> —— 立刻还给 OS</td></tr>
+</table>
+
+<h2>四行讲清 MESI</h2>
+<ul>
+<li><strong>M</strong>odified（已修改）——本缓存持有，内存已过期；逐出时必须写回。</li>
+<li><strong>E</strong>xclusive（独占）——仅本缓存有干净副本；可静默写。</li>
+<li><strong>S</strong>hared（共享）——干净、可能在多个缓存中；写需先失效他核。</li>
+<li><strong>I</strong>nvalid（无效）——无有效副本；读取即缓存 miss（可能跨核）。</li>
+</ul>
+
+<h2>伪共享修法</h2>
+<pre><code>struct alignas(64) Counters {          // 每个热点计数器独占一行
+    std::atomic&lt;uint64_t&gt; a{0};
+    char pad[64 - sizeof(std::atomic&lt;uint64_t&gt;)];
+};                                      // x86 用 64；Apple arm64 建议 128
+</code></pre>
+
+<h2>延迟阶梯（数量级）</h2>
+<table>
+<tr><td>寄存器 / L1</td><td>~1 ns / ~4 周期</td><td>L2</td><td>~4 ns / ~12 周期</td></tr>
+<tr><td>L3</td><td>~15–40 ns</td><td>本地 DRAM</td><td>~80–100 ns</td></tr>
+<tr><td>跨 NUMA DRAM</td><td>~130–200 ns</td><td>无争用 mutex</td><td>~15–25 ns</td></tr>
+<tr><td>争用 mutex</td><td>~100 ns–µs</td><td>次缺页（minor fault）</td><td>~1–5 µs</td></tr>
+<tr><td>上下文切换</td><td>~1–10 µs</td><td>主缺页（磁盘）</td><td>毫秒级</td></tr>
+</table>
+
+<h2>数据竞争判定流程</h2>
+<pre><code>同一内存位置会被多线程访问吗？
+├─ 否 ─&gt; 普通代码，完事。
+└─ 是 ─&gt; 存在非原子写？原子与非原子混用？
+         ├─ 是 ─&gt; 建立 happens-before（mutex、acquire/release），
+         │        或把所有访问都改成原子 —— 否则：数据竞争 = UB。
+         └─ 否（全原子）─&gt; 选仍然正确的"最弱"内存序，
+                            而不是你知道的最强内存序。
+</code></pre>
+
+<h2>工具命令</h2>
+<pre><code>clang++ -std=c++20 -g -fsanitize=thread prog.cpp   # TSAN：竞争 + HB 检查
+perf stat -e page-faults,minor-faults ./a.out       # 缺页计数
+perf stat -e dTLB-load-misses,L1-dcache-load-misses ./a.out
+pmap -x &lt;pid&gt;            # 内存映射 + RSS       numactl --cpunodebind=0 --membind=0 ./a.out
+numastat -p &lt;pid&gt;        # NUMA 分布             vmmap &lt;pid&gt;   # macOS
+godbolt.org             # 看代码生成：mov vs xchg vs ldar/stlr
+</code></pre>
+
+<p class="next"><a href="../lessons/0001-what-is-a-memory-model.zh.html">第 1 课：什么是内存模型？→</a></p>
+<p class="ask">有不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

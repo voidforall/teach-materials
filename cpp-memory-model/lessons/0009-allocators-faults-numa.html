@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 9 — Allocators, Page Faults, THP, NUMA</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>C++ Memory Model · Lesson 9</span><span><a class="langbtn" href="0009-allocators-faults-numa.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Allocators, Page Faults, THP, NUMA</h1>
+  <p class="dek"><code>new</code> reserves address space, not memory — the kernel hands you physical pages only on first touch, and <em>where</em> and <em>how big</em> those pages are decides your real latency.</p>
+</div>
+
+<h2>Memory is not allocated until you touch it</h2>
+<p>When you allocate 1&nbsp;GB with <code>new char[1&lt;&lt;30]</code>, glibc's malloc sees a request far above the <code>M_MMAP_THRESHOLD</code> (default 128&nbsp;KB) and calls <code>mmap(NULL, 1&lt;&lt;30, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, ...)</code>. The kernel does something surprising: it maps a range of <em>virtual</em> addresses to a single reserved-and-zeroed state and returns in microseconds. RSS barely moves.</p>
+<p>Physical memory appears lazily. The first <em>write</em> to each 4&nbsp;KB page raises a <strong>minor page fault</strong>; the fault handler maps a fresh zeroed physical page ("demand-zero paging" — see <code>mmap(2)</code> on <a href="https://man7.org/linux/man-pages/man2/mmap.2.html">man7</a> and Ulrich Drepper's <em>What Every Programmer Should Know About Memory</em>, §4.1–4.3). The first <em>read</em> of an untouched anonymous page maps the shared zero page copy-on-write — reads alone cost almost no memory.</p>
+<p>Consequences you have felt without knowing why: freshly allocated containers "warm up" (first pass is fault-bound, not CPU-bound), <code>memset</code> of a 1&nbsp;GB buffer is ~250k faults plus DRAM bandwidth, and forked servers that write shared pages trigger copy-on-write faults. Measure it:</p>
+<pre><code>#include &lt;sys/resource.h&gt;
+#include &lt;cstdio&gt;
+
+long minflt() {
+    struct rusage ru; getrusage(RUSAGE_SELF, &amp;ru);
+    return ru.ru_minflt;               // minor faults = pages demand-zeroed
+}
+
+int main() {
+    constexpr size_t N = 1 &lt;&lt; 30;      // 1 GiB
+    char* p = new char[N];
+    long before = minflt();
+    for (size_t i = 0; i &lt; N; i += 4096) p[i] = 1;   // touch one byte per page
+    std::printf("faults=%ld (expect ~%zu)\n", minflt() - before, N / 4096);
+}</code></pre>
+<p>Or from outside: <code>perf stat -e page-faults,minor-faults ./a.out</code>, and watch RSS climb page by page in <code>pmap -x &lt;pid&gt;</code> or <code>top</code>.</p>
+
+<h2>NUMA: the page lives where it was first written</h2>
+<p>On a dual-socket machine, each CPU package has its own memory controllers and its own local DRAM. A physical page is assigned to a NUMA node by <strong>first-touch policy</strong> (the default, <code>Mpolicy_default</code> with local allocation — see <code>numa(7)</code> on man7): the node that faults it in owns it. If thread A on socket 0 initializes a huge array and thread B on socket 1 processes it, every load B makes crosses the interconnect (UPI on x86, AMBA coherency mesh on ARM servers) — roughly 1.5–2× the latency and a fraction of the bandwidth.</p>
+<p>This is the most commonly missed performance bug in multithreaded number crunching: the code is correct, the layout is wrong. Diagnose with <code>numastat -p &lt;pid&gt;</code> (watch <code>numa_miss</code>/<code>numa_foreign</code> grow) or <code>perf c2c</code>. Fix by initializing data on the node that will use it, or pin explicitly:</p>
+<pre><code>numactl --cpunodebind=1 --membind=1 ./worker   # everything on node 1
+numactl --interleave=all ./worker              # round-robin pages (bandwidth-bound)</code></pre>
+<p>macOS arm64 desktops are UMA — single-chip unified memory — so this lesson is best run on a Linux server or in CI; the concepts still explain Apple Silicon's core-cluster L2 asymmetry.</p>
+
+<h2>Transparent Huge Pages: fewer TLB misses, occasional tail latency</h2>
+<p>The TLB has limited entries; with 4&nbsp;KB pages, a 1&nbsp;GB working set needs ~262k of them. A 2&nbsp;MB huge page covers 512 small pages with one TLB entry — for array-striding workloads (hash tables, GC heaps, dense matrices) this can cut TLB misses by an order of magnitude and speed up walks 10–30% (Drepper §6.2.2 measures exactly this).</p>
+<p>THP can be <code>always</code>, <code>madvise</code>, or <code>never</code> (<code>/sys/kernel/mm/transparent_hugepage/enabled</code>). The problem with <code>always</code>: the kernel's <code>khugepaged</code> thread aggressively collapses and compacts memory, so an application that touched 4&nbsp;KB out of every 2&nbsp;MB region finds RSS rounded up ~512×, and compaction stalls threads for milliseconds — the classic database-ops incident (MongoDB, Redis, PostgreSQL all ship guidance telling you to switch to <code>madvise</code>). The tuned setting in production is:</p>
+<pre><code>echo madvise &gt; /sys/kernel/mm/transparent_hugepage/enabled
+// and in the program, on the regions that deserve it:
+madvise(buf, len, MADV_HUGEPAGE);   // opt this range into THP</code></pre>
+<p>Verify with <code>/proc/&lt;pid&gt;/smaps</code> — look for <code>AnonHugePages: 2048 kB</code> per backed region. On macOS there is no user-facing THP switch; observe 16&nbsp;KB base page size and region sizes in <code>vmmap &lt;pid&gt;</code> instead.</p>
+
+<h2>The allocator landscape</h2>
+<p><strong>glibc malloc</strong> (ptmalloc2 lineage): small allocations come from per-thread <em>arenas</em> (up to 8×cores on 64-bit) so threads rarely contend a lock; each thread additionally has a <em>tcache</em> — a lock-free per-thread cache of free lists checked before anything else. Size buckets: tcache/fastbins for ≤~160&nbsp;B (single-linked freelist pushes, no locks), smallbins up to 1&nbsp;KB, unsorted/largebins above. Big requests (≥128&nbsp;KB by default) go straight to <code>mmap</code> and <code>free()</code> <code>munmap</code>s them — memory returns to the OS immediately. Arena chunks are trimmed only if the top of the heap is free and contiguous (<code>M_TRIM_THRESHOLD</code>), so a long-lived server's RSS is usually a high-water mark, not current usage. Tuning knobs: <code>mallopt()</code>, the <code>MALLOC_ARENA_MAX</code> env var (JVM-adjacent ops folk set it to 2–4 to fight fragmentation at the cost of contention).</p>
+<p><strong>tcmalloc</strong> (Google): every thread gets a thread cache of size-class free lists — malloc/free on the fast path are a few instructions with zero atomics; when a cache empties or fills it refills/drains in batches from the central cache, which manages <em>page-heap</em> spans via pagemap metadata. Memory returns to the OS via <code>ReleaseFreeMemory()</code> / the background <code>MemoryDecoder</code>, on a delay. See the docs at <a href="https://github.com/google/tcmalloc/blob/master/docs/design.md">google/tcmalloc design.md</a>.</p>
+<p><strong>jemalloc</strong> (FreeJS/Facebook lineage): size-class allocations out of per-CPU/arena extents, plus explicit <em>decay-based purging</em> — dirty pages are returned to the OS on an exponential decay schedule (<code>dirty_decay_ms</code> / <code>muzzy_decay_ms</code>), giving it the best-behaved RSS curve of the three, at the cost of more madvise traffic.</p>
+<p><strong>Custom arenas and slabs</strong> win when allocation <em>shape</em> is known: games use frame arena allocators (bump-pointer, wholesale free at frame end — zero fragmentation, zero per-object cost); HFT and embedded use slabs of fixed-size objects to get malloc off the hot path entirely and to make fragmentation impossible. The rule from Lesson 8's cache-line thinking applies: if you can delete the allocator from the fast path, do it.</p>
+<table>
+  <tr><th>Workload</th><th>Reach for</th><th>Why</th></tr>
+  <tr><td>Generic server, mixed sizes</td><td>glibc default or jemalloc</td><td>jemalloc if RSS creep / fragmentation is the pain</td></tr>
+  <tr><td>Many short-lived small objects, high thread counts</td><td>tcmalloc / mimalloc</td><td>thread caches kill contention</td></tr>
+  <tr><td>Steady long-lived server, RSS grows</td><td>jemalloc or cap arenas</td><td>decay purge, bounded arenas</td></tr>
+  <tr><td>Frame-based (games, simulations)</td><td>arena / bump allocator</td><td>free is pointer arithmetic</td></tr>
+  <tr><td>Fixed-size objects (HFT, embedded)</td><td>slab / free-list pool</td><td>deterministic, no locks after warmup</td></tr>
+  <tr><td>Huge arrays, sequential access</td><td>mmap + MADV_HUGEPAGE</td><td>TLB coverage, demand paging under your control</td></tr>
+</table>
+
+<div class="keystone"><span class="label">Keystone</span><strong>Allocation is a promise, first touch is the act.</strong> <code>new</code> books virtual address space; the page fault on first write is when physical memory, NUMA placement, and page size are actually decided — so initialization loops are a <em>placement policy</em>, and your choice of allocator is a policy about when pages go back.</div>
+
+<div class="antipattern"><span class="label">Anti-pattern</span><strong>One thread initializes, another thread computes.</strong> The pages all land on the initializer's socket; the compute loop then pays cross-node latency on every cache miss. Similarly: THP set to <code>always</code> on a latency-sensitive service — RSS balloons and khugepaged introduces multi-ms stalls.</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does RSS stay near zero right after allocating 1&nbsp;GB with <code>new char[1&lt;&lt;30]</code>?</summary><p class="answer">Anonymous mmap reserves virtual address space only; physical pages attach on demand at first-touch faults.</p><p class="why">Demand-zero paging: writing a page raises a minor fault, and the kernel maps a zeroed physical frame then. Read-only touches may map the shared zero page copy-on-write.</p></details>
+  <details><summary>What decides which NUMA node owns a page under Linux's default policy?</summary><p class="answer">The node of the CPU whose thread first writes the page (first-touch).</p><p class="why">Local-allocation policy assigns the faulting node's memory, so initialization placement is placement policy — use <code>numactl --cpunodebind --membind</code> or initialize where you compute.</p></details>
+  <details><summary>Give one benefit and one cost of transparent huge pages.</summary><p class="answer">Benefit: 512× TLB coverage per entry; cost: RSS rounding-up and khugepaged compaction stalls.</p><p class="why">That's why the tuned production setting is <code>madvise</code> mode with explicit <code>madvise(MADV_HUGEPAGE)</code> on hot regions, not global <code>always</code>.</p></details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task"><span class="label">Try it — 20 minutes</span>
+<p>On Linux (or a VM/container):</p>
+<pre><code>// faultdemo.cpp — clang++ -std=c++20 -O2 faultdemo.cpp
+#include &lt;sys/mman.h&gt;
+#include &lt;sys/resource.h&gt;
+#include &lt;chrono&gt;
+#include &lt;cstdio&gt;
+#include &lt;vector&gt;
+
+long minflts() { struct rusage ru; getrusage(RUSAGE_SELF, &amp;ru); return ru.ru_minflt; }
+
+int main(int argc, char**) {
+    constexpr size_t GB = 1 &lt;&lt; 30;
+    bool huge = argc &gt; 1;                       // argv[1] =&gt; MADV_HUGEPAGE
+    std::vector&lt;char*&gt; bufs;
+    char* p = (char*)mmap(nullptr, GB, PROT_READ|PROT_WRITE,
+                          MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    if (huge) madvise(p, GB, MADV_HUGEPAGE);
+    auto t0 = std::chrono::steady_clock::now();
+    long f0 = minflts();
+    for (size_t i = 0; i &lt; GB; i += 4096) p[i] = 1;   // "touch every page"
+    auto t1 = std::chrono::steady_clock::now();
+    std::printf("faults=%ld  time=%.1f ms (huge=%d)\n",
+        minflts() - f0,
+        std::chrono::duration&lt;double, std::milli&gt;(t1 - t0).count(), huge);
+}</code></pre>
+<p>Run <code>./a.out</code> then <code>./a.out huge</code>: expect ~262k faults and ~10–25 ns/page; with THP backed by 2&nbsp;MB pages expect ~512 faults (the loop still touches 262k addresses but only 512 pages materialize) and visibly lower time. Cross-check with <code>perf stat -e page-faults,minor-faults,dTLB-load-misses ./a.out</code>, and inspect <code>grep -A1 AnonHugePages /proc/self/smaps</code> style output via <code>cat /proc/$(pgrep a.out)/smaps | grep AnonHuge</code>. On macOS arm64: the THP half of the demo won't apply, but the fault counts will — and run <code>vmmap &lt;pid&gt;</code> to see the anonymous MALLOC_LARGE region grow.</p>
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://man7.org/linux/man-pages/man2/mmap.2.html">mmap(2) on man7</a> plus Drepper's <a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">&ldquo;What Every Programmer Should Know About Memory&rdquo;</a>: the man page defines the demand-paging contract your measurements rest on, and Drepper §6 gives the canonical NUMA and huge-page benchmarks you just reproduced.</p>
+
+<h2>Why this matters for the mission</h2>
+<p>This course climbed from atomics down to silicon; this lesson is the floor below the floor — the virtual memory and allocator machinery that decide whether your carefully cache-lined, acquire/release-correct data structure even <em>lives</em> near your cores. Tomorrow's capstone ring buffer will assume all of this works: its buffer must be touched before the benchmark starts, or you'll benchmark page faults, not the queue.</p>
+
+<p class="next"><a href="0010-lock-free-spsc-capstone.html">Next: Capstone — A Lock-Free SPSC Ring Buffer →</a> &nbsp;·&nbsp; <a href="../reference/cpp-memory-model-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>
