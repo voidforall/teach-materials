@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 4 课 — Avellaneda–Stoikov 报价</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>做市基础 · 第 4 课</span><span><a class="langbtn" href="0004-avellaneda-stoikov.html" title="Switch to English">EN</a></span></div>
+  <h1>Avellaneda–Stoikov 报价</h1>
+  <p class="dek">散户做市圈被引用最多的公式。你不需要它的随机控制推导——你需要的是两个公式、每个参数的作用，以及它们在真实 bot 里的失效方式。</p>
+</div>
+
+<p>Avellaneda &amp; Stoikov（2008）把做市商的问题摆成第 3 课的样子：赚价差、库存按平方惩罚、有限期限 T。解出来就是你的 bot 每个 tick 都能算的两条公式。</p>
+
+<h2>公式一 — 保留价格（reservation price）</h2>
+<p style="text-align:center"><strong>r(s, t, q) = s − q·γ·σ²·(T − t)</strong></p>
+<p>不再围绕市场价格 <span class="term">s</span> 报价，而是围绕一个<em>逆着你库存方向</em>偏移的 <span class="term">保留价格</span> r。做多（q &gt; 0）？你的基准价下移，两侧报价都变低——让市场从你这里买走更便宜（减少 q）、卖给你更贵。偏移量：</p>
+<ul>
+  <li><strong>与 q 成正比</strong>——库存越大，甩货的动力越大；</li>
+  <li><strong>与 σ² 成正比</strong>——市场波动大，更急于回到平仓；</li>
+  <li><strong>与 (T − t) 成正比</strong>——交易时段还早，温和偏移；临近结束，狠狠偏移以收平库存。</li>
+</ul>
+
+<h2>公式二 — 总价差</h2>
+<p style="text-align:center"><strong>δ<sub>a</sub> + δ<sub>b</sub> = γ·σ²·(T − t) + (2/γ)·ln(1 + γ/k)</strong></p>
+<p>围绕 r 两侧各放一半。第二项里的 <span class="term">k</span> 是成交强度衰减：报价越远、成交概率掉得越快（论文假设强度 λ(δ) = A·e<sup>−kδ</sup>）。读法是：</p>
+<ul>
+  <li>波动率项——补偿挂单期间承担的库存风险；</li>
+  <li>k 项——补偿流失的成交概率：只有还能成交，市场才肯为宽度付钱。</li>
+</ul>
+
+<h2>你 bot 的伪代码</h2>
+<pre style="font-family:var(--mono);font-size:.88rem;background:#f4f4f0;padding:.9rem;border-radius:6px;overflow-x:auto">每个 tick:
+  s   = 微价格                        # 第 2 课
+  vol = 成交收益率的 EWMA             # sigma
+  q   = 当前库存
+  tau = max(T - t, eps)               # 剩余时间
+  r   = s - q * gamma * vol**2 * tau  # 保留价格
+  width = gamma * vol**2 * tau + (2/gamma)*log(1 + gamma/k)
+  bid = r - width/2
+  ask = r + width/2</pre>
+
+<div class="keystone">
+  <span class="label">核心</span>
+  <strong>A–S = "基准价按库存偏移，宽度按波动率伸缩"。</strong>哪怕你永远不实现严格解，所有严肃报价引擎都是这个形状：基准价偏移 −qγσ²τ，半价差随 σ 增长。这篇论文的价值在于证明这个形状在干净假设下是<em>最优</em>的，而不是那些常数神圣不可改。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>把 γ 和 k 当真实参数。</strong>它们是调参旋钮。γ 是风险厌恶（你多讨厌库存）；k 是拟合出来的成交概率衰减。用"成交率对报价距离"做回归来校准 k；γ 先设成你能忍受的最大库存偏斜，然后砍半。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>你持有多头 5 手，σ 翻倍。r 会怎样？</summary>
+    <p class="answer">大幅下降。</p>
+    <p class="why">偏移是 −qγσ²τ：σ 翻倍使效果变四倍，库存再乘上去。两侧报价狠狠下移——你在主动贿赂市场接走你的库存。</p>
+  </details>
+  <details><summary>临近 T 时最优价差为什么变化？</summary>
+    <p class="answer">库存项在缩小。</p>
+    <p class="why">注意：价差里的 τ 乘的是<em>剩余库存风险</em>，在 T 处归零。临近 T 变大的是"偏移的紧迫感"：可甩库存的时间少了，单位 q 引起的保留价格偏移更猛。</p>
+  </details>
+  <details><summary>论文假设掉了什么现实输入？</summary>
+    <p class="answer">成交强度随距离的衰减。</p>
+    <p class="why">A–S 假设 λ(δ)=A·e<sup>−kδ</sup> 且 k 已知。你的 bot 必须从自己（或市场）的成交历史估计成交概率——并在市场状态改变时更新它。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 — 30 分钟</span>
+  在模拟器里实现上面伪代码，中间价用随机游走（有真实数据就用真实 σ）。跑三组配置：γ=0（对称报价——A–S 退化为围绕 s 报价）、中等 γ、超大 γ。画出库存路径和盈亏。应看到：γ=0 像醉汉一样累积库存；中等 γ 用价差换平仓；超大 γ 报价太宽几乎不成交。
+</div>
+
+<h2>首选阅读</h2>
+<div class="source">
+  <span class="label">读这个</span>
+  <a href="https://www.math.nyu.edu/faculty/avellane/HighFrequencyTrading.pdf">Avellaneda &amp; Stoikov（2008）"High-frequency trading in a limit order book"</a>——短论文；读模型设定后直接跳到策略部分。<a href="https://en.wikipedia.org/wiki/Avellaneda%E2%80%93Stoikov_model">维基百科的总结</a>是不错的伴读。
+</div>
+
+<p class="next"><a href="0005-inventory-skew.zh.html">下一课：库存偏移实战 →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 2 课 — 限价订单簿</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>做市基础 · 第 2 课</span><span><a class="langbtn" href="0002-limit-order-book.html" title="Switch to English">EN</a></span></div>
+  <h1>限价订单簿</h1>
+  <p class="dek">订单簿（order book）是你 bot 赖以生存的战场。理解它的规则——价格-时间优先、深度、中间价、微价格、排位——因为每一个报价决策都是对你所处位置的押注。</p>
+</div>
+
+<p>交易所用严格的算法撮合订单。<span class="term">限价订单簿</span>就是这个数据结构：所有未成交限价单，按价格聚合、同价内按时间排序。对你重要的订单类型有两种：</p>
+<ul>
+  <li><strong>限价单（limit order）</strong>——"最多以 P 买入 / 至少以 P 卖出"。挂进簿里等待撮合或撤销。<em>挂单方（maker）</em>用它。</li>
+  <li><strong>市价单（market / marketable order）</strong>——"立刻成交，无论价格"。跨过价差、消耗流动性。<em>吃单方（taker）</em>用它。很多交易所收 taker 费、返（更低的）maker 费或返佣——查清楚你所在市场的<span class="term"> maker/taker 费率表</span>，它直接改变你的有效价差。</li>
+</ul>
+
+<h2>撮合规则：价格-时间优先</h2>
+<p>价格最优者先成交；同价者，先来先成交。这对做市商有一个重大推论：<strong>排位（queue position）本身就是资产</strong>。排在买一最前面的单，比同价位的其他单先成交——而且恰恰是在"成交最危险"的时候（快市会先吃掉簿的顶层）。排位靠后的单成交更少，且往往是在价格已经穿越你之后才成交——也就是说，逆向选择内建于排队机制本身。</p>
+
+<h2>你要围绕报价的几个价格</h2>
+<ul>
+  <li><span class="term">最优买价 b</span> / <span class="term">最优卖价 a</span>——两侧最紧的挂单。</li>
+  <li><span class="term">中间价（mid）</span> = (a + b)/2——朴素公允价值。计算免费，但忽略了两边的体量差异。</li>
+  <li><span class="term">微价格（microprice）</span> = (b·Q<sub>a</sub> + a·Q<sub>b</sub>)/(Q<sub>b</sub> + Q<sub>a</sub>)——按挂单量加权的中间价，向"体量更大的一侧"倾斜。若 99.9 有巨大的买墙，微价格会拉到中间价下方：真实清算价略低。生产级 bot 多数围绕微价格而非中间价报价。</li>
+  <li><span class="term">深度（depth）</span>——每个价位的总挂单量。簿压（买深度 ≫ 卖深度）是短周期的价格先行指标。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">核心</span>
+  <strong>基准价 + 偏移 = 报价。</strong>本课程的每个报价算法都长这样："选一个公允价值（中间价/微价格/保留价格），然后在 ± 某个计算出的偏移处挂单"。第 3 课让偏移有经济学依据，第 4 课让偏移达到最优。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>簿单边倾斜时仍围绕中间价报价。</strong>中间价是 100.00，但买侧堆了 5000 手、卖侧只有 100 手。下一步几乎必然向下；围绕 100.00 对称报价，意味着你的 bid 一挂出来就是过期的。先倾斜你的基准价——这正是微价格的用途。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>同价位的两张单，谁先成交？</summary>
+    <p class="answer">先到的那张。</p>
+    <p class="why">价格-时间优先。早到本身值钱——它在不改变价格的情况下提高你在该价位的成交概率。</p>
+  </details>
+  <details><summary>买价 99、卖价 101，买量 10000、卖量 10。微价格在哪？</summary>
+    <p class="answer">略低于 100。</p>
+    <p class="why">微价格用<em>对侧</em>体量加权本侧价格，买侧沉重就把基准价往下拉。此时你的两侧报价都应低于"围绕中间价对称"的 bot。</p>
+  </details>
+  <details><summary>为什么排在队首是双刃剑？</summary>
+    <p class="answer">成交更多，成交更差。</p>
+    <p class="why">队首最大化成交概率——包括快市中价格即将穿越你价位的时刻。排队机制把逆向选择集中在了队首。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 — 15 分钟</span>
+  写 30 行 Python：订阅（或轮询）任一公开订单簿，计算中间价、微价格和失衡度 (买量 − 卖量)/(买量 + 卖量)，每次更新打印一次，跑五分钟。观察微价格是否领先中间价指向下一步方向。这段代码将成为你 bot 的基准价模块。
+</div>
+
+<h2>首选阅读</h2>
+<div class="source">
+  <span class="label">读这个</span>
+  <a href="https://www.nasdaqtrader.com/content/ProductsServices/Trading/Order_Entry_Guide.pdf">Nasdaq Trader — Order Entry Guide</a>：真实交易所如何规定订单类型、撮合与优先级。Harris 第 4–5 章讲其经济学。
+</div>
+
+<p class="next"><a href="0003-spread-economics.zh.html">下一课：价差的经济学 →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

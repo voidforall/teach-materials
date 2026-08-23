@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 2 — The Limit Order Book</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Lesson 2</span><span><a class="langbtn" href="0002-limit-order-book.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Limit Order Book</h1>
+  <p class="dek">The order book is the arena your bot lives in. Learn its rules — price–time priority, depth, mid, microprice, queue position — because every quoting decision is a bet on where you sit in it.</p>
+</div>
+
+<p>An exchange matches orders with a strict algorithm. The <span class="term">limit order book</span> is the data structure: all resting limit orders, grouped by price, sorted by time within each price. Two order types matter to you:</p>
+<ul>
+  <li><strong>Limit order</strong> — "buy at most P / sell at least P". It rests in the book until matched or cancelled. <em>Makers</em> use these.</li>
+  <li><strong>Market (or marketable) order</strong> — "execute now at any price". It crosses the spread and consumes liquidity. <em>Takers</em> use these. Many venues charge taker fees and pay (smaller) maker fees or rebates — check your venue's <span class="term">maker/taker schedule</span>, because it changes your effective spread.</li>
+</ul>
+
+<h2>Matching rules: price–time priority</h2>
+<p>Best price wins first; at equal price, earliest order wins. This has one huge consequence for market makers: <strong>queue position is an asset</strong>. An order first in line at the best bid gets filled before everyone else at that price — and, crucially, gets filled <em>exactly when fills are dangerous</em> (fast markets eat the top of the book first). Orders deep in the queue are filled less often, and more often when the price has traded through you — i.e., adverse selection is baked into queue mechanics.</p>
+
+<h2>The prices you'll quote around</h2>
+<ul>
+  <li><span class="term">Best bid (b)</span> / <span class="term">best ask (a)</span> — the tightest resting orders on each side.</li>
+  <li><span class="term">Mid</span> = (a + b)/2 — the naive fair value. Free to compute, but ignores which side is bigger.</li>
+  <li><span class="term">Microprice</span> = (b·Q<sub>a</sub> + a·Q<sub>b</sub>)/(Q<sub>b</sub> + Q<sub>a</sub>) — a size-weighted mid that leans toward the side with more resting size. If a huge bid wall sits at 99.9, the microprice pulls below the mid: the true clearing price is slightly lower. Most production bots quote around microprice, not mid.</li>
+  <li><span class="term">Depth</span> — total size at each level. Book pressure (bid depth ≫ ask depth) is a short-horizon predictor.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Reference price + offset = quote.</strong> Every quoting algorithm in this course has the shape "pick a fair value (mid/microprice/reservation price), then post at ± a computed offset." Lesson 3 makes the offsets economic; Lesson 4 makes them optimal.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Quoting on the mid when the book is one-sided.</strong> Mid says 100.00, but 5,000 lots sit on the bid and 100 on the ask. The next move is almost certainly down; quoting symmetric around 100.00 means your bid is stale the moment it's posted. Skew your reference first — that's what the microprice is for.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Two orders at the same price — which fills first?</summary>
+    <p class="answer">The earlier one.</p>
+    <p class="why">Price–time priority. Arriving early at a price level is worth money — it raises your fill probability at that price without changing the price.</p>
+  </details>
+  <details><summary>Bid 99, ask 101, bid size 10,000, ask size 10. Where does the microprice sit?</summary>
+    <p class="answer">Just below 100.</p>
+    <p class="why">It weights each side by the <em>opposite</em> side's size, so a heavy bid pulls the reference down. You'd quote both sides lower than a symmetric-around-mid bot.</p>
+  </details>
+  <details><summary>Why is being at the front of the queue a double-edged sword?</summary>
+    <p class="answer">More fills, worse fills.</p>
+    <p class="why">Front position maximizes fill probability — including in fast markets where the price is about to trade through your level. Queue mechanics concentrate adverse selection at the front.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 15 minutes</span>
+  Write 30 lines of Python: subscribe to (or poll) any public order book, compute mid, microprice, and imbalance (bid size − ask size)/(bid size + ask size), and print them each update for five minutes. Watch whether microprice leads mid in the direction of the next move. This code becomes the reference-price module of your bot.
+</div>
+
+<h2>Primary source</h2>
+<div class="source">
+  <span class="label">Read this</span>
+  <a href="https://www.nasdaqtrader.com/content/ProductsServices/Trading/Order_Entry_Guide.pdf">Nasdaq Trader — Order Entry Guide</a>: how a real exchange specifies order types, matching and priorities. Harris ch. 4–5 covers the economics.
+</div>
+
+<p class="next"><a href="0003-spread-economics.html">Next: The Economics of the Spread →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 4 — Avellaneda–Stoikov Quoting</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Lesson 4</span><span><a class="langbtn" href="0004-avellaneda-stoikov.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Avellaneda–Stoikov Quoting</h1>
+  <p class="dek">The most-cited formula in retail market making. You don't need its stochastic-control derivation — you need the two equations, what each parameter does, and how they degrade in a real bot.</p>
+</div>
+
+<p>Avellaneda &amp; Stoikov (2008) pose the market maker's problem exactly as Lesson 3 framed it: earn spread, penalize inventory quadratically, over a finite horizon T. Their solution is two formulas your bot can compute every tick.</p>
+
+<h2>Formula 1 — the reservation price</h2>
+<p style="text-align:center"><strong>r(s, t, q) = s − q·γ·σ²·(T − t)</strong></p>
+<p>Instead of quoting around the market price <span class="term">s</span>, quote around a <span class="term">reservation price</span> r that shifts <em>against</em> your inventory. Long (q &gt; 0)? Your reference drops, so both quotes sit lower — you make it cheaper for the market to buy from you (reducing q) and more expensive to sell to you. The shift is:</p>
+<ul>
+  <li><strong>proportional to q</strong> — bigger inventory, bigger inducement to shed it;</li>
+  <li><strong>proportional to σ²</strong> — volatile market, more urgent to be flat;</li>
+  <li><strong>proportional to (T − t)</strong> — early in the session, plenty of time left, skew gently; near the end, skew hard to finish flat.</li>
+</ul>
+
+<h2>Formula 2 — the total spread</h2>
+<p style="text-align:center"><strong>δ<sub>a</sub> + δ<sub>b</sub> = γ·σ²·(T − t) + (2/γ)·ln(1 + γ/k)</strong></p>
+<p>Half of this on each side around r gives your bid and ask. The second term involves <span class="term">k</span>, the fill-intensity decay: how quickly fill probability falls as you quote further out (from the intensities λ(δ) = A·e<sup>−kδ</sup> they assume). Read it as:</p>
+<ul>
+  <li>volatility term — compensation for inventory risk while your quotes are resting;</li>
+  <li>k term — compensation for lost fill probability: the market only pays for width if trades still happen.</li>
+</ul>
+
+<h2>Pseudocode for your bot</h2>
+<pre style="font-family:var(--mono);font-size:.88rem;background:#f4f4f0;padding:.9rem;border-radius:6px;overflow-x:auto">each tick:
+  s   = microprice                    # Lesson 2
+  vol = EWMA of trade returns         # sigma
+  q   = current inventory
+  tau = max(T - t, eps)               # time remaining
+  r   = s - q * gamma * vol**2 * tau  # reservation price
+  width = gamma * vol**2 * tau + (2/gamma)*log(1 + gamma/k)
+  quote_bid = r - width/2
+  quote_ask = r + width/2</pre>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A–S = "skew your reference by inventory, widen by volatility."</strong> Even if you never implement the exact solution, this is the shape of every serious quoting engine: reference price shifted by −qγσ²τ, half-spread growing with σ. The paper's value is proving this shape is <em>optimal</em> under clean assumptions, not that the constants are sacred.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Treating γ and k as true parameters.</strong> They're tuning knobs. γ is risk aversion (how much you hate inventory); k is a fitted decay of fill probability. Calibrate k by regressing observed fill rates on quote distance; set γ to the largest inventory skew you're comfortable with, then halve it.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>You're long 5 lots and σ doubles. What happens to r?</summary>
+    <p class="answer">It drops, a lot.</p>
+    <p class="why">The shift is −qγσ²τ: doubling σ quadruples its effect while inventory multiplies it. Both quotes move down hard — you're now actively bribing the market to take your inventory.</p>
+  </details>
+  <details><summary>Why does the optimal spread grow as (T − t) shrinks near the end?</summary>
+    <p class="answer">It doesn't — the inventory term shrinks.</p>
+    <p class="why">Careful: the τ in the spread multiplies the <em>remaining inventory risk</em>, which vanishes at T. What grows near T is the <em>skew</em> relative to time available: less time left to work inventory off, so the reservation price shifts harder per unit of q.</p>
+  </details>
+  <details><summary>What real-world input do you need that the paper assumes away?</summary>
+    <p class="answer">Fill intensity vs distance.</p>
+    <p class="why">A–S assume λ(δ)=A·e<sup>−kδ</sup> with known k. Your bot must estimate fill probability from its own (or the market's) fill history — and update it when the regime changes.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 30 minutes</span>
+  Implement the pseudocode above in your simulator with a random-walk mid (σ from real data if you have it). Run three configurations: γ=0 (symmetric quoting — A–S degenerates to quoting around s), moderate γ, huge γ. Plot inventory paths and P&amp;L. You should see: γ=0 accumulates drunken inventory; moderate γ trades spread for flatness; huge γ quotes so wide it rarely trades.
+</div>
+
+<h2>Primary source</h2>
+<div class="source">
+  <span class="label">Read this</span>
+  <a href="https://www.math.nyu.edu/faculty/avellane/HighFrequencyTrading.pdf">Avellaneda &amp; Stoikov (2008), "High-frequency trading in a limit order book"</a> — short paper; read the model setup and skip to the strategy section. The <a href="https://en.wikipedia.org/wiki/Avellaneda%E2%80%93Stoikov_model">Wikipedia summary</a> is a good companion.
+</div>
+
+<p class="next"><a href="0005-inventory-skew.html">Next: Inventory Skew in Practice →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

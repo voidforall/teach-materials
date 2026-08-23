@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 5 — Inventory Skew in Practice</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Lesson 5</span><span><a class="langbtn" href="0005-inventory-skew.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Inventory Skew in Practice</h1>
+  <p class="dek">A–S gives the shape; production bots simplify it into two workhorse policies — skew quoting and layered quoting — plus the hard position limits that backstop both.</p>
+</div>
+
+<p>Real bots rarely run textbook A–S (its fill model is too clean, its clock too tidy). They run one of two simpler policies that capture the same economics and are far easier to reason about when things break.</p>
+
+<h2>Policy 1 — Skew quoting (the workhorse)</h2>
+<p>Keep a fixed half-spread, shift both quotes by a skew proportional to inventory:</p>
+<pre style="font-family:var(--mono);font-size:.88rem;background:#f4f4f0;padding:.9rem;border-radius:6px;overflow-x:auto">skew  = q / q_max * max_skew          # linear ramp
+bid   = ref - half_spread + skew      # skew &lt; 0 when long
+ask   = ref + half_spread + skew</pre>
+<p>At q = +q_max the bid may sit <em>at or below</em> the touch while the ask is far above it: the bot is effectively saying "I'll buy only at a bargain." This is A–S's reservation price with γσ²τ collapsed into two tunables: <span class="term">max_skew</span> (in ticks) and the ramp shape. Linear is the default; some bots ramp quadratically near the limit so the last 20% of inventory capacity bites harder.</p>
+
+<h2>Policy 2 — Layered (ladder) quoting</h2>
+<p>Instead of one order per side, post several at increasing distances and increasing sizes: buy 1 at 99.8, 2 at 99.6, 4 at 99.2… The ladder gives you:</p>
+<ul>
+  <li>a fill-probability curve instead of a single point;</li>
+  <li>automatic mean-reversion capture: if price sweeps your ladder and comes back, you sold the basket at better-than-touch prices;</li>
+  <li>a trap: in a trending market a ladder is a machine for accumulating maximum inventory exactly the wrong way. Every 2018–2022 crypto MM blowup story has a ladder in it. Ladders need trend filters or hard inventory caps.</li>
+</ul>
+
+<h2>The backstop: hard position limits</h2>
+<p>Whatever the policy, there is a <span class="term">q_max</span> at which the bot stops quoting the offending side entirely (or flattens via taker order). This is not an optimization — it's the seatbelt. Soft controls (skew) fail precisely when the market is violent, so the hard limit must be enforced in code that cannot be talked out of it by the strategy layer.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Soft skew to shape inventory, hard limit to cap it.</strong> The skew makes reaching the limit unlikely; the limit makes exceeding it impossible. A bot with only soft controls is one weird tape away from being a leveraged directional fund.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Skewing by count instead of value.</strong> If your bot quotes 100 different symbols, inventory must be measured in <em>dollars at risk</em> (q·σ·price), not contracts, or one high-priced volatile symbol will dominate your risk while your "inventory" looks balanced. Normalize skew and limits by value-at-risk per symbol.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>With skew quoting, what does the bid do as q approaches q_max from below?</summary>
+    <p class="answer">Slides down below the touch.</p>
+    <p class="why">The shared skew term pushes both quotes down; the bid moves away from the market (fewer buys) while the ask moves toward it (more sells). Inventory works itself off without a single "liquidate" command.</p>
+  </details>
+  <details><summary>What market regime turns a ladder into a blowup machine?</summary>
+    <p class="answer">A sustained trend.</p>
+    <p class="why">A trending price sweeps layer after layer on one side, accumulating max inventory against the move, each fill worse than the last. Ladders are mean-reversion bets; pair them with trend filters and hard caps.</p>
+  </details>
+  <details><summary>Where must the hard position limit live in your code?</summary>
+    <p class="answer">Outside the strategy layer.</p>
+    <p class="why">In the execution/risk module that every order passes through, so no strategy logic — or a bug in it — can disable the check. Lesson 7 builds this module out.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 30 minutes</span>
+  Extend the Lesson 4 simulator: add a q_max and switch the skew off beyond it (stop quoting the adding side). Inject a trending random walk (add drift). Compare P&amp;L and max inventory with and without the hard limit. The difference <em>is</em> the lesson.
+</div>
+
+<h2>Primary source</h2>
+<div class="source">
+  <span class="label">Read this</span>
+  Cartea, Jaimungal &amp; Penalva, <a href="https://www.cambridge.org/core/books/algorithmic-and-highfrequency-trading/9856C70C748AB85278D22C67F1F49180"><em>Algorithmic and High-Frequency Trading</em></a> ch. 10 — their "inventory-based strategies" section shows skew and layer policies as explicit approximations to the optimal solution. For a live open-source implementation, browse <a href="https://hummingbot.org/strategies/">Hummingbot's pure market-making strategy</a>.
+</div>
+
+<p class="next"><a href="0006-adverse-selection.html">Next: Adverse Selection &amp; Flow Toxicity →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

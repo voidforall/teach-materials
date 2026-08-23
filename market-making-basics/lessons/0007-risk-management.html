@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 7 — Risk Management</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Lesson 7</span><span><a class="langbtn" href="0007-risk-management.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Risk Management</h1>
+  <p class="dek">The strategy decides how to make money; the risk layer decides how to survive. This lesson is the pre-flight checklist your bot must pass before any real capital — limits, kill switches, fat tails, and operational risk.</p>
+</div>
+
+<p>On May 6, 2010, liquidity in US equity futures evaporated in minutes — the <a href="https://www.sec.gov/news/studies/2010/marketevents-report.pdf">SEC/CFTC flash-crash report</a> documents market makers pulling quotes en masse as their own risk limits triggered, amplifying the move. The lesson isn't "don't market make"; it's that <strong>your risk layer will be tested on the one day its design flaws become visible</strong>. Design it first, not last.</p>
+
+<h2>The layer cake</h2>
+<ul>
+  <li><strong>Position limit</strong> — hard cap on inventory per symbol (Lesson 5's q_max), enforced in the risk module every order must pass through. Measured in value-at-risk, not contracts.</li>
+  <li><strong>Loss limits</strong> — daily max drawdown in currency. Hitting it cancels all orders, flattens the book, and <em>stops the bot for the day</em>. Not "reduces size". Stops.</li>
+  <li><strong>Kill switch</strong> — a manual and an automatic path to: cancel-all + flatten + halt. The automatic one triggers on implausible conditions: stale market-data feed, exchange error rate spike, P&amp;L moving faster than physically possible for your quote sizes (the classic symptom of a bug or a fill-report storm).</li>
+  <li><strong>Exposure caps</strong> — if you quote correlated symbols (say, ten altcoins), individual limits lie about your risk: ten "1 unit" positions in correlated names is a 10-unit position in the common factor. Cap portfolio-level exposure too.</li>
+</ul>
+
+<h2>Respecting fat tails</h2>
+<p>Market-making P&amp;L is classically short-volatility-shaped: many small spread wins, occasional large inventory losses. Your sizing math must assume the tails are worse than the Gaussian formulas say:</p>
+<ul>
+  <li>Size limits from <em>stressed</em> σ (e.g. last-year max intraday vol), not average σ.</li>
+  <li>Assume gaps: inventory can jump against you by several spread-widths in one print. If a 5% overnight gap on max inventory ends the account, max inventory is too big.</li>
+  <li>Never let a stop-loss be your only plan for a position that <em>cannot</em> be stopped out (illiquid symbol, halted market). If you can't flatten it fast, don't make it.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Risk limits are pre-commitments, made calm, enforced dumb.</strong> Every rule in this lesson works only if it lives outside the strategy, cannot be softened at runtime, and trips on conditions measurable without human judgment. The whole point is that on the bad day, nobody — including your own clever code — gets to renegotiate.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Loss limit = "reduce size and keep going."</strong> A bot that responds to its loss limit by de-risking gradually is a bot that keeps trading a broken regime with remaining capital. Drawdown limits exist because your model is <em>provably wrong</em> when they trip — the only honest response is to stop and let the human read the tape.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why must the position limit live outside the strategy code?</summary>
+    <p class="answer">To resist the strategy.</p>
+    <p class="why">The strategy is exactly the component whose incentives (and bugs) the limit exists to constrain. Any layer that can be disabled by the thing it polices isn't a control.</p>
+  </details>
+  <details><summary>What conditions — besides losses — should trip the auto kill switch?</summary>
+    <p class="answer">Operational anomalies.</p>
+    <p class="why">Stale data, error-rate spikes, or P&amp;L changing faster than your quote sizes allow all indicate bugs or infrastructure failure. Continuing to quote while blind is how small bugs become account-ending events.</p>
+  </details>
+  <details><summary>You quote ten correlated symbols at 1 unit each. What's your real exposure?</summary>
+    <p class="answer">Roughly ten units.</p>
+    <p class="why">Correlated inventories add up on the common factor. Per-symbol limits understate risk unless you also cap the portfolio-level sum (or factor exposure).</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 30 minutes</span>
+  Write the risk module for your simulator as a separate class every (simulated) order passes through: position check, daily loss check, and a kill() that cancels all and flattens. Then deliberately break things — feed the strategy NaN prices, or let it quote 100× size — and verify the risk layer, not the strategy, ends the session. If you can't make the bot kill itself by breaking inputs, the risk layer isn't finished.
+</div>
+
+<h2>Primary source</h2>
+<div class="source">
+  <span class="label">Read this</span>
+  <a href="https://www.sec.gov/news/studies/2010/marketevents-report.pdf">SEC &amp; CFTC, "Findings Regarding the Market Events of May 6, 2010"</a> — what happens when hundreds of risk layers trigger at once. Read section 2's account of liquidity providers' withdrawal.
+</div>
+
+<p class="next"><a href="0008-bot-architecture.html">Next: Capstone — Bot Architecture →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

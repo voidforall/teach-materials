@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — Adverse Selection &amp; Flow Toxicity</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Lesson 6</span><span><a class="langbtn" href="0006-adverse-selection.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Adverse Selection &amp; Flow Toxicity</h1>
+  <p class="dek">Your fills are a sample of the market's most motivated traders. Learn to measure when that sample is toxic — and the four defensive reactions your bot needs before it can survive real flow.</p>
+</div>
+
+<p>Lesson 3 defined adverse selection as the post-fill drift against you. Here's how to measure it live and what to do about it. The unifying idea, from Glosten–Milgrom and the microstructure literature (Hasbrouck's <em>Empirical Market Microstructure</em> is the reference): <strong>every trade carries information, and your quotes are filters that decide how much of it you absorb.</strong></p>
+
+<h2>Measuring toxicity</h2>
+<ul>
+  <li><strong>Post-fill drift (per fill).</strong> Your own experience: average mid move in the N seconds after your fills, by side. Directly comparable to your half-spread.</li>
+  <li><strong>Order-flow imbalance.</strong> Over a rolling window, signed volume (buys +, sells −). Persistent one-sided flow is someone working a large position — the classic toxic regime.</li>
+  <li><strong>VPIN</strong> (volume-synchronized probability of informed trading, Easley, López de Prado &amp; O'Hara 2012): buckets trades by volume, estimates the fraction of bulk buckets where flow is one-sided. High VPIN historically preceded toxicity events; controversial but cheap to compute and a decent regime flag.</li>
+  <li><strong>Spread-inside-spread.</strong> When the inside spread widens sharply but quoted depth is thin, other market makers have already fled — respect their opinion.</li>
+</ul>
+
+<h2>The four defensive reactions</h2>
+<ol>
+  <li><strong>Widen</strong> — increase half-spread multiplicatively with a toxicity signal. Buys margin on each fill.</li>
+  <li><strong>Fade</strong> — move quotes in the direction of the flow (again the microprice idea): if flow is hammering bids, drop your reference now, don't wait to get filled.</li>
+  <li><strong>Reduce size</strong> — keep the prices, cut the quantity. Limits per-fill damage while keeping queue presence.</li>
+  <li><strong>Pull</strong> — cancel the endangered side entirely. The last resort and the most important one: around scheduled news (CPI, earnings, Fed) production bots pull <em>both</em> sides, because the next print can gap straight through any spread you'd reasonably quote.</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Toxicity is a regime, not a constant.</strong> The same quotes that print money in calm two-sided flow lose money the moment one informed participant starts working an order. Your bot doesn't need to predict toxicity — it needs to <em>detect</em> it from its own fills and flow, and have pre-wired reactions (widen / fade / shrink / pull) it can execute instantly.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Quoting through scheduled news.</strong> The market maker's dream fill — someone crosses a huge spread to trade with you — is usually someone who knows the number before you do. There is no spread wide enough around a CPI print for a small bot; the only correct quote is no quote. Keep an economic calendar and flat-out stop quoting in the minutes around releases.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Your post-fill drift stat just tripled. What does that mean, precisely?</summary>
+    <p class="answer">Fills got more expensive.</p>
+    <p class="why">Each fill now costs, on average, three times the mid-drift it used to. If that exceeds your half-spread your per-fill edge is negative — widen, shrink, or pull before volume amplifies the bleed.</p>
+  </details>
+  <details><summary>Name the four defensive reactions in order of escalation.</summary>
+    <p class="answer">Widen, fade, reduce, pull.</p>
+    <p class="why">Each is costlier in lost spread income but cheaper in tail damage. Your bot should map toxicity-signal levels to this ladder, mechanically.</p>
+  </details>
+  <details><summary>Why is quoting around news a no-go even with a huge spread?</summary>
+    <p class="answer">Prices gap, not glide.</p>
+    <p class="why">Post-news the first trades can print far through any quoted spread; your resting order fills at the old price and the mark immediately moves against you. The distribution has no width you can charge for.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 30 minutes</span>
+  In your simulator, add an "informed trader": occasionally inject a sequence of one-sided market orders that move the mid (a worked order). Log your bot's fills during these episodes vs. calm periods and compute the post-fill drift statistic separately. Then wire one defense — e.g. widen ×2 when rolling flow imbalance exceeds a threshold — and watch the drift-loss line shrink.
+</div>
+
+<h2>Primary source</h2>
+<div class="source">
+  <span class="label">Read this</span>
+  Easley, López de Prado &amp; O'Hara, <a href="https://www.tandfonline.com/doi/abs/10.2469/faj.v68.n2.7">"Flow Toxicity and Liquidity in a High-frequency World" (2012)</a> — the VPIN paper; read it for the measurement idea. Hasbrouck's book has the rigorous foundations.
+</div>
+
+<p class="next"><a href="0007-risk-management.html">Next: Risk Management →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

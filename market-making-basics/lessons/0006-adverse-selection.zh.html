@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 6 课 — 逆向选择与订单流毒性</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>做市基础 · 第 6 课</span><span><a class="langbtn" href="0006-adverse-selection.html" title="Switch to English">EN</a></span></div>
+  <h1>逆向选择与订单流毒性</h1>
+  <p class="dek">你的成交是市场里"动机最强的一批交易者"的样本。学会度量这个样本何时有毒——以及你的 bot 在真实 flow 面前活下来所需的四种防御反应。</p>
+</div>
+
+<p>第 3 课把逆向选择定义为成交后逆着你方向的漂移。本课讲如何实时度量它、以及如何应对。统一的思想来自 Glosten–Milgrom 与微观结构文献（Hasbrouck 的《Empirical Market Microstructure》是标准参考）：<strong>每笔成交都携带信息，而你的报价是过滤器，决定你吸收其中多少。</strong></p>
+
+<h2>毒性的度量</h2>
+<ul>
+  <li><strong>成交后漂移（按每笔）。</strong>你自己的切身体验：成交后 N 秒中间价的平均移动，按方向分组。可直接与半价差比较。</li>
+  <li><strong>订单流失衡。</strong>滚动窗口内的带符号成交量（买入 +、卖出 −）。持续单边 flow 意味着有人在耐心执行大单——典型的毒性状态。</li>
+  <li><strong>VPIN</strong>（成交量同步的知情交易概率，Easley、López de Prado &amp; O'Hara 2012）：按成交量分桶，估计"整桶 flow 单边"的占比。高 VPIN 历史上领先毒性事件；虽有争议但计算便宜、可当状态旗标。</li>
+  <li><strong>盘口内的异动。</strong>内部价差急剧变宽而挂单深度很薄——其他做市商已经跑了。尊重他们的意见。</li>
+</ul>
+
+<h2>四种防御反应</h2>
+<ol>
+  <li><strong>加宽</strong>——按毒性信号成倍扩大半价差。为每笔成交买回利润空间。</li>
+  <li><strong>顺势滑移（fade）</strong>——把报价朝 flow 方向移动（又是微价格思想）：flow 在砸 bid，就立刻下调基准价，别等成交。</li>
+  <li><strong>减量</strong>——价格不动、数量减少。保留排位的同时限制单笔伤害。</li>
+  <li><strong>撤单</strong>——完全撤掉危险侧。最后手段也是最重要的一种：预定新闻（CPI、财报、美联储）前后，生产级 bot 会撤掉<em>两侧</em>报价，因为下一个成交价可能直接跳过任何你敢报的价差。</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">核心</span>
+  <strong>毒性是状态，不是常数。</strong>平静的双边 flow 里印钞的报价，在某个知情者开始执行大单的那一刻就变成亏钱机器。你的 bot 不需要预测毒性——它需要从自己的成交与 flow 里<em>检测</em>毒性，并预先接好能立刻执行的反应阶梯（加宽/滑移/减量/撤单）。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>在预定新闻时段坚持报价。</strong>做市商梦寐以求的成交——有人跨过巨大价差来和你交易——通常来自比你先知道数字的人。小 bot 在 CPI 公布前后不存在"足够宽"的价差；唯一正确的报价是没有报价。维护经济日历，数据发布前后几分钟直接停报。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>成交后漂移指标刚翻了三倍。准确地说这意味着什么？</summary>
+    <p class="answer">成交变得更贵了。</p>
+    <p class="why">现在每笔成交平均付出三倍于从前的中间价漂移。若超过半价差，每笔 edge 已为负——在成交量放大失血之前，加宽、减量或撤单。</p>
+  </details>
+  <details><summary>按升级顺序说出四种防御反应。</summary>
+    <p class="answer">加宽、滑移、减量、撤单。</p>
+    <p class="why">越往后损失的价差收入越多，但尾部伤害越小。bot 应把毒性信号的水平机械地映射到这个阶梯上。</p>
+  </details>
+  <details><summary>为什么新闻时段再宽的价差也不能报？</summary>
+    <p class="answer">价格是跳的，不是滑的。</p>
+    <p class="why">新闻后首批成交可能直接印在远超任何价差的价位；你的挂单以旧价成交，随后市值立刻逆你而动。这个分布没有你可以收费的"宽度"。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 — 30 分钟</span>
+  在模拟器里加入"知情交易者"：偶尔注入一连串单边市价单来推动中间价（模拟分批执行的大单）。分别统计这些时段与平静时段你 bot 的成交及成交后漂移。然后接上一种防御——例如滚动 flow 失衡超阈值时价差 ×2——观察漂移损失那条线塌下去。
+</div>
+
+<h2>首选阅读</h2>
+<div class="source">
+  <span class="label">读这个</span>
+  Easley、López de Prado &amp; O'Hara《<a href="https://www.tandfonline.com/doi/abs/10.2469/faj.v68.n2.7">Flow Toxicity and Liquidity in a High-frequency World</a>》（2012）——VPIN 论文，读其度量思想即可。严格基础见 Hasbrouck 的书。
+</div>
+
+<p class="next"><a href="0007-risk-management.zh.html">下一课：风险管理 →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

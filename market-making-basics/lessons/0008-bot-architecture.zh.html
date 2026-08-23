@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 8 课 — 毕业设计：Bot 架构</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>做市基础 · 第 8 课</span><span><a class="langbtn" href="0008-bot-architecture.html" title="Switch to English">EN</a></span></div>
+  <h1>毕业设计：Bot 架构</h1>
+  <p class="dek">把整门课装配成一个真正能跑的 bot：行情 → 策略 → 风控 → 交易网关的流水线、一个用来验证它的模拟器，以及从回测到模拟盘再到极小真实仓位的晋级阶梯。</p>
+</div>
+
+<p>本课程的一切都映射到同一条流水线上。画一次，贴在墙上：</p>
+
+<pre style="font-family:var(--mono);font-size:.85rem;background:#f4f4f0;padding:.9rem;border-radius:6px;overflow-x:auto">交易所 ──websocket──▶ 行情数据 ──▶ 策略 ──▶ 风控 ──▶ 网关 ──▶ 交易所
+（成交/回执 ◀────────── 账户状态 ◀────────────────┴──（撤单/改单）
+                                   │
+                          日志 / 盈亏 / 遥测</pre>
+
+<h2>各模块与对应课程</h2>
+<ul>
+  <li><strong>行情数据</strong>——把行情源规范化为你自己的订单簿结构；计算中间价、微价格、失衡度、EWMA σ（第 2 课）。所有数据到达即打时间戳；行情静默变陈旧必须可检测。</li>
+  <li><strong>策略</strong>——基准价 + A–S 或偏移报价 + 毒性反应阶梯（第 4–6 课）。"状态 → 期望报价"的纯函数。不做网络调用、不做持久化——这样才能确定性重放。</li>
+  <li><strong>风控</strong>——订单闸门：仓位、亏损、熔断检查（第 5、7 课）。拒绝或清平；策略在这里没有话语权。</li>
+  <li><strong>网关</strong>——交易所 API 客户端：下单/撤单、成交处理、重连与重新订阅、限频处理。仓位的"真相"归它管：每次成交及定期用交易所数据对账。</li>
+  <li><strong>遥测</strong>——记录每个决策及其依据状态。成交后漂移统计（第 6 课）来自这里；没有遥测，你分不清策略 bug 和毒性状态。</li>
+</ul>
+
+<h2>事件循环：先做单线程</h2>
+<p>散户规模的做市 bot 不需要奇技淫巧的并发。一个事件循环——行情更新、成交、定时器各挂一个处理函数、每个跑完即止——更易推理且速度足够。让策略的报价更新幂等（用客户端订单 ID 做撤了再挂），并处理网关的丑陋现实：丢单撤单、部分成交、乱序消息、重连风暴。</p>
+
+<h2>晋级阶梯</h2>
+<ol>
+  <li><strong>回测 / 重放</strong>——录制的 tick 数据 + 现实的成交模型：只有价格<em>穿越</em>你的价位时挂单才成交（或建模排位）。自欺的成交模型是假利润的头号来源。</li>
+  <li><strong>模拟盘（paper trading）</strong>——真实行情、真实延迟、模拟成交，跑数周。实测成交后漂移统计。</li>
+  <li><strong>极小真实仓位</strong>——交易所的最小报单量，硬性限额设在"相当于一本教科书的钱"的量级。若实盘盈亏与模拟盘背离，先停下对账遥测，再谈放量。</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">核心</span>
+  <strong>造阶梯，不是造飞机。</strong>本课程的交付物不是"会交易的 bot"，而是一个你能逐模块、在重放数据上<em>证明</em>的 bot，外加一个地位高于策略层风控层。资金是你最后才接入的依赖，且以最小规模接入。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>乐观成交模型。</strong>假设价格一<em>碰</em>到你的价位挂单就成交（且不建模排队），会同时虚增成交率和价差收入——经典的"一回测就赚、一上线就死"。保守建模：穿越才算成交，并按你前面的排队深度打折。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>为什么策略层必须是状态的纯函数？</summary>
+    <p class="answer">为了可重放。</p>
+    <p class="why">没有副作用，就能用录下的状态流重放任何事故、精确复现 bot 当时的行为——这是排查线上意外的唯一办法。</p>
+  </details>
+  <details><summary>哪个模块持有"真实"仓位？为什么要对账？</summary>
+    <p class="answer">网关，以交易所为准。</p>
+    <p class="why">丢单成交、重复回报与重连会让本地账本漂离现实。逐笔加定期对账把漂移框在有限范围内；一个你不确信的仓位是无法对冲的风险。</p>
+  </details>
+  <details><summary>怎样的回测成交模型算诚实？</summary>
+    <p class="answer">价格穿越你的价位。</p>
+    <p class="why">挂单排在该价位队列之后，仅仅碰到并不轮到你。要求穿越成交（并按排队打折），让模拟成交至少和现实一样悲观。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">毕业设计 — 一个周末</span>
+  选一个流动性好的标的，在有优质 testnet 的市场（如某加密交易所的测试网，或录制数据重放）搭出流水线：数据模块 → 偏移/A–S 策略（第 5 课伪代码）→ 风控闸门（第 7 课检查单）→ 模拟网关。模拟盘跑一周。验收标准：(1) 遥测能回答"按天看，成交后漂移是多少"；(2) 注入坏行情能自动杀死 bot；(3) 总盈亏与逐笔成交加手续费之和对账到分。
+</div>
+
+<h2>首选阅读</h2>
+<div class="source">
+  <span class="label">读这个</span>
+  <a href="https://hummingbot.org/strategies/">Hummingbot 的做市策略文档</a>——本课程所有内容（可配价差、库存偏移、熔断）的开源工作实现。先自己造，再读它的代码；一致是确认，分歧是教育。架构参考可读 Cartea–Jaimungal–Penalva 最后几章关于执行与基础设施的现实。
+</div>
+
+<p class="next"><a href="../reference/market-making-cheatsheet.zh.html">课程完结 — 拿走速查表 →</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师——agent 就是干这个的。模拟盘一周跑完后回来，我们一起读遥测数据。</p>
+</body>
+</html>

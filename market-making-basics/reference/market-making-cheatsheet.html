@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Market Making — Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Reference</span><span><a class="langbtn" href="market-making-cheatsheet.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Market Making Cheat Sheet</h1>
+  <p class="dek">The whole course on one page: the P&amp;L identity, the formulas, the reaction ladder, the risk checks, the architecture.</p>
+</div>
+
+<h2>The one identity</h2>
+<p style="text-align:center"><strong>P&amp;L ≈ Σ spread − Σ adverse selection − Σ inventory cost − fees</strong></p>
+<p class="note">Every bot knob maps to one term. Spread must scale with volatility; fills are negatively selected; inventory cost ≈ ½γσ²q².</p>
+
+<h2>Reference prices</h2>
+<table class="bindings">
+  <tr><th>Price</th><th>Formula</th><th>Use</th></tr>
+  <tr><td>Mid</td><td>(a+b)/2</td><td>Naive fair value</td></tr>
+  <tr><td>Microprice</td><td>(b·Q<sub>a</sub> + a·Q<sub>b</sub>)/(Q<sub>b</sub>+Q<sub>a</sub>)</td><td>Size-weighted; leans away from the heavy side</td></tr>
+  <tr><td>Reservation (A–S)</td><td>r = s − qγσ²(T−t)</td><td>Inventory-shifted reference</td></tr>
+  <tr><td>Imbalance</td><td>(Q<sub>b</sub>−Q<sub>a</sub>)/(Q<sub>b</sub>+Q<sub>a</sub>)</td><td>Short-horizon direction / toxicity flag</td></tr>
+</table>
+
+<h2>Avellaneda–Stoikov, compressed</h2>
+<ul>
+  <li>Reference: r = s − qγσ²(T−t) — skew against inventory, harder when volatile or near end of session.</li>
+  <li>Total spread: γσ²(T−t) + (2/γ)ln(1+γ/k) — vol term + fill-decay (k) term; post half each side of r.</li>
+  <li>γ, k are tuning knobs: calibrate k from fill-rate vs distance; set γ to tolerable skew, then halve.</li>
+</ul>
+
+<h2>Quoting policies</h2>
+<ul>
+  <li><strong>Skew:</strong> bid/ask = ref ∓ half_spread + (q/q_max)·max_skew. Soft shaping.</li>
+  <li><strong>Ladder:</strong> layered sizes at increasing distances; mean-reversion capture; needs trend filter + hard cap.</li>
+  <li><strong>Hard limit:</strong> at q_max stop quoting the adding side — enforced in the risk module, not the strategy.</li>
+</ul>
+
+<h2>Toxicity ladder (escalate in order)</h2>
+<p><strong>Widen → Fade (move reference with flow) → Reduce size → Pull quotes.</strong> Signals: post-fill drift vs half-spread, rolling flow imbalance, VPIN, thin+wide inside spread. Around scheduled news: no quotes at all.</p>
+
+<h2>Risk pre-flight checklist</h2>
+<ul>
+  <li>Position limit per symbol, in value-at-risk, outside strategy code.</li>
+  <li>Daily loss limit → cancel-all + flatten + stop for the day (not "reduce size").</li>
+  <li>Kill switch: manual + auto (stale feed, error spike, impossible P&amp;L rate).</li>
+  <li>Portfolio/factor exposure cap across correlated symbols.</li>
+  <li>Size from stressed σ; survive a gap on max inventory.</li>
+</ul>
+
+<h2>Bot pipeline</h2>
+<p class="note" style="font-family:var(--mono)">exchange → market data (mid/micro/σ) → strategy (pure fn: state→quotes) → risk gate → gateway → exchange, with telemetry on every decision.</p>
+<ul>
+  <li>Fill model honesty: fill on trade-<em>through</em>, discount for queue.</li>
+  <li>Gateway owns position truth; reconcile every fill + periodically.</li>
+  <li>Promotion ladder: replay backtest → paper (weeks) → minimum real size.</li>
+</ul>
+
+<h2>Sources</h2>
+<p class="note"><a href="https://www.math.nyu.edu/faculty/avellane/HighFrequencyTrading.pdf">Avellaneda–Stoikov 2008</a> · Harris <em>Trading and Exchanges</em> · Cartea–Jaimungal–Penalva <em>Algorithmic &amp; HFT</em> · <a href="https://www.tandfonline.com/doi/abs/10.2469/faj.v68.n2.7">Easley et al. VPIN 2012</a> · <a href="https://www.sec.gov/news/studies/2010/marketevents-report.pdf">SEC/CFTC Flash Crash report</a> · <a href="https://hummingbot.org/strategies/">Hummingbot docs</a></p>
+
+<p class="nav"><a href="../lessons/0001-what-market-making-is.html">← Lesson 1</a><span>Market Making Basics</span></p>
+</body>
+</html>

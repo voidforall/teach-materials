@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>做市 — 速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>做市基础 · 参考</span><span><a class="langbtn" href="market-making-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>做市速查表</h1>
+  <p class="dek">整门课浓缩成一页：盈亏恒等式、公式、反应阶梯、风控检查单、架构图。</p>
+</div>
+
+<h2>唯一的恒等式</h2>
+<p style="text-align:center"><strong>盈亏 ≈ Σ 价差 − Σ 逆向选择 − Σ 库存成本 − 手续费</strong></p>
+<p class="note">bot 的每个旋钮对应其中一项。价差必须随波动率伸缩；成交是负向选择的；库存成本 ≈ ½γσ²q²。</p>
+
+<h2>基准价格</h2>
+<table class="bindings">
+  <tr><th>价格</th><th>公式</th><th>用途</th></tr>
+  <tr><td>中间价</td><td>(a+b)/2</td><td>朴素的公允价值</td></tr>
+  <tr><td>微价格</td><td>(b·Q<sub>a</sub> + a·Q<sub>b</sub>)/(Q<sub>b</sub>+Q<sub>a</sub>)</td><td>按量加权；远离沉重一侧</td></tr>
+  <tr><td>保留价格（A–S）</td><td>r = s − qγσ²(T−t)</td><td>按库存偏移的基准价</td></tr>
+  <tr><td>失衡度</td><td>(Q<sub>b</sub>−Q<sub>a</sub>)/(Q<sub>b</sub>+Q<sub>a</sub>)</td><td>短周期方向 / 毒性旗标</td></tr>
+</table>
+
+<h2>Avellaneda–Stoikov 压缩版</h2>
+<ul>
+  <li>基准：r = s − qγσ²(T−t)——逆库存偏移；波动大或临近收盘时更狠。</li>
+  <li>总价差：γσ²(T−t) + (2/γ)ln(1+γ/k)——波动项 + 成交衰减（k）项；在 r 两侧各放一半。</li>
+  <li>γ、k 是调参旋钮：k 由"成交率 vs 距离"回归校准；γ 设为可容忍偏斜再砍半。</li>
+</ul>
+
+<h2>报价策略</h2>
+<ul>
+  <li><strong>偏移：</strong>bid/ask = ref ∓ half_spread + (q/q_max)·max_skew。软性塑形。</li>
+  <li><strong>阶梯：</strong>距离递增、数量递增分层挂单；赚均值回归；必须配趋势过滤 + 硬上限。</li>
+  <li><strong>硬性上限：</strong>q_max 处停止加仓侧报价——由风控模块而非策略执行。</li>
+</ul>
+
+<h2>毒性反应阶梯（按序升级）</h2>
+<p><strong>加宽 → 顺势滑移（基准随 flow 移动）→ 减量 → 撤单。</strong>信号：成交后漂移 vs 半价差、滚动 flow 失衡、VPIN、盘口"又宽又薄"。预定新闻前后：完全不报。</p>
+
+<h2>风控起飞前检查单</h2>
+<ul>
+  <li>每标的位置上限，以风险价值计，位于策略代码之外。</li>
+  <li>当日亏损限额 → 撤单全部 + 清平 + 当日停机（不是"降低仓位"）。</li>
+  <li>熔断开关：手动 + 自动（行情陈旧、错误率飙升、不可能的盈亏速度）。</li>
+  <li>相关标的的组合/因子敞口上限。</li>
+  <li>限额用压力 σ 计算；最大库存要能扛一次跳空。</li>
+</ul>
+
+<h2>Bot 流水线</h2>
+<p class="note" style="font-family:var(--mono)">交易所 → 行情数据（中间价/微价格/σ）→ 策略（纯函数：状态→报价）→ 风控闸门 → 网关 → 交易所，每个决策都有遥测。</p>
+<ul>
+  <li>成交模型的诚实：穿越才算成交，按排队打折。</li>
+  <li>仓位真相归网关；逐笔成交 + 定期对账。</li>
+  <li>晋级阶梯：重放回测 → 模拟盘（数周）→ 最小真实仓位。</li>
+</ul>
+
+<h2>资料来源</h2>
+<p class="note"><a href="https://www.math.nyu.edu/faculty/avellane/HighFrequencyTrading.pdf">Avellaneda–Stoikov 2008</a> · Harris《Trading and Exchanges》· Cartea–Jaimungal–Penalva《Algorithmic &amp; HFT》· <a href="https://www.tandfonline.com/doi/abs/10.2469/faj.v68.n2.7">Easley 等 VPIN 2012</a> · <a href="https://www.sec.gov/news/studies/2010/marketevents-report.pdf">SEC/CFTC 闪电崩盘报告</a> · <a href="https://hummingbot.org/strategies/">Hummingbot 文档</a></p>
+
+<p class="nav"><a href="../lessons/0001-what-market-making-is.zh.html">← 第 1 课</a><span>做市基础</span></p>
+</body>
+</html>

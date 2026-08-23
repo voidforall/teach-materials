@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 8 — Capstone: Bot Architecture</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Lesson 8</span><span><a class="langbtn" href="0008-bot-architecture.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Capstone: Bot Architecture</h1>
+  <p class="dek">Assemble the course into a bot you can actually run: a market-data → strategy → risk → gateway pipeline, a simulator to prove it in, and a promotion ladder from backtest to paper to tiny real size.</p>
+</div>
+
+<p>Everything in this course maps onto one pipeline. Draw it once and keep it on the wall:</p>
+
+<pre style="font-family:var(--mono);font-size:.85rem;background:#f4f4f0;padding:.9rem;border-radius:6px;overflow-x:auto">exchange ──websocket──▶ market data ──▶ strategy ──▶ risk ──▶ gateway ──▶ exchange
+ (fills, acks ◀────────── account state ◀────────────────┴── (cancel/replace)
+                                   │
+                              logging / P&amp;L / telemetry</pre>
+
+<h2>The modules, each backed by a lesson</h2>
+<ul>
+  <li><strong>Market data</strong> — normalize the feed into your own book representation; compute mid, microprice, imbalance, EWMA σ (Lesson 2). Timestamp everything on arrival; a feed silently going stale must be detectable.</li>
+  <li><strong>Strategy</strong> — reference price + A–S or skew quoting + toxicity ladder (Lessons 4–6). Pure function of state → desired quotes. No network calls, no persistence — so you can replay it deterministically.</li>
+  <li><strong>Risk</strong> — the order gate: position, loss, kill-switch checks (Lessons 5, 7). Rejects or flattens; the strategy has no authority here.</li>
+  <li><strong>Gateway</strong> — exchange API client: place/cancel, fill handling, reconnect + resubscribe logic, rate-limit handling. Own the truth about position: reconcile your books against the exchange's on every fill and periodically.</li>
+  <li><strong>Telemetry</strong> — log every decision with the state that produced it. Post-fill drift stats (Lesson 6) come from here; without telemetry you cannot tell a strategy bug from a toxic regime.</li>
+</ul>
+
+<h2>The event loop, single-threaded first</h2>
+<p>A market-making bot at retail scale does not need exotic concurrency. One event loop — on book update, on fill, on timer — where each handler runs to completion, is simpler to reason about and fast enough. Make the strategy's quote update idempotent (cancel-then-replace with client order IDs), and handle the ugly realities of the gateway: lost cancels, partial fills, out-of-order messages, reconnect storms.</p>
+
+<h2>The promotion ladder</h2>
+<ol>
+  <li><strong>Backtest / replay</strong> — recorded tick data, realistic fill model: your resting order fills only if price trades <em>through</em> your level (or you model queue position). Cheating fill models are the #1 source of fake profits.</li>
+  <li><strong>Paper trading</strong> — the real feed, real latency, simulated fills, for weeks. Measure the drift-after-fill statistic live.</li>
+  <li><strong>Tiny real size</strong> — the minimum quote size on the venue, hard limits at "losses you'd spend on a textbook". If the live P&amp;L diverges from paper, stop and reconcile telemetry before scaling.</li>
+</ol>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Build the ladder, not the plane.</strong> The deliverable of this course is not a bot that trades — it's a bot you can <em>prove</em>, module by module, on replayed data, with a risk layer that out-ranks the strategy. Capital is the last dependency you add, at minimum size.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>The optimistic fill model.</strong> Assuming your resting order fills whenever price <em>touches</em> your level (with no queue modeling) inflates both fill rate and spread income — the classic backtest that dies on contact with a real matching engine. Model conservatively: fill on trade-through, discount for queue depth ahead of you.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why must the strategy layer be a pure function of state?</summary>
+    <p class="answer">Replayability.</p>
+    <p class="why">No side effects means you can re-run any incident against the logged state stream and reproduce exactly what the bot did — the only way to debug live surprises.</p>
+  </details>
+  <details><summary>Which module owns the "true" position, and why reconcile?</summary>
+    <p class="answer">The gateway, against the exchange.</p>
+    <p class="why">Lost fills, duplicates and reconnects make local bookkeeping drift from reality. Periodic and on-fill reconciliation bounds the drift; a position you believe wrong is un-hedgeable risk.</p>
+  </details>
+  <details><summary>What makes a backtest fill model honest?</summary>
+    <p class="answer">Trades through your price.</p>
+    <p class="why">A resting order is behind the queue at its level; a mere touch doesn't fill you. Requiring trade-through (and a queue discount) makes simulated fills at least as pessimistic as reality.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Capstone — a weekend</span>
+  Build the pipeline for one liquid symbol on a venue with a good testnet (e.g. a crypto exchange's testnet, or a recorded-data replay): data module → skew/A–S strategy (Lesson 5 pseudocode) → risk gate (Lesson 7 checklist) → paper gateway. Run it paper for a week. The acceptance test: (1) telemetry can answer "what was the post-fill drift, by day?"; (2) injecting a broken feed kills the bot automatically; (3) total P&amp;L reconciles to the sum of logged fills and fees to the cent.
+</div>
+
+<h2>Primary source</h2>
+<div class="source">
+  <span class="label">Read this</span>
+  <a href="https://hummingbot.org/strategies/">Hummingbot's market-making strategy docs</a> — a working open-source implementation of everything in this course (configurable spreads, inventory skew, kill switches). Read its code after you've built your own; agreement is confirmation, disagreement is education. For reference architecture, Cartea–Jaimungal–Penalva's final chapters cover execution and infrastructure realities.
+</div>
+
+<p class="next"><a href="../reference/market-making-cheatsheet.html">Course complete — grab the cheat sheet →</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for. When your paper-trading week is done, come back and we'll read the telemetry together.</p>
+</body>
+</html>

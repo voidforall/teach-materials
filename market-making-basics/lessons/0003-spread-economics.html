@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 3 — The Economics of the Spread</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Lesson 3</span><span><a class="langbtn" href="0003-spread-economics.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Economics of the Spread</h1>
+  <p class="dek">Before optimizing quotes, write down the P&amp;L model they serve. One identity — spread income minus adverse selection minus inventory cost minus fees — turns market making from folklore into an engineering problem.</p>
+</div>
+
+<p>Over a day, your bot's P&amp;L decomposes almost mechanically (Cartea, Jaimungal &amp; Penalva, ch. 10, has the formal version; Glosten–Milgrom 1985 is the classic "spread = compensation for adverse selection" model):</p>
+
+<p style="text-align:center"><strong>P&amp;L ≈ Σ(spread earned) − Σ(adverse selection cost) − Σ(inventory risk cost) − fees</strong></p>
+
+<h2>Term by term</h2>
+<ul>
+  <li><strong>Spread income.</strong> Each completed round trip (buy at your bid, sell at your ask) earns roughly the quoted spread. Wider quotes → more per trade but <em>fewer</em> trades: fill probability falls steeply with distance from the touch. Your effective edge per trade is spread − fees, and it must be positive after fees <em>at your fill rate</em>.</li>
+  <li><strong>Adverse selection.</strong> Expected loss from trading against better-informed flow. Measured per fill: after you buy, the mid on average drifts <em>down</em> slightly. If your half-spread is 2 ticks and the post-fill drift against you averages 3 ticks, no amount of volume saves you.</li>
+  <li><strong>Inventory risk.</strong> Holding position q over time costs roughly ½·γ·σ²·q² per unit time (why quadratic? Doubling inventory doubles the loss if price moves, and quadruples the pain via risk aversion γ). This term is why market makers don't just hold inventory forever.</li>
+  <li><strong>Fees.</strong> Maker rebates can flip the sign of the whole business. On a venue with maker rebate, you can quote <em>through</em> the touch and still earn.</li>
+</ul>
+
+<h2>The fill-probability trade-off, concretely</h2>
+<p>Quote at the touch: many fills, thin edge, heavy adverse selection (you're first in harm's way). Quote far: few fills, each with generous edge and little toxicity, but your capital idles and inventory goes stale. Production bots position on this curve by volatility: <strong>when σ rises, widen</strong> — the adverse-selection and inventory terms grow with volatility, so your spread must grow with it too. A spread that's fixed across regimes is a bug.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>The spread is a price, not a habit.</strong> You charge for three services: immediacy, bearing inventory, and absorbing informed flow. Your quotes should be the minimum spread that keeps expected income above the sum of the other three terms — and it scales with volatility.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Counting gross spread while ignoring post-fill drift.</strong> A backtest that assumes mid stays put after your fill will show beautiful profits. In reality your fills are negatively selected; measure the mid's move in the seconds <em>after</em> each simulated fill, and charge it against your edge.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Write the market maker's daily P&amp;L identity from memory.</summary>
+    <p class="answer">Spreads − adverse selection − inventory cost − fees.</p>
+    <p class="why">Every knob in your bot maps to one term: quote width → spreads, quote placement/toxicity filters → adverse selection, skew and limits → inventory cost, venue choice → fees.</p>
+  </details>
+  <details><summary>Volatility triples. What happens to your quotes?</summary>
+    <p class="answer">Widen them.</p>
+    <p class="why">Adverse-selection drift and inventory risk both scale with σ (inventory cost with σ²). A spread that doesn't widen with vol turns a market maker into an insurance company charging old premiums for new risks.</p>
+  </details>
+  <details><summary>Why does inventory cost grow with the square of position size?</summary>
+    <p class="answer">Risk penalizes concentration.</p>
+    <p class="why">Variance of P&amp;L on position q is σ²q²; a risk-averse trader (risk aversion γ) values that loss at ½γσ²q². It's the same quadratic penalty that appears inside Avellaneda–Stoikov next lesson.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 20 minutes</span>
+  Take one hour of trade data from any liquid market. For each trade, record the mid 30 seconds later. Average the move conditioned on whether the trade hit the bid or the ask. That number (in ticks) is your empirical per-fill adverse selection. Compare it to the typical half-spread — if drift ≥ half-spread, passive filling at the touch is a losing business on that venue.
+</div>
+
+<h2>Primary source</h2>
+<div class="source">
+  <span class="label">Read this</span>
+  Glosten &amp; Milgrom (1985), "Bid, ask and transaction prices in a specialist market" — the model that explains <em>why</em> spreads exist: they're the fee liquidity demanders pay for trading possibly against better information. Find it via any library; Cartea–Jaimungal–Penalva ch. 10 gives the modern bot-builder's version.
+</div>
+
+<p class="next"><a href="0004-avellaneda-stoikov.html">Next: Avellaneda–Stoikov Quoting →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

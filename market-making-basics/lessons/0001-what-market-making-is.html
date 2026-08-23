@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 1 — What Market Making Is</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Market Making Basics · Lesson 1</span><span><a class="langbtn" href="0001-what-market-making-is.zh.html" title="切换到中文">中</a></span></div>
+  <h1>What Market Making Is</h1>
+  <p class="dek">A market maker buys from impatient sellers and sells to impatient buyers, thousands of times a day, and tries to keep the spread. It's a business of earning small edges repeatedly while dodging people who know more than you.</p>
+</div>
+
+<p>Most trading strategies are <strong>directional</strong>: predict the price will go up or down, take a position, wait. Market making is the opposite bet. You express <em>no opinion</em> on direction. You simultaneously post a <span class="term">bid</span> (an order to buy) below the market and an <span class="term">ask</span> (an order to sell) above it:</p>
+
+<ul>
+  <li>Someone sells into your bid — you acquire inventory.</li>
+  <li>Someone buys from your ask — you release inventory.</li>
+  <li>If both happen near the mid price, you pocket the <span class="term">bid–ask spread</span> minus fees.</li>
+</ul>
+
+<p>Do that a million times a year and the spread adds up. The catch: you are trading <em>against</em> whoever hits your quote, and some of them are trading because they know something. That's <span class="term">adverse selection</span>, and it's the reason naive market makers bleed out.</p>
+
+<h2>The market maker's identity</h2>
+<p>Harris (<em>Trading and Exchanges</em>, 2003) describes a market maker as a trader whose <strong>profits come from liquidity supply, not prediction</strong>. Exchanges and regulators often formalize the role (designated market makers with quoting obligations), but anyone resting limit orders that others trade against is doing market making. Your bot will be exactly that: a liquidity-supplying algorithm.</p>
+
+<h2>The three enemies of every market maker</h2>
+<ol>
+  <li><strong>Adverse selection</strong> — informed flow picks off stale quotes. Your fill is often bad news: the price was moving away from you.</li>
+  <li><strong>Inventory risk</strong> — you accumulate a position, and the price moves against it.</li>
+  <li><strong>Costs</strong> — exchange fees, and in some venues, the spread you must cross to hedge.</li>
+</ol>
+<p>Everything in this course — quoting algorithms, skews, risk limits — exists to manage these three. Keep them in mind as a checklist for every design decision in your bot.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Market making = sell liquidity, don't predict.</strong> Your gross profit per round trip is the spread; your losses come from being filled when you'd rather not have been. Every algorithm in this course is a rule for <em>when</em> and <em>where</em> to post quotes so that the fills you get are the profitable kind.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Market making as a disguise for direction.</strong> If your bot quietly accumulates inventory because "the price will come back", you're no longer earning the spread — you're holding a directional bet with extra steps. The whole discipline (Lessons 5 and 7) is about refusing that temptation.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Where does a market maker's gross profit come from?</summary>
+    <p class="answer">The bid–ask spread.</p>
+    <p class="why">Buy at the bid, sell at the ask, repeat. Net profit subtracts fees, adverse-selection losses, and inventory mark-to-market moves.</p>
+  </details>
+  <details><summary>Name the market maker's three enemies.</summary>
+    <p class="answer">Adverse selection, inventory risk, costs.</p>
+    <p class="why">Quoting algorithms earn their spread against enemy #1; inventory skew (Lesson 5) handles #2; fee-aware quoting and hedging handle #3.</p>
+  </details>
+  <details><summary>You get filled on your bid. Why might that be bad news?</summary>
+    <p class="answer">Fills are negatively selected.</p>
+    <p class="why">Traders most eager to sell are often those who know the price is heading lower. A fill is information: the market just told you it wanted your bid. Lesson 6 turns this into measurable toxicity.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 10 minutes</span>
+  Open any live order book (e.g. <a href="https://www.binance.com/en/trade/BTC_USDT">BTC/USDT on Binance</a> or <a href="https://www.nasdaq.com/market-activity/stocks/aapl/order-book">Nasdaq AAPL</a>). Watch the best bid and best ask for two minutes. Note how often the spread widens just before big moves — that's other market makers defending against enemy #1 in real time.
+</div>
+
+<h2>Primary source</h2>
+<div class="source">
+  <span class="label">Read this</span>
+  Larry Harris, <a href="https://www.amazon.com/Trading-Exchanges-Market-Microstructure-Practitioners/dp/0195144708"><em>Trading and Exchanges</em></a>, ch. 1 &amp; the market-maker chapters. The best single description of who market makers are and what they're paid for.
+</div>
+
+<p class="next"><a href="0002-limit-order-book.html">Next: The Limit Order Book →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

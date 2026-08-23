@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 3 课 — 价差的经济学</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>做市基础 · 第 3 课</span><span><a class="langbtn" href="0003-spread-economics.html" title="Switch to English">EN</a></span></div>
+  <h1>价差的经济学</h1>
+  <p class="dek">在优化报价之前，先写下报价所服务的盈亏模型。一个恒等式——价差收入 − 逆向选择 − 库存成本 − 手续费——把做市从玄学变成工程问题。</p>
+</div>
+
+<p>在一天维度上，你 bot 的盈亏几乎可以机械地分解（Cartea、Jaimungal &amp; Penalva 第 10 章有正式版本；Glosten–Milgrom 1985 是"价差 = 对逆向选择的补偿"这一思想的经典模型）：</p>
+
+<p style="text-align:center"><strong>盈亏 ≈ Σ(赚到价差) − Σ(逆向选择成本) − Σ(库存风险成本) − 手续费</strong></p>
+
+<h2>逐项拆解</h2>
+<ul>
+  <li><strong>价差收入。</strong>每完成一次往返（bid 买、ask 卖）大约赚到报价价差。报价越宽，单次赚得越多但成交<em>更少</em>：成交概率随离盘口的距离急剧下降。每笔有效 edge = 价差 − 手续费，且必须<em>在你的成交率下</em>仍为正。</li>
+  <li><strong>逆向选择。</strong>与更知情的 flow 交易的期望损失。按每次成交度量：你买入之后，中间价平均会<em>向下</em>漂移一点。若你的半价差是 2 个 tick，而成交后逆向你方向的平均漂移是 3 个 tick，再大的成交量也救不了你。</li>
+  <li><strong>库存风险。</strong>持仓 q 的时间成本约为 ½·γ·σ²·q²（为什么是平方？持仓翻倍，价格波动带来的损失翻倍；而经风险厌恶系数 γ 放大后是四次方的痛）。这一项正是做市商不肯无限囤库存的原因。</li>
+  <li><strong>手续费。</strong>maker 返佣可以翻转整个生意的正负号。在有 maker 返佣的市场，你甚至可以<em>穿过</em>盘口报价仍然赚钱。</li>
+</ul>
+
+<h2>成交概率的取舍，说具体点</h2>
+<p>贴着盘口报价：成交多、edge 薄、逆向选择重（你站在火线最前排）。报价很远：成交少、每笔 edge 厚、毒性小，但资金闲置、库存陈旧。生产级 bot 靠波动率在这条曲线上选位置：<strong>σ 升高时，加宽报价</strong>——逆向选择与库存两项都随波动率增长，价差也必须随之增长。跨行情保持不变的价差是一个 bug。</p>
+
+<div class="keystone">
+  <span class="label">核心</span>
+  <strong>价差是价格，不是习惯。</strong>你在收三份服务的钱：即时性、承担库存、吸收知情 flow。你的报价应是"使期望收入高于其余三项之和"的最小价差——并且它随波动率而伸缩。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>只算毛价差、无视成交后漂移。</strong>假设成交后中间价不动的回测会显示漂亮利润。现实中你的成交是负向选择的；在每次模拟成交后的几秒内度量中间价的移动，并把它记入 edge 的成本项。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>凭记忆写出做市商的日盈亏恒等式。</summary>
+    <p class="answer">价差 − 逆向选择 − 库存成本 − 手续费。</p>
+    <p class="why">你 bot 的每个旋钮都对应一项：报价宽度 → 价差，报价位置/毒性过滤 → 逆向选择，偏移与限额 → 库存成本，市场选择 → 手续费。</p>
+  </details>
+  <details><summary>波动率变成三倍，报价怎么办？</summary>
+    <p class="answer">加宽。</p>
+    <p class="why">逆向选择漂移与库存风险都随 σ 增长（库存成本随 σ²）。不加宽的价差，等于保险公司按旧保费承保新风险。</p>
+  </details>
+  <details><summary>为什么库存成本随持仓的平方增长？</summary>
+    <p class="answer">风险惩罚集中持仓。</p>
+    <p class="why">持仓 q 的盈亏方差是 σ²q²；风险厌恶（系数 γ）的交易者将其定价为 ½γσ²q²。下一课 Avellaneda–Stoikov 内部就是同一个二次惩罚项。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 — 20 分钟</span>
+  取任一流动性市场一小时的成交数据。对每笔成交，记录 30 秒后的中间价，并按"砸 bid 还是吃 ask"分别求平均移动。这个数（换算成 tick）就是你该市场每笔成交的经验逆向选择。与常见半价差比较——若漂移 ≥ 半价差，在该市场贴盘口被动成交是亏本生意。
+</div>
+
+<h2>首选阅读</h2>
+<div class="source">
+  <span class="label">读这个</span>
+  Glosten &amp; Milgrom（1985）"Bid, ask and transaction prices in a specialist market"——解释价差<em>为何</em>存在的模型：它是流动性需求者为"可能在与更知情者交易"支付的保险费。可经任何图书馆获取；Cartea–Jaimungal–Penalva 第 10 章给出面向 bot 开发者的现代版本。
+</div>
+
+<p class="next"><a href="0004-avellaneda-stoikov.zh.html">下一课：Avellaneda–Stoikov 报价 →</a> &nbsp;·&nbsp; <a href="../reference/market-making-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师——agent 就是干这个的。</p>
+</body>
+</html>
