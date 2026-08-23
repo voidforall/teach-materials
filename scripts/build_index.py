@@ -35,6 +35,7 @@ CREDITS = [
     ("game-theory", "Go (13×13) — 2021", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Go_(13%C3%9713)_--_2021_--_6741.jpg"),
     ("harness-engineering", "Study for a Marionette — Metropolitan Museum of Art", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:Study_for_a_Marionette_MET_DP213910.jpg"),
     ("linux-sockets", "Network-cables-1", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Network-cables-1.png"),
+    ("llm-security", "Cybersecurity — jaydeep_ (Pixabay)", "CC0 1.0", "https://commons.wikimedia.org/wiki/File:Cybersecurity.png"),
     ("market-making-basics", "Candlestick Chart in MetaTrader 5", "CC BY-SA 4.0", "https://commons.wikimedia.org/wiki/File:Candlestick_Chart_in_MetaTrader_5.png"),
     ("rl-for-kaggle", "Kaggle Logo — Kaggle Inc.", "Public domain", "https://commons.wikimedia.org/wiki/File:Kaggle_Logo.svg"),
     ("scp-foundation", "SCP Foundation emblem", "CC BY-SA 3.0", "https://commons.wikimedia.org/wiki/File:SCP_Foundation_(emblem).svg"),
