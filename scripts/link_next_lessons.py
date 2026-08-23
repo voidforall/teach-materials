@@ -37,6 +37,20 @@ def fix_nav(nav: str, nxt: str | None) -> str:
     nav = re.sub(r"Next(?: \(your list\))?:\s*(.*?)</span>", repl, nav)
     nav = re.sub(r"下一课（你清单上的）：\s*(.*?)</span>", repl, nav)
     nav = re.sub(r"下一课：\s*(.*?)</span>", repl, nav)
+
+    # apache-arrow course pattern: "Lesson N (soon): title" — lessons all exist now
+    def soon_en(mo: re.Match) -> str:
+        if "<a " in mo.group(2):
+            return mo.group(0)
+        return f"{mo.group(1)}: {wrap(nxt, mo.group(2))}</span>"
+
+    def soon_zh(mo: re.Match) -> str:
+        if "<a " in mo.group(2):
+            return mo.group(0)
+        return f"{mo.group(1)}：{wrap(nxt, mo.group(2))}</span>"
+
+    nav = re.sub(r"(Lesson \d+) \(soon\):\s*(.*?)</span>", soon_en, nav)
+    nav = re.sub(r"(第 \d+ 课)（即将推出）：\s*(.*?)</span>", soon_zh, nav)
     # GT lesson 5 placeholders ("course arc done, your pick" era)
     nav = nav.replace(
         "— next, your pick</span>",
