@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>会计基础 — 速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<!-- 仅用于速查表格的最小内联样式；其余样式来自 lesson.css -->
+<style>
+  table.grid { border-collapse: collapse; font-size: 0.86rem; margin: 1rem 0; width: 100%; }
+  table.grid th, table.grid td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+  table.grid th { font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  td.f { font-family: var(--mono); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>会计基础 · 参考</span><span><a class="langbtn" href="accounting-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>会计基础 — 一页速查表</h1>
+  <p class="dek">整门课程的全部工具浓缩在一页可打印的纸上。打印出来，放在 10-K 手边。</p>
+</div>
+
+<h2>三张报表</h2>
+<ul>
+  <li><strong>利润表</strong>——我们赚钱了吗？（一个时段）</li>
+  <li><strong>现金流量表</strong>——现金去哪了？（同一时段的现金版本）</li>
+  <li><strong>资产负债表</strong>——我们有什么、欠什么？（某一天的快照：资产 = 负债 + 权益）</li>
+</ul>
+<p><strong>勾稽关系：</strong>净利润流入留存收益（减分红）；现金流量表的终点正是资产负债表那行现金。谎言必须在接缝处圆回来。</p>
+
+<h2>利润表阶梯</h2>
+<p class="f">收入 → − 销货成本 → 毛利 → − 营业费用 → EBIT → − 利息 → − 税 → 净利润 → ÷ 摊薄股数 → EPS</p>
+
+<h2>资产负债表要点</h2>
+<ul>
+  <li>流动（≤ 1 年）vs 非流动——这条分界线定义了流动性。</li>
+  <li><strong>商誉警示：</strong>收购溢价形成的无形资产，可能一夜之间被一次性核销。</li>
+  <li><strong>递延收入是好负债：</strong>发货前先收到的现金——客户在预付给你钱。</li>
+</ul>
+
+<h2>现金流</h2>
+<ul>
+  <li>三大部分：经营活动、投资活动、筹资活动。</li>
+  <li><strong>FCF = OCF − 资本开支。</strong></li>
+  <li>健康信号：<strong>OCF ≥ 净利润</strong>，且持续成立。</li>
+</ul>
+
+<h2>核心比率</h2>
+<table class="grid">
+  <tr><th>比率</th><th>公式</th><th>读作</th></tr>
+  <tr><td>毛利率 (gross margin)</td><td class="f">毛利 / 收入</td><td>定价权与生产成本</td></tr>
+  <tr><td>营业利润率 (operating margin)</td><td class="f">EBIT / 收入</td><td>主业经营效率</td></tr>
+  <tr><td>净利率 (net margin)</td><td class="f">净利润 / 收入</td><td>全口径盈利能力</td></tr>
+  <tr><td>净资产收益率 (ROE)</td><td class="f">净利润 / 权益</td><td>股东资本的回报</td></tr>
+  <tr><td>杜邦分解 (DuPont)</td><td class="f">利润率 × 周转率 × 杠杆</td><td>ROE 究竟由什么驱动</td></tr>
+  <tr><td>流动比率 (current ratio)</td><td class="f">流动资产 / 流动负债</td><td>短期安全性（约 1.5–3 常见）</td></tr>
+  <tr><td>速动比率 (quick ratio)</td><td class="f">(流动资产 − 存货) / 流动负债</td><td>不用变卖存货的流动性</td></tr>
+  <tr><td>负债权益比 (debt/equity)</td><td class="f">总债务 / 权益</td><td>杠杆水平；同行业内比较</td></tr>
+  <tr><td>利息保障倍数 (interest coverage)</td><td class="f">EBIT / 利息费用</td><td>债务还得起吗？（&gt; 3 算舒适）</td></tr>
+  <tr><td>应收周转天数 (DSO)</td><td class="f">应收账款 / (收入 / 365)</td><td>收回货款的天数；上升即警报</td></tr>
+</table>
+
+<h2>盈利质量检查</h2>
+<ul>
+  <li>净利润 vs OCF——持续的缺口是最经典的造假指纹。</li>
+  <li>应计缺口 = 净利润 − OCF；大且为正 = 盈利脆弱。</li>
+  <li>应收账款（和存货）增速远超收入。</li>
+  <li>连续"一次性"项目——年年都有的就不叫一次性，叫经营成本。</li>
+  <li>GAAP 与非 GAAP 的差距——桥搭得越长，越是有人在卖力推销。</li>
+</ul>
+
+<h2>红旗清单（第 7 课）</h2>
+<ol>
+  <li>应收账款增速 ≫ 收入增速</li>
+  <li>DSO 持续上升</li>
+  <li>存货增速超过收入</li>
+  <li>OCF 长期低于净利润</li>
+  <li>连续"一次性"费用</li>
+  <li>GAAP 与非 GAAP 差距悬殊</li>
+  <li>治理信号：更换审计师、CFO 频繁离职、关联交易、财务重述</li>
+</ol>
+
+<h2>术语表</h2>
+<table class="grid">
+  <tr><th>中文</th><th>English</th><th>一句话含义</th></tr>
+  <tr><td>收入</td><td>revenue</td><td>本期确认的销售</td></tr>
+  <tr><td>销货成本</td><td>COGS</td><td>所售商品的直接成本</td></tr>
+  <tr><td>毛利</td><td>gross profit</td><td>收入 − 销货成本</td></tr>
+  <tr><td>息税前利润</td><td>EBIT</td><td>利息和税之前的利润；核心经营成果</td></tr>
+  <tr><td>净利润</td><td>net income</td><td>扣完一切的底线数字</td></tr>
+  <tr><td>摊薄每股收益</td><td>diluted EPS</td><td>假设全部稀释后的每股净利润</td></tr>
+  <tr><td>资产</td><td>assets</td><td>公司控制的、有价值的资源</td></tr>
+  <tr><td>负债</td><td>liabilities</td><td>公司对外部的欠款</td></tr>
+  <tr><td>股东权益</td><td>equity</td><td>资产 − 负债；属于股东的剩余索取权</td></tr>
+  <tr><td>留存收益</td><td>retained earnings</td><td>留在企业里的累计利润</td></tr>
+  <tr><td>经营现金流</td><td>operating cash flow</td><td>主业本身产生的现金</td></tr>
+  <tr><td>资本开支</td><td>capex</td><td>购建长期资产的现金支出</td></tr>
+  <tr><td>自由现金流</td><td>free cash flow</td><td>OCF − 资本开支；真正可支配的现金</td></tr>
+  <tr><td>应计项目</td><td>accruals</td><td>在现金流动之前入账的收入/费用</td></tr>
+  <tr><td>商誉</td><td>goodwill</td><td>收购溢价；可能一夜归零</td></tr>
+  <tr><td>递延收入</td><td>deferred revenue</td><td>先收钱后交付（好负债）</td></tr>
+  <tr><td>营运资本</td><td>working capital</td><td>流动资产 − 流动负债</td></tr>
+</table>
+
+<div class="source">
+  <span class="label">首选资料</span>
+  <a href="https://www.investor.gov/introduction-investing/investing-basics/how-read-10-k/how-read-10-k">SEC investor.gov — How to Read a 10-K</a>（英文）· 申报文件见 <a href="https://www.sec.gov/edgar/search/">SEC EDGAR</a>
+</div>
+
+<div class="nav"><span>课程主页 · <a href="../lessons/0001-three-statements.zh.html">第 1 课：三张报表</a> · <a href="../lessons/0008-read-a-10k.zh.html">第 8 课：实战收官——读懂 10-K</a></span></div>
+</body>
+</html>

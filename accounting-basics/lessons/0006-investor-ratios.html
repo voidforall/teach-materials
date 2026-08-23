@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — The Investor's Ratios</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Accounting Basics · Lesson 6</span><span><a class="langbtn" href="0006-investor-ratios.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Investor's Ratios: Margins, ROE, and DuPont</h1>
+  <p class="dek">Raw numbers don't travel — a $2bn profit means nothing without context. Ratios are the compression algorithm: they turn three statements into a handful of comparable signals. Each one has a blind spot, and today you learn both.</p>
+</div>
+
+<p>Ratios only mean something <strong>compared to something</strong>: the same company over time (trend), its industry peers (position), or its own past guidance (credibility). A 12% net margin is mediocre for software and spectacular for a grocery chain. Never quote a ratio without saying compared to what.</p>
+
+<h2>Profitability: the margin ladder</h2>
+<ul>
+  <li><strong>Gross margin</strong> = gross profit / revenue. Pricing power and production economics. Stable-or-rising over years is a moat signal; eroding gross margin means competition has arrived.</li>
+  <li><strong>Operating margin</strong> = EBIT / revenue. Adds SG&amp;A and R&amp;D — how efficiently the whole business runs. Compare within industry only.</li>
+  <li><strong>Net margin</strong> = net income / revenue. Polluted by interest and taxes; useful mainly for the trend.</li>
+</ul>
+
+<h2>ROE and the DuPont decomposition</h2>
+<p>Return on equity — net income / shareholders' equity — is the single most-quoted ratio, and the most dangerous. DuPont splits it into three engines:</p>
+<p style="text-align:center"><strong>ROE = net margin × asset turnover × equity multiplier</strong><br>
+(net income/revenue) × (revenue/assets) × (assets/equity)</p>
+<p>Three very different companies can post 15% ROE: a luxury of margin (software), a machine of turnover (retail), or a pile of leverage (a bank-adjacent balance sheet). Only the first two create value; the third rents it at a price. <a href="https://pages.stern.nyu.edu/~adamodar/">Damodaran's lecture notes</a> treat this decomposition as the entry ticket to serious analysis — and it's the on-ramp to ROIC in the <a href="../../valuation-basics/lessons/0007-growth-reinvestment-roic.html">valuation course</a>.</p>
+
+<h2>Liquidity and solvency</h2>
+<ul>
+  <li><strong>Current ratio</strong> = current assets / current liabilities. Can it pay this year's bills? Around 1.5–2 is comfortable; below 1 needs a story.</li>
+  <li><strong>Quick ratio</strong>: same but excludes inventory — the test if sales stopped tomorrow.</li>
+  <li><strong>Debt/equity</strong> and <strong>interest coverage</strong> = EBIT / interest expense. Solvency isn't about debt size but whether operating profit comfortably services it.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A ratio is a question, not an answer.</strong> Each one compresses three statements into one number — and every compression loses something. The DuPont decomposition matters because it refuses to let one happy number (ROE) hide three different stories about how it was earned.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Screening on ROE alone.</strong> Buybacks shrink equity, mechanically inflating ROE for a company with flat profits; leverage does the same with added risk. A high ROE you haven't decomposed is a headline, not a finding.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Three companies each post 15% ROE. Name their three engines.</summary>
+    <p class="answer">Margin, turnover, leverage.</p>
+    <p class="why">DuPont: net margin × asset turnover × equity multiplier. High margin means pricing power; high turnover means asset efficiency; high leverage means risk rented from creditors.</p>
+  </details>
+  <details><summary>Buybacks happen; net income is flat. What happens to ROE?</summary>
+    <p class="answer">ROE mechanically rises.</p>
+    <p class="why">Buybacks reduce shareholders' equity, shrinking the denominator. The business didn't improve — the arithmetic did. Decompose before celebrating.</p>
+  </details>
+  <details><summary>Which margin best signals a durable moat?</summary>
+    <p class="answer">Stable gross margin.</p>
+    <p class="why">Gross margin isolates pricing power from overhead choices. A moat that holds for years shows up as gross margin that refuses to erode while competitors discount.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 15 minutes</span>
+  Pick a company on <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany">EDGAR</a>. From its last annual statements, compute the three DuPont components and the current ratio. Write one sentence per component: is this ROE built on quality (margin, turnover) or on leverage? Then compare each margin to a direct competitor — the industry-only rule in action.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/">Damodaran's NYU Stern lecture notes</a> — his "measuring profitability" sessions work the DuPont decomposition with real companies.</p>
+
+<p class="next"><a href="0007-red-flags.html">Next: Red Flags →</a> &nbsp;·&nbsp; <a href="../reference/accounting-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

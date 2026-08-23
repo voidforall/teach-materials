@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>第 6 课 — 投资者必备比率</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>会计基础 · 第 6 课</span><span><a class="langbtn" href="0006-investor-ratios.html" title="Switch to English">EN</a></span></div>
+  <h1>投资者必备比率：利润率、ROE 与杜邦分析</h1>
+  <p class="dek">原始数字没有可比性——20 亿美元利润脱离语境毫无意义。比率就是压缩算法：把三张报表压缩成少数几个可比较的信号。每个比率都有盲区，今天你把两者一起学会。</p>
+</div>
+
+<p>比率只有<strong>在对比中</strong>才有意义：与同一公司过去比（趋势）、与同行业比（地位）、与管理层自己的指引比（信誉）。12% 的净利率对软件公司平平无奇，对连锁超市却是奇迹。引用任何比率时必须说清"和什么比"。</p>
+
+<h2>盈利能力：利润率阶梯</h2>
+<ul>
+  <li><strong>毛利率</strong> = 毛利 / 收入。定价能力与生产经济性。多年稳定或上升是护城河信号；毛利率下滑说明竞争来了。</li>
+  <li><strong>营业利润率</strong> = EBIT / 收入。加入销售、管理与研发费用——整个生意运转的效率。只能在同行业内比较。</li>
+  <li><strong>净利率</strong> = 净利润 / 收入。受利息和税收"污染"，主要用来看趋势。</li>
+</ul>
+
+<h2>ROE 与杜邦分解</h2>
+<p>净资产收益率（ROE）= 净利润 / 股东权益，是引用最广也最危险的比率。杜邦分析把它拆成三台发动机：</p>
+<p style="text-align:center"><strong>ROE = 净利率 × 资产周转率 × 权益乘数</strong><br>
+（净利润/收入）×（收入/资产）×（资产/权益）</p>
+<p>三家截然不同的公司都能做到 15% ROE：靠利润率的奢侈生意（软件）、靠周转率的机器（零售）、或靠杠杆的堆债平衡表。只有前两种在创造价值，第三种只是租来的，而且租金不菲。<a href="https://pages.stern.nyu.edu/~adamodar/">Damodaran 的讲义</a>把这个分解当作严肃分析的入场券——它也是通往<a href="../../valuation-basics/lessons/0007-growth-reinvestment-roic.html">估值课程</a>中 ROIC 的入口。</p>
+
+<h2>流动性与偿债能力</h2>
+<ul>
+  <li><strong>流动比率</strong> = 流动资产 / 流动负债。明年到期的账付得清吗？1.5–2 左右算舒适，低于 1 需要一个解释。</li>
+  <li><strong>速动比率</strong>：同上但剔除存货——假设明天销售归零的压力测试。</li>
+  <li><strong>负债权益比</strong>与<strong>利息保障倍数</strong> = EBIT / 利息费用。偿债能力的关键不是债务多少，而是营业利润能否从容覆盖利息。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">核心</span>
+  <strong>比率是一个问题，不是一个答案。</strong>每个比率都把三张报表压缩成一个数字——而每次压缩都会丢信息。杜邦分解的价值在于：它不允许一个漂亮数字（ROE）掩盖关于"钱是怎么赚来的"的三种不同故事。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>只用 ROE 筛选股票。</strong>回购缩减股本，会在利润不变时机械地抬高 ROE；加杠杆也一样，还附赠风险。没有分解过的高 ROE 只是标题，不是结论。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>三家公司都是 15% ROE。三台发动机是什么？</summary>
+    <p class="answer">利润率、周转率、杠杆。</p>
+    <p class="why">杜邦公式：净利率 × 资产周转率 × 权益乘数。高利润率意味着定价权；高周转意味着资产效率；高杠杆意味着向债权人租来的风险。</p>
+  </details>
+  <details><summary>公司回购股票，净利润持平。ROE 会怎样？</summary>
+    <p class="answer">ROE 机械地上升。</p>
+    <p class="why">回购减少股东权益，分母变小。生意没有变好——是算术变好了。先分解再庆祝。</p>
+  </details>
+  <details><summary>哪个利润率最能反映持久护城河？</summary>
+    <p class="answer">稳定的毛利率。</p>
+    <p class="why">毛利率把定价权从管理费用选择中隔离出来。多年不因竞争对手降价而被侵蚀的毛利率，就是护城河在报表上的样子。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手试 —— 15 分钟</span>
+  在 <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany">EDGAR</a> 上选一家公司，从最近一年的报表算出杜邦三要素和流动比率。每个要素写一句话：这个 ROE 是靠质量（利润率、周转）还是靠杠杆？再拿每个利润率与直接竞争对手比一次——"只比同行"规则的实战。
+</div>
+
+<h2>首选资料</h2>
+<p><a href="https://pages.stern.nyu.edu/~adamodar/">Damodaran 的 NYU Stern 讲义</a>（英文）——他的盈利能力度量讲次用真实公司演练杜邦分解。</p>
+
+<p class="next"><a href="0007-red-flags.zh.html">下一课：危险信号 →</a> &nbsp;·&nbsp; <a href="../reference/accounting-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师——本 agent 就是干这个的。</p>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Accounting Basics — Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<!-- Minimal inline styles for reference tables only; all other styling from lesson.css -->
+<style>
+  table.grid { border-collapse: collapse; font-size: 0.86rem; margin: 1rem 0; width: 100%; }
+  table.grid th, table.grid td { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+  table.grid th { font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  td.f { font-family: var(--mono); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Accounting Basics · Reference</span><span><a class="langbtn" href="accounting-cheatsheet.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Accounting Basics — One-Page Cheat Sheet</h1>
+  <p class="dek">Every tool from the course, on one printable page. Print it, keep it next to the 10-K.</p>
+</div>
+
+<h2>The three statements</h2>
+<ul>
+  <li><strong>Income statement</strong> — did we make a profit? (a period)</li>
+  <li><strong>Cash flow statement</strong> — where did the cash go? (the same period, in cash)</li>
+  <li><strong>Balance sheet</strong> — what do we own and owe? (one day's snapshot: assets = liabilities + equity)</li>
+</ul>
+<p><strong>Articulation:</strong> net income flows into retained earnings (minus dividends); the cash flow statement ends exactly at the balance sheet's cash line. Lies must be papered over at the seams.</p>
+
+<h2>Income statement ladder</h2>
+<p class="f">Revenue → − COGS → Gross profit → − OpEx → EBIT → − Interest → − Tax → Net income → ÷ diluted shares → EPS</p>
+
+<h2>Balance sheet highlights</h2>
+<ul>
+  <li>Current (≤ 1 year) vs non-current — the split that defines liquidity.</li>
+  <li><strong>Goodwill warning:</strong> an intangible from overpaying for acquisitions; it can be written off in one stroke.</li>
+  <li><strong>Deferred revenue is a good liability:</strong> cash collected before delivery — customers pre-paying you.</li>
+</ul>
+
+<h2>Cash flow</h2>
+<ul>
+  <li>Three sections: operating, investing, financing.</li>
+  <li><strong>FCF = OCF − capex.</strong></li>
+  <li>Healthy sign: <strong>OCF ≥ net income</strong>, sustained.</li>
+</ul>
+
+<h2>Key ratios</h2>
+<table class="grid">
+  <tr><th>Ratio</th><th>Formula</th><th>Reads</th></tr>
+  <tr><td>Gross margin</td><td class="f">gross profit / revenue</td><td>pricing power &amp; production cost</td></tr>
+  <tr><td>Operating margin</td><td class="f">EBIT / revenue</td><td>core business efficiency</td></tr>
+  <tr><td>Net margin</td><td class="f">net income / revenue</td><td>all-in profitability</td></tr>
+  <tr><td>ROE</td><td class="f">net income / equity</td><td>return on shareholders' capital</td></tr>
+  <tr><td>DuPont</td><td class="f">margin × turnover × leverage</td><td>what's driving the ROE</td></tr>
+  <tr><td>Current ratio</td><td class="f">current assets / current liabilities</td><td>short-term safety (≈ 1.5–3 typical)</td></tr>
+  <tr><td>Quick ratio</td><td class="f">(CA − inventory) / CL</td><td>liquidity without selling stock</td></tr>
+  <tr><td>Debt/equity</td><td class="f">total debt / equity</td><td>leverage; compare within industry</td></tr>
+  <tr><td>Interest coverage</td><td class="f">EBIT / interest expense</td><td>can it service its debt? (&gt; 3 comfortable)</td></tr>
+  <tr><td>DSO</td><td class="f">receivables / (revenue / 365)</td><td>days to collect; rising = warning</td></tr>
+</table>
+
+<h2>Earnings-quality checks</h2>
+<ul>
+  <li>NI vs OCF — a persistent gap is the classic fraud fingerprint.</li>
+  <li>Accruals gap = NI − OCF; big and positive = fragile earnings.</li>
+  <li>Receivables (and inventory) growing faster than revenue.</li>
+  <li>Serial "one-time" items — annual one-offs are a cost of business.</li>
+  <li>GAAP-to-non-GAAP gap — the wider the bridge, the harder someone is selling.</li>
+</ul>
+
+<h2>Red-flag checklist (Lesson 7)</h2>
+<ol>
+  <li>Receivables ≫ revenue growth</li>
+  <li>DSO rising</li>
+  <li>Inventory outpacing revenue</li>
+  <li>OCF persistently below NI</li>
+  <li>Serial "one-time" charges</li>
+  <li>Wide GAAP-to-non-GAAP gap</li>
+  <li>Governance tells: auditor changes, CFO churn, related-party deals, restatements</li>
+</ol>
+
+<h2>Glossary</h2>
+<table class="grid">
+  <tr><th>Term</th><th>One-line meaning</th></tr>
+  <tr><td>Revenue</td><td>sales recognized in the period</td></tr>
+  <tr><td>COGS</td><td>direct cost of what was sold</td></tr>
+  <tr><td>Gross profit</td><td>revenue − COGS</td></tr>
+  <tr><td>EBIT</td><td>profit before interest and tax; core operating result</td></tr>
+  <tr><td>Net income</td><td>the bottom line after everything</td></tr>
+  <tr><td>Diluted EPS</td><td>net income per share, assuming all dilution</td></tr>
+  <tr><td>Assets</td><td>what the company controls that has value</td></tr>
+  <tr><td>Liabilities</td><td>what it owes to outsiders</td></tr>
+  <tr><td>Equity</td><td>assets − liabilities; the owners' residual</td></tr>
+  <tr><td>Retained earnings</td><td>accumulated profit kept in the business</td></tr>
+  <tr><td>Operating cash flow</td><td>cash generated by the business itself</td></tr>
+  <tr><td>Capex</td><td>cash spent on long-lived assets</td></tr>
+  <tr><td>Free cash flow</td><td>OCF − capex; cash truly disposable</td></tr>
+  <tr><td>Accruals</td><td>revenues/expenses booked before the cash moves</td></tr>
+  <tr><td>Goodwill</td><td>acquisition premium; can vanish overnight</td></tr>
+  <tr><td>Deferred revenue</td><td>cash received before earning it (good liability)</td></tr>
+  <tr><td>Working capital</td><td>current assets − current liabilities</td></tr>
+</table>
+
+<div class="source">
+  <span class="label">Primary sources</span>
+  <a href="https://www.investor.gov/introduction-investing/investing-basics/how-read-10-k/how-read-10-k">SEC investor.gov — How to Read a 10-K</a> · filings at <a href="https://www.sec.gov/edgar/search/">SEC EDGAR</a>
+</div>
+
+<div class="nav"><span>Course home · <a href="../lessons/0001-three-statements.html">Lesson 1: The Three Statements</a> · <a href="../lessons/0008-read-a-10k.html">Lesson 8: Capstone — Read a 10-K</a></span></div>
+</body>
+</html>
