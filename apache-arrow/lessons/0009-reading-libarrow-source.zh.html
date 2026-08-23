@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 9 课 — 阅读 libarrow 源码</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  code { font-family: var(--mono); font-size: 0.88em; background: #eef0ee; padding: 0.05em 0.3em; border-radius: 3px; }
+  pre { background: #f4f5f3; border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; }
+  .stop { border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 4px; padding: 0.9rem 1.1rem; margin: 1.2rem 0; background: #fbfbf9; }
+  .stop h3 { margin-top: 0; color: var(--ink); }
+  .stop .file { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); }
+  .checklist input { margin-right: 0.45rem; }
+  .checklist label { display: block; font-family: var(--sans); font-size: 0.92rem; margin: 0.35rem 0; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 9 课</span><span>毕业 <a class="langbtn" href="0009-reading-libarrow-source.html" title="Switch to English">EN</a></span></div>
+  <h1>阅读 libarrow 源码</h1>
+  <p class="dek">八课的理论，一个代码仓库。下面的每一样东西，读起来都应该像老朋友的来信。</p>
+</div>
+
+<p>这是毕业练习：一次带你走遍 <a href="https://github.com/apache/arrow/tree/main/cpp/src/arrow">真实的 Arrow C++ 目录树</a>中四个文件的导览，每一处都明晃晃地藏着你早已认识的机制。在 GitHub 上读，或者克隆到本地——<span class="term">git clone --depth 1 https://github.com/apache/arrow</span>，然后住进 <span class="term">cpp/src/arrow/</span>。</p>
+
+<div class="stop">
+<h3>第 1 站 — 你一直在用的那个结构体</h3>
+<p class="file"><a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/array/data.h">array/data.h</a> → class <span class="term">ArrayData</span></p>
+<p>找到成员列表。你会几乎逐字看到第 1 课的边车：<span class="term">length</span>、<span class="term">null_count</span>（注意：它可以取 <em>kUnknown</em>——惰性计算）、<span class="term">offset</span>、<span class="term">buffers</span>（一个 shared_ptr&lt;Buffer&gt; 的 vector——第 3 课的引用计数，直接写进了类型里）。然后是两个早就埋下伏笔却没命名的成员：<span class="term">child_data</span>（第 2 课的递归——列表的子数组就住在这里）和 <span class="term">dictionary</span>（第 6 课的带外载荷）。六个字段；到此为止的整门课程。</p>
+</div>
+
+<div class="stop">
+<h3>第 2 站 — 字节的所有者们</h3>
+<p class="file"><a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/buffer.h">buffer.h</a> 与 <a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/memory_pool.cc">memory_pool.cc</a></p>
+<p>在 <span class="term">Buffer</span> 里：它就是 <span class="term">{data, size, capacity, parent, ...}</span>——一个视图，不是所有者（这就是 slice 能 O(1) 的原因）。找一找接收<em>父</em> buffer 的那个构造函数：那正是第 3 课的钉住（pinning），明明白白写成一个字段。在 <span class="term">memory_pool.cc</span> 里：找到 64 字节对齐常量、第 8 课的 <span class="term">bytes_allocated()</span> 记账，以及 jemalloc/mimalloc/系统 malloc 后端切换的地方。</p>
+</div>
+
+<div class="stop">
+<h3>第 3 站 — 一个活生生的 builder</h3>
+<p class="file"><a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/array/builder_base.h">array/builder_base.h</a> 以及 <a href="https://github.com/apache/arrow/tree/main/cpp/src/arrow/array">array/</a> 里的基础类型 builder（<span class="term">builder_primitive.h</span> / 各类型 builder）；位图机制在 <a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/util/bit_util.h">util/bit_util.h</a></p>
+<p>要找三样东西：<span class="term">Reserve</span>/<span class="term">UnsafeAppendToBitmap</span> 路径里的<strong>容量翻倍</strong>（第 8 课的模拟器，变成了代码）；bit_util 里的 <span class="term">BitmapWriter</span>/<span class="term">FirstTimeBitmapWriter</span>——第 1 课的 LSB 优先写入器；以及 <span class="term">Finish()</span> 调用 <span class="term">FinishInternal</span> → ArrayData 构造的地方，草稿在那里被裁剪并转移。如果只读一个函数：读 <span class="term">AppendNull</span>——看它清掉一个位、跳过值槽位。</p>
+</div>
+
+<div class="stop">
+<h3>第 4 站 — 一个 kernel，从头到尾</h3>
+<p class="file"><a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/compute/function.cc">compute/function.cc</a>（分发）、<a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/compute/exec.h">compute/exec.h</a>（<span class="term">KernelContext</span>、执行循环）、<a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/compute/kernels/scalar_arithmetic.cc">compute/kernels/scalar_arithmetic.cc</a>（你以 <span class="term">pc.add</span> 之名调用过的那个 kernel）</p>
+<p>在 <span class="term">function.cc</span> 里：Execute 路径把<strong>kernel 签名</strong>与实参类型做匹配（第 5 课的分发）。在 <span class="term">scalar_arithmetic.cc</span> 里：一张 <span class="term">ARROW_SCALAR…</span> 风格的宏表，为每个类型对生成一个循环——「一个名字背后几十个 kernel 变体」，是生成出来的。在逐元素的执行路径里：实参的 null 检查——输出 validity = 各输入的 AND，当编译器能证明无需逐元素处理全 null 时，甚至可能是一次真正的按位 AND（<span class="term">bit_util::and_bitmaps</span>）。这就是第 5 课的图，带上了行号。</p>
+</div>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>libarrow 有约 60 万行，但你刚读过的承重核心只有六个结构体字段、一个视图类型、一个内存池和一条生成出来的循环。</strong> 其余部分（类型、kernel、格式、语言绑定）都是用这些原语组合出来的广度。这是对好架构的检验——现在轮到检验你的理解了：你没有向导手册，也走通了它。
+</div>
+
+<h2>检索</h2>
+<div class="quiz">
+  <details><summary>在 <span class="term">ArrayData</span> 里，为什么 <span class="term">null_count</span> 可以是「未知」的？</summary>
+    <p class="answer">计数被推迟了。</p>
+    <p class="why">扫描位图数 null 要花 O(n/64)；Arrow 把它推迟到有人来问为止（kUnknown 哨兵值）——构造和切片保持 O(1)。惰性元数据，与省略 buffer 同一种精神。</p>
+  </details>
+  <details><summary><span class="term">Buffer</span> 的 <em>parent</em> 字段是为什么存在的？</summary>
+    <p class="answer">slice 钉住父对象。</p>
+    <p class="why">一个 slice Buffer 持有指向它所视图的那块分配的 shared_ptr——第 3 课的「slice 让父对象活着」，落实为一个字段，而不是一条所有权约定。</p>
+  </details>
+  <details><summary>「一个名字背后几十个 kernel」在机制上是从哪来的？</summary>
+    <p class="answer">宏生成的表。</p>
+    <p class="why">scalar_arithmetic.cc 用代码生成风格的宏展开，为每个类型对产出一条带类型的循环，并把每条循环连同其签名注册进去。分发时只需匹配签名——没有任何运行时代码生成。</p>
+  </details>
+</div>
+
+<h2>练习</h2>
+<div class="task">
+  <span class="label">动手 — 30 分钟的源码巡游</span>
+  <p class="checklist">
+    <label><input type="checkbox"> 找到 <span class="term">ArrayData</span> 的六个字段，并大声说出「对，这就是整门课」</label>
+    <label><input type="checkbox"> 在 <span class="term">memory_pool.cc</span> 里找到对齐常量和后端切换</label>
+    <label><input type="checkbox"> 从头到尾读完 <span class="term">AppendNull</span>（清位，不写值）</label>
+    <label><input type="checkbox"> 在 <span class="term">function.cc</span> 的 Execute 里找到签名匹配循环</label>
+    <label><input type="checkbox"> 在 <span class="term">scalar_arithmetic.cc</span> 里找到一条宏展开出来的 kernel 循环</label>
+    <label><input type="checkbox"> 加分项：grep 一下 <span class="term">and_bitmaps</span> 的用法——validity-AND 在哪里以真正的按位运算出现？</label>
+  </p>
+  <pre><code># 方便的 grep，在 cpp/src/arrow 下运行：
+grep -n "null_count" array/data.h | head
+grep -rn "and_bitmaps" compute/ | head
+grep -n "AppendNull" array/builder_primitive.h   # 或你选的类型 builder
+grep -n "kUnknown" array/data.h</code></pre>
+  每一个让你觉得<em>难</em>的复选框，都标出了一节值得重读的课——那是间隔检索在指向你的漏洞，而不是失败。
+</div>
+
+<h2>课程进度与下一步</h2>
+<p>九课：格式篇（1–7）、构造（8），以及现在的源码阅读能力（9）。只剩一个可选的压轴项目，也是离你的任务宣言最近的东西：<strong>第 10 课 — 构建一个小的 C++ 工具</strong>，用 builder 构造一个数组、切片它、对它做计算、再把 IPC 写到磁盘——你和 buffer 之间不隔任何框架，每一行都标注着它出自哪一课。那之后，本工作区转入维护期：对照参考页做间隔复习，并重跑各练习以巩固存储强度。</p>
+
+<div class="source">
+  <span class="label">一手资料 — 本课就是源码本身</span>
+  Apache Arrow 仓库中的 <a href="https://github.com/apache/arrow/tree/main/cpp/src/arrow">cpp/src/arrow</a>——以 <a href="https://arrow.apache.org/docs/cpp/api.html">C++ API 文档</a>作为索引。
+</div>
+
+<div class="ask"><b>在目录树里迷路了？</b> 问 agent：「带我走一遍这个函数」「这个 kernel 为什么做了 AVX2 特化？」「kernels 目录里的 REE 是什么？」（提示：run-end 编码——第四种布局技巧，值得将来单开一课）。</div>
+
+<div class="nav">
+  <span>← <a href="0008-builders-memory-pools.zh.html">第 8 课：Builder 与内存池</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 10 课（即将推出）：压轴 C++ 工具</span>
+</div>
+</body>
+</html>

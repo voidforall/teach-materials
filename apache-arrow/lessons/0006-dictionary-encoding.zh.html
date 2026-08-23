@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 6 课 — 字典编码</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.dict { fill: #fdf1de; stroke: var(--accent); }
+  .membuf.null { fill: #f3e9e9; stroke: #a12d2d; stroke-dasharray: 4 3; }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+  .gain { fill: var(--gain); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 6 课</span><span>布局技巧 #3 <a class="langbtn" href="0006-dictionary-encoding.html" title="Switch to English">EN</a></span></div>
+  <h1>字典编码（dictionary encoding）</h1>
+  <p class="dek">值大量重复？那就每个只存一次，之后用编号口口相传。</p>
+</div>
+
+<p>第 2 课留下了一笔坦白的账：一百万行的 <span class="term">"GET"</span> / <span class="term">"POST"</span> / <span class="term">"PUT"</span>，<em>每行</em>要付 4 字节 offsets + 约 4 字节内容，买到的却是几乎不变的信息。字典编码就是 Arrow 的答案，也是你收藏的第三个布局技巧（定宽、offsets，现在是它）。</p>
+
+<h2>indices + 载荷</h2>
+
+<p>一个 <span class="term">dictionary&lt;T&gt;</span> 数组是穿一件风衣的两个数组。<strong>indices 数组</strong>是个普通的定宽数组（第 1 课配方 —— bitmap + 某整型的值），占着你列所在的位置。<strong>dictionary 载荷</strong>是另一个独立、普通的值类型数组（字符串则用第 2 课配方），每个不同的值只存一份。列槽位 <em>i</em> = <span class="term">dictionary[indices[i]]</span>。</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 620 240" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">Column: 1M log rows, 3 distinct values</text>
+  <text x="0" y="44" class="mem-lbl">indices array (int8) — what the column "is"</text>
+  <g transform="translate(0,52)">
+    <rect x="0" y="0" width="110" height="30" class="membuf null"/><text x="55" y="20" text-anchor="middle" class="mem-byte">0b111…</text>
+    <rect x="114" y="0" width="480" height="30" class="membuf"/><text x="16" y="20" class="mem-byte">0 1 1 0 2 1 0 0 1 2 1 1 0 …</text>
+  </g>
+  <text x="0" y="112" class="mem-sub">1M × 1 byte + bitmap ≈ 1.1 MB — vs ≈ 8 MB as plain utf8</text>
+
+  <text x="0" y="148" class="mem-lbl" style="fill:var(--accent)">dictionary payload (utf8 array) — stored once</text>
+  <g transform="translate(0,156)">
+    <rect x="0" y="0" width="110" height="30" class="membuf dict"/><text x="55" y="20" text-anchor="middle" class="mem-byte">0b111</text>
+    <rect x="114" y="0" width="90" height="30" class="membuf dict"/><text x="159" y="20" text-anchor="middle" class="mem-byte">0</text>
+    <rect x="206" y="0" width="90" height="30" class="membuf dict"/><text x="251" y="20" text-anchor="middle" class="mem-byte">6</text>
+    <rect x="298" y="0" width="90" height="30" class="membuf dict"/><text x="343" y="20" text-anchor="middle" class="mem-byte">11</text>
+  </g>
+  <g transform="translate(0,196)">
+    <rect x="114" y="0" width="274" height="30" class="membuf dict"/><text x="251" y="20" text-anchor="middle" class="mem-byte">"GET" "POST" "PUT"</text>
+  </g>
+  <text x="0" y="232" class="mem-sub">3 values × (offsets+bytes) — nanoscale next to the indices</text>
+</svg>
+</div>
+
+<p>解码就是两次加载：取 index，再取载荷槽位。而且各部分与你已知的一切可组合：</p>
+<ul>
+  <li><strong>null：</strong>null 与否住在 <em>indices</em> 的 bitmap 里，和任何数组一样。null 行就是 null 索引 —— 载荷永远不含"null 条目"。</li>
+  <li><strong>切片：</strong>zero-copy，但 slice 会钉住<em>整个 dictionary</em>（第 3 课的钉住，又一次）。切片无法收缩载荷，因为其他行可能还引用着它。</li>
+  <li><strong>计算：</strong>kernel 对 dictionary 有特例。对 dictionary 数组做 <span class="term">take</span> 只收集 <em>indices</em> —— 载原封不动，载荷工作量为零。相等比较/过滤可以拿小整数比而不是字符串。但并非处处聪明：有些 kernel 会强制先解码成普通值。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>dictionary 数组 = 一个定宽索引列 + 一个共享载荷 —— 于是对行的操作变成对小整数的操作，载荷按引用而非按值被触碰。</strong>回报随重复率放大：基数（cardinality）≪ 长度是赢面。基数 ≈ 长度（UUID、浮点）时它纯属开销 —— 多一层间接，还多出一个比原数据更大的 dictionary。
+</div>
+
+<h2>IPC 的皱褶（第 4 课为何早有伏笔）</h2>
+
+<p>dictionary 数组的载荷不是它的 buffer 之一 —— 它是指向另一个数组的 metadata。所以 IPC 把它带外传输：<strong>dictionary 消息</strong>（每个字段一条）写在用到它的 record batch 之前，而 batch 的 buffer manifest（第 4 课）里只有 indices。一批批的 stream 共享一条 dictionary 消息；若 dictionary 在流中变化，会出现一条新的 dictionary 消息并带标志说明是<em>替换</em>还是<em>增量（delta）</em>（追加行、保留既有编号 —— 让旧索引仍然有效）。这里也埋着陷阱：两个 dictionary 数组只有当载荷<em>和编号</em>都一致时才能廉价比较/拼接 —— 否则 Arrow 必须<em>统一（unify）</em>字典（重映射索引、分配新载荷 —— 一次真正的拷贝）。</p>
+
+<h2>练一练</h2>
+<p>把 dictionary[indices[i]] 练成条件反射 —— 包括 bitmap 检查。连胜 6 题。</p>
+<div data-dict-decode-drill></div>
+<script src="../assets/dictionary-decode-drill.js"></script>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>dictionary 数组里 null 与否住在哪？</summary>
+    <p class="answer">indices 的 bitmap。</p>
+    <p class="why">indices 数组是一等数组，有自己的 validity bitmap。null 行的索引为 null；载荷只含真实的去重值 —— 永远没有"null 条目"。</p>
+  </details>
+  <details><summary>为什么对字典编码的日志级别做 <span class="term">take</span> 几乎免费？</summary>
+    <p class="answer">它收集的是 indices。</p>
+    <p class="why">take 重排行；值没变，所以只有小整数索引被收集，载荷原样随行 —— 这就是第 5 课 kernel 分派里的 dictionary 特例。</p>
+  </details>
+  <details><summary>什么时候字典编码是净亏损？</summary>
+    <p class="answer">高基数。</p>
+    <p class="why">基数 ≈ 长度（UUID、时间戳、浮点）：每行都指向不同的载荷条目，于是你既付了索引字节，又付了一个和原数据一样大的载荷，外加每次读取的间接跳转。</p>
+  </details>
+  <details><summary>同一列的两个 chunk 带着不同的 dictionary 到达。<span class="term">concat_arrays</span> 必须做什么？</summary>
+    <p class="answer">统一，重建索引。</p>
+    <p class="why">索引只有相对自己的载荷才有意义。载荷/顺序不同 ⇒ Arrow 构建合并后的 dictionary 并重映射每个索引 —— 对索引 buffer（可能连同载荷）的一次真正拷贝。第 3 课"concat 必拷贝"的规则，换了个 dictionary 形状的理由。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — pyarrow，10 分钟</span>
+  <pre><code>import pyarrow as pa, pyarrow.compute as pc
+
+plain = pa.array(["GET", "POST", "GET", "PUT", "GET"] * 200_000)
+enc = plain.cast(pa.dictionary(pa.int8(), pa.utf8()))
+
+print(enc.buffers())          # manifest：bitmap + int8 值。字符串内容去哪了？
+print(enc.dictionary)         # 载荷，全部 3 个值
+print(enc.slice(0, 5).dictionary is enc.dictionary)   # 载荷被钉住了？
+
+# 计算层看得见这个技巧：
+import time
+t = time.perf_counter(); pc.equal(enc, enc); print("dict cmp:", time.perf_counter()-t)
+t = time.perf_counter(); pc.equal(plain, plain); print("plain cmp:", time.perf_counter()-t)
+
+# 解码就是一次 take：
+decoded = enc.cast(pa.utf8())
+print(decoded[:5])            # 底层是 dictionary_take</code></pre>
+  buffer 检查本身就是这一课：列自身的 manifest 只有两个极小的 buffer —— 大块头全在 <span class="term">.dictionary</span> 里。
+</div>
+
+<h2>下一步去哪</h2>
+<p>格式与传输的故事只剩一站：<strong>Arrow Flight</strong>（第 7 课）—— 第 4 课的 stream 协议跑在 gRPC 上，你刚学会的 dictionary 处理在那里变成真实的协议问题。之后课程转向 builder 侧的 C++：高效构造这些布局（<span class="term">ArrayBuilder</span>、memory pool），以及真正去读 libarrow 源码。那是最贴近你"基于 Arrow 构建"任务的一段。</p>
+
+<div class="source">
+  <span class="label">一手资料 — 值得一读</span>
+  <a href="https://arrow.apache.org/docs/format/Columnar.html#dictionary-encoded-layout">列式规范中的 dictionary-encoded layout</a>，以及它链接到的 <a href="https://arrow.apache.org/docs/format/IPC.html#dictionary-messages">IPC dictionary messages</a> 一节。
+</div>
+
+<div class="ask"><b>卡住了或好奇？</b>可以问 agent："Parquet 的字典编码和 Arrow 的何时不同？"、"delta dictionary 有什么用？"、"带我看 C++ 源码里的 dictionary_unify"。</div>
+
+<div class="nav">
+  <span>← <a href="0005-compute-kernels.zh.html">第 5 课：计算 kernel</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 7 课（即将推出）：Arrow Flight</span>
+</div>
+</body>
+</html>

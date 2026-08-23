@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 5 课 — 计算层</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.null { fill: #fdf1de; stroke: var(--accent); }
+  .membuf.out { fill: #c9e3d3; stroke: var(--gain); stroke-width: 2; }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 5 课</span><span>计算 <a class="langbtn" href="0005-compute-kernels.html" title="Switch to English">EN</a></span></div>
+  <h1>计算层</h1>
+  <p class="dek">kernel 不过是一个从 buffer 到 buffer 的纯函数。看清这一点，"compute" 就不再是魔法，而是布局算术。</p>
+</div>
+
+<p>内存的故事你已经全部掌握。现在的问题是：<span class="term">pa.compute.add(a, b)</span> —— 实际运行的是什么？没有行，没有对象，没有解释器。<a href="https://arrow.apache.org/docs/cpp/compute.html">计算层</a>是一个 <strong>kernel</strong> 注册表：一批形态统一、经编译和向量化的函数。</p>
+
+<h2>kernel 的契约</h2>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 620 190" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">input a: [10, 20, null, 40] (int64)</text>
+  <g transform="translate(0,24)">
+    <rect x="0" y="0" width="100" height="30" class="membuf null"/><text x="50" y="20" text-anchor="middle" class="mem-byte">0b1101</text>
+    <rect x="0" y="34" width="100" height="30" class="membuf"/><text x="50" y="54" text-anchor="middle" class="mem-byte">10 20 _ 40</text>
+  </g>
+  <text x="180" y="70" class="mem-lbl" style="fill:var(--gain)">kernel: add</text>
+  <path d="M 130 55 L 175 55" stroke="var(--gain)" stroke-width="2.4" marker-end="url(#k)"/>
+  <defs><marker id="k" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="var(--gain)"/></marker></defs>
+  <g transform="translate(300,24)">
+    <text x="0" y="-8" class="mem-lbl" style="fill:var(--gain)">output (fresh buffers)</text>
+    <rect x="0" y="0" width="100" height="30" class="membuf out"/><text x="50" y="20" text-anchor="middle" class="mem-byte">0b1101</text>
+    <rect x="0" y="34" width="100" height="30" class="membuf out"/><text x="50" y="54" text-anchor="middle" class="mem-byte">12 25 _ 44</text>
+  </g>
+  <text x="0" y="118" class="mem-sub">same shape, same type rules — validity computed, values computed, garbage slots never read</text>
+  <text x="0" y="152" class="mem-lbl">input b: [2, 5, 99, 4]</text>
+  <g transform="translate(0,160)">
+    <rect x="0" y="0" width="100" height="30" class="membuf"/><text x="50" y="20" text-anchor="middle" class="mem-byte">0b1111</text>
+    <rect x="0" y="34" width="100" height="30" class="membuf"/><text x="50" y="54" text-anchor="middle" class="mem-byte">2 5 99 4</text>
+  </g>
+  <text x="0" y="180" class="mem-sub">b has no nulls → validity buffer absent (Lesson 1). The kernel must handle a missing bitmap!</text>
+</svg>
+</div>
+
+<p>从这张图里提炼三点：</p>
+<ul>
+  <li><strong>逐元素 kernel 是 buffer 进、buffer 出。</strong>热循环就是对两个值 buffer 做跨步扫描、写入第三个 —— 三块连续区域，正是自动向量化器和 <span class="term">SIMD</span> 最喜欢的形状。第 1 课的 bitmap 布局不是为了好看；它<em>造就</em>了这个循环形状。</li>
+  <li><strong>validity 是算出来的，不是事后补存的。</strong>输出为 null = 两个输入 validity 的 AND。kernel 写一个新的输出 bitmap；null 输入槽位的垃圾值字节永远不会被读（所以不会泄漏）。</li>
+  <li><strong>输出是全新的 buffer。</strong>buffer 不可变（第 3 课）—— 每个 kernel 结果都是一次新分配。链式表达式逐步分配，这也是 Arrow 在某些路径上做表达式融合、以及存在 <span class="term">replace_with_mask</span> 这类 kernel 而非原地更新的原因。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>null 语义写在 kernel 的类型签名里，不在你的数据里。</strong><span class="term">add(a, b)</span> 传播 null（任一为 null → null）；<span class="term">coalesce(a, b)</span> 吸收 null（两个都 null 才 null）；<span class="term">min_max</span> 按选项跳过 null。同样的 bitmap 进，不同的 bitmap 逻辑出 —— 传播规则是 kernel 的一部分，列在<a href="https://arrow.apache.org/docs/cpp/compute.html#functions">函数文档</a>里。
+</div>
+
+<h2>一个 kernel 如何服务所有类型</h2>
+
+<p><span class="term">pa.compute.add</span> 底下注册着几十个 <em>kernel 实现</em> —— 每种类型组合一个：int8+int8、int64+int64、timestamp+duration……分派分两步。名字查找在注册表里找到 <span class="term">ScalarFunction</span>；然后拿你的参数类型去匹配它的 <strong>kernel 签名</strong>（含隐式提升 —— 如 int32 + int64 → int64）。匹配到的 kernel 的循环跑在你的 buffer 上。这就是普通函数表分派，逐次调用 —— 没有 JIT，也不会针对<em>你的</em>数据做特化。（对比：DataFusion/DuckDB 在其上加了自己的规划层；Arrow compute 本身始终保持一个向量库。)</p>
+
+<p>函数注册表分四族，值得记住名字：</p>
+<ul>
+  <li><span class="term">Scalar functions</span> —— 逐元素，输出长度 = 输入长度（<span class="term">add</span>、<span class="term">equal</span>、<span class="term">utf8_upper</span>）。</li>
+  <li><span class="term">Vector functions</span> —— 改变形状（<span class="term">filter</span>、<span class="term">take</span>：第 3 课的拷贝制造者）。</li>
+  <li><span class="term">Scalar aggregates</span> —— 多行 → 一个值（<span class="term">sum</span>、<span class="term">min_max</span>）。</li>
+  <li><span class="term">Hash aggregates</span> —— 分组 → 聚合（<span class="term">hash_sum</span>），引擎的积木。</li>
+</ul>
+
+<p>还有一条常让人意外的管道规则：kernel 接收的是<em>数组</em>，所以 <span class="term">ChunkedArray</span> 输入会按 chunk 逐个跑 kernel 再拼回（或者先 <span class="term">combine_chunks</span> —— 第 3 课的那次拷贝）。你学过的一切关于分块的知识在计算层都用得上。</p>
+
+<h2>练一练</h2>
+<p>把 validity 传播练成条件反射：给定输入 bitmap 和 kernel 的 null 规则，标出输出的 null。连胜 6 题。</p>
+<div data-validity-logic-drill></div>
+<script src="../assets/validity-logic-drill.js"></script>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>为什么 <span class="term">add(a, b)</span> 的输出恰好在 a 或 b 为 null 的位置上是 null？</summary>
+    <p class="answer">bitmap AND 规则。</p>
+    <p class="why">kernel 的签名定义了逐元素的 null 传播：输出有效 = a 有效 AND b 有效。这字面上就是两个 validity bitmap 的按位与 —— 每条指令处理 64 行。</p>
+  </details>
+  <details><summary>输入 a 没有 validity buffer（无 null）。逐元素 kernel 必须怎么做？</summary>
+    <p class="answer">视作全 1。</p>
+    <p class="why">第 1 课"buffer 可省略"规则在每个 kernel 里都会冒头：缺席的 bitmap 隐含全有效。kernel 会按 buffer 是否存在走分支 —— 这正是布局允许省略的原因：它是真实的快路径，不只是省空间。</p>
+  </details>
+  <details><summary>为什么 Arrow compute 不能原地更新一列？</summary>
+    <p class="answer">buffer 保持不可变。</p>
+    <p class="why">共享（第 3 课）之所以安全，是因为 buffer 从不改变 —— 可能有 slice 或 mmap 视图正看着它。所以 kernel 分配全新输出；replace_with_mask 这类"原地"API 底层仍然产出新 buffer。</p>
+  </details>
+  <details><summary><span class="term">filter</span> 和 <span class="term">add</span> 都是 kernel。结构性差别在哪？</summary>
+    <p class="answer">输出长度不同。</p>
+    <p class="why">add 是 scalar（逐元素）函数 —— 输出槽 i 来自输入槽 i，长度不变。filter 是 vector 函数 —— 存活的行数不定，结果无法是输入上的窗口（于是第 3 课：它要拷贝）。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — pyarrow，10 分钟</span>
+  <pre><code>import pyarrow as pa, pyarrow.compute as pc
+
+a = pa.array([10, 20, None, 40])
+b = pa.array([2, 5, 99, 4])
+
+out = pc.add(a, b)
+print(out)                                   # null 在哪里？
+print(out.buffers()[0])                      # ……bitmap 是否如 AND 所预测？
+
+# null 语义是逐 kernel 的：
+print(pc.coalesce(a, b))                     # 吸收 null
+print(pc.min_max(a))                         # 跳过 null
+print(pc.sum(a))                             # 那标量聚合呢？
+
+# 分派：看一个名字底下装了多少
+f = pc.get_function("add")
+print(len(f.kernels), "kernel variants")     # int8+int8 ... timestamp+duration ...
+
+# 再看分块管道：
+chunked = pa.chunked_array([[1, 2], [3, None]])
+print(pc.add(chunked, chunked))              # 逐 chunk？null 保留？</code></pre>
+  亲手用 <span class="term">a_valid &amp; b_valid</span> 核对 add 的输出 bitmap —— 你现在已有能力审计一个计算 kernel 的 validity 处理。
+</div>
+
+<h2>下一步去哪</h2>
+<p>剩下的站点：<strong>字典编码</strong>（第 6 课）—— 第三个伟大的布局技巧，也是计算 kernel 特殊对待的那个（对 dictionary 做 <span class="term">take</span> 只是一次索引收集）；还有 <strong>Arrow Flight</strong>（第 7 课）—— 把第 4 课的 IPC stream 搬上网络。之后课程转向你的构建任务：C++ 里的 builder 与 memory pool、表达式管理，以及阅读真实的 libarrow 源码。</p>
+
+<div class="source">
+  <span class="label">一手资料 — 值得一读</span>
+  <a href="https://arrow.apache.org/docs/cpp/compute.html">Arrow C++ compute 文档</a> —— 函数四族、kernel 分派，以及每个函数的 null 语义。<a href="https://arrow.apache.org/docs/python/compute.html">pyarrow compute 指南</a>是实用的配套。
+</div>
+
+<div class="ask"><b>卡住了或好奇？</b>可以问 agent："带我看 libarrow 源码里的逐元素循环"、"filter 到底怎么实现 —— bitmap→索引？"、"隐式提升让我付出了什么代价？"</div>
+
+<div class="nav">
+  <span>← <a href="0004-ipc-feather-mmap.zh.html">第 4 课：IPC 与 mmap</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 6 课（即将推出）：字典编码</span>
+</div>
+</body>
+</html>

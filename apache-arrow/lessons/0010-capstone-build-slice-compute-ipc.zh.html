@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 10 课 — 毕业项目：Build · Slice · Compute · IPC</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  code { font-family: var(--mono); font-size: 0.88em; background: #eef0ee; padding: 0.05em 0.3em; border-radius: 3px; }
+  pre { background: #f4f5f3; border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; }
+  .map { border-collapse: collapse; font-family: var(--sans); font-size: 0.9rem; margin: 1rem 0; }
+  .map th, .map td { border: 1px solid var(--rule); padding: 0.4rem 0.7rem; text-align: left; }
+  .map th { font-size: 0.75rem; background: #f1f3f5; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 10 课</span><span>毕业项目 <a class="langbtn" href="0010-capstone-build-slice-compute-ipc.html" title="Switch to English">EN</a></span></div>
+  <h1>Build · Slice · Compute · IPC</h1>
+  <p class="dek">一个 C++ 文件，不用任何框架，每一行都能追溯到某一课。这就是把整套课程使命宣言变成可执行的代码。</p>
+</div>
+
+<p>完整源码就在工作区里：<a href="../reference/capstone-build-slice-compute-ipc.cc"><span class="term">reference/capstone-build-slice-compute-ipc.cc</span></a>（约 100 行，注释详尽）。它构造出你在第 1–2 课手工解码过的那张表，然后对它做 slice、在它上面做计算、写入磁盘，再用 mmap 映射回来 —— 并在每一步断言那个概括了整门课程的性质。</p>
+
+<h2>代码行与课程的对应表</h2>
+<table class="map">
+  <tr><th>代码</th><th>证明了什么</th><th>出自哪课</th></tr>
+  <tr><td><span class="term">Int64Builder.Append / AppendNull</span></td><td>一个 bit 置 1 或清 0；值槽里留着垃圾字节</td><td><a href="0001-buffers-validity-bitmaps.zh.html">1</a>, <a href="0008-builders-memory-pools.zh.html">8</a></td></tr>
+  <tr><td><span class="term">StringBuilder.Append("paris")</span></td><td>一次调用补上 fencepost + 5 字节字符串数据</td><td><a href="0002-offsets-variable-length.zh.html">2</a></td></tr>
+  <tr><td>前后对比 <span class="term">pool-&gt;bytes_allocated()</span></td><td>你可以实时观察临时分配的内存</td><td><a href="0008-builders-memory-pools.zh.html">8</a></td></tr>
+  <tr><td><span class="term">data-&gt;GetBuffer(0/1)</span></td><td>ArrayData 的 buffer 按 manifest 顺序排列 —— validity 可能被<em>省略</em></td><td><a href="0001-buffers-validity-bitmaps.zh.html">1</a>, <a href="0009-reading-libarrow-source.zh.html">9</a></td></tr>
+  <tr><td><span class="term">Slice(1,2)</span> + buffer 同一性检查</td><td>slice 不拥有任何东西：<span class="term">GetBuffer(1) == values</span> 打印 true</td><td><a href="0003-zero-copy-slicing-lifetimes.zh.html">3</a></td></tr>
+  <tr><td><span class="term">CallFunction("add", …)</span></td><td>输出是全新的 buffer，validity = 各输入的 AND —— 先预测再验证</td><td><a href="0005-compute-kernels.zh.html">5</a></td></tr>
+  <tr><td><span class="term">MakeFileWriter / WriteRecordBatch</span></td><td>buffer 在 manifest + footer 的背后逐字序列化</td><td><a href="0004-ipc-feather-mmap.zh.html">4</a></td></tr>
+  <tr><td><span class="term">MemoryMappedFile::Open</span> → <span class="term">!is_mutable()</span></td><td>往返后的数组只是页缓存上的只读视图</td><td><a href="0003-zero-copy-slicing-lifetimes.zh.html">3</a>, <a href="0004-ipc-feather-mmap.zh.html">4</a></td></tr>
+</table>
+
+<h2>构建它</h2>
+<pre><code># CMakeLists.txt
+cmake_minimum_required(VERSION 3.16)
+project(capstone CXX)
+set(CMAKE_CXX_STANDARD 17)
+find_package(ApacheArrow REQUIRED)   # e.g. brew install apache-arrow
+add_executable(capstone reference/capstone-build-slice-compute-ipc.cc)
+target_link_libraries(capstone PRIVATE Arrow::arrow_static)</code></pre>
+<p>Arrow 会在 <span class="term">lib/cmake/Arrow</span> 下安装一份 CMake 配置；如果 CMake 找不到它，把 <span class="term">CMAKE_PREFIX_PATH</span> 指向安装前缀（Homebrew：<span class="term">$(brew --prefix apache-arrow)</span>）。</p>
+
+<h2>预期运行结果</h2>
+<pre><code>$ ./capstone out.arrow
+pool before: 0 bytes
+pool after build: 128 bytes            # values 32B + offsets/soup + bitmaps, 64-aligned
+validity: present, 1B · null_count=1 · offset=0
+slice shares values buffer: 1
+add(n,5) validity = AND of inputs: 1B
+mmap'd read-only buffer: 1 · schema batches: 1
+wrote out.arrow — inspect with: xxd out.arrow | head</code></pre>
+<p>精确的字节数可能不同（内存池粒度、padding），但<em>每一个布尔值</em>都必须打印 <span class="term">1</span>。这四行就是整门课程的定理，如今在你的机器上得到验证。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>毕业项目之所以短，是因为 Arrow 的架构足够深：</strong>一个内存格式，一套统一的原语（buffer、ArrayData、kernel），其余一切都是组合。当你为了真实工作扩展这个文件 —— 第 7 课形态的 Flight、第 6 课的 dictionary、第 8 课的分块构建 —— 你只是在加代码行，而不是学新模型。
+</div>
+
+<h2>检索练习（全课程、交错式）</h2>
+<div class="quiz">
+  <details><summary>毕业项目里的 slice 共享一个 buffer。是哪个字段让父对象一直存活？</summary>
+    <p class="answer">父对象的 shared_ptr。</p>
+    <p class="why">Buffer 持有的父引用（第 9 课第 2 站）钉住了那块内存 —— slice 的 ArrayData 指向的就是同一批 Buffer 对象的 shared_ptr（第 3 课）。</p>
+  </details>
+  <details><summary>为什么 <span class="term">add(n, 5)</span> 必须新分配，而不能就地更新 <span class="term">n</span>？</summary>
+    <p class="answer">Buffer 是不可变的。</p>
+    <p class="why">共享之所以安全，正是因为没有任何修改（第 3、5 课）—— 磁盘文件的 mmap 视图可能正在盯着那几个字节。</p>
+  </details>
+  <details><summary>输出文件的头 6 个字节和末 6 个字节是什么？</summary>
+    <p class="answer">两处 ARROW1。</p>
+    <p class="why">Feather V2 在文件两端都放 magic（第 4 课）；OpenFile 信任夹在中间的 footer 来做随机 batch 访问。</p>
+  </details>
+  <details><summary>写入前把 <span class="term">name</span> 编码成 dictionary，磁盘上会有什么变化？</summary>
+    <p class="answer">多出一条 dictionary 消息。</p>
+    <p class="why">索引走 record batch 的 manifest；那 3 个值的 payload 作为单独的 dictionary 消息排在它前面（第 6、4 课）。</p>
+  </details>
+</div>
+
+<h2>扩展方向 —— 为你的第一个真实构建挑一个</h2>
+<ul>
+  <li><strong>Dictionary：</strong>用 <span class="term">dictionary_encode</span> 转换 <span class="term">name</span>，确认 payload 以独立的 IPC 消息出现（第 6 课）。</li>
+  <li><strong>分块：</strong>按每块 1k 行构建 <span class="term">ChunkedArray</span>，观察内存池字节数保持平稳而不是翻倍（第 8 课的模拟器，现场版）。</li>
+  <li><strong>Flight：</strong>用 <span class="term">FlightServerBase::do_get</span> 把 batch 服务出去再取回来（第 7 课的 pyarrow 客户端可以直接对接 C++ 服务器 —— 同一条传输协议）。</li>
+</ul>
+
+<div class="source">
+  <span class="label">一手资料</span>
+  你整门课程一直在引用的 <a href="https://arrow.apache.org/docs/cpp/index.html">C++ 文档</a> —— 现在你不需要一节课来陪读它了。
+</div>
+
+<div class="ask"><b>课程结课 —— 但老师还在。</b> 让 agent 扩展毕业项目、复习任意一课、再考你一轮，或者讲解 run-end 编码（kernels 目录里还藏着第四种布局技巧）。</div>
+
+<div class="nav">
+  <span>← <a href="0009-reading-libarrow-source.zh.html">第 9 课：阅读 libarrow 源码</a> · <a href="../reference/capstone-build-slice-compute-ipc.cc">毕业项目源码</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 复习计划见下</span>
+</div>
+
+<h2>复习计划</h2>
+<p>记忆的稳固来自间隔检索。要重做（而不是重读！）：<strong>3 天后</strong>做 bitmap 演练 + 速查表；<strong>1 周后</strong>做 offsets 和 dictionary 演练；<strong>2 周后</strong>做 zero-copy 分类器和 Flight 动词；<strong>1 个月后</strong>做全套测验。这些都可以直接让 agent 来出题 —— 说一句"drill me on validity"就行。
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 4 课 — IPC、Feather 与 mmap</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .seg { stroke-width: 1.5; }
+  .seg.meta { fill: #fdf1de; stroke: var(--accent); }
+  .seg.body  { fill: var(--flow-soft); stroke: var(--flow); }
+  .seg.foot  { fill: #c9e3d3; stroke: var(--gain); }
+  .seg.magic { fill: #e9edf1; stroke: var(--rule); }
+  .seg-lbl { font-family: var(--sans); font-size: 10.5px; fill: var(--ink); }
+  .seg-sub { font-family: var(--mono); font-size: 9px; fill: var(--muted); }
+  .legend { font-family: var(--sans); font-size: 0.8rem; color: var(--muted); text-align: center; margin: 0.3rem 0 0; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 4 课</span><span>序列化 <a class="langbtn" href="0004-ipc-feather-mmap.html" title="Switch to English">EN</a></span></div>
+  <h1>IPC、Feather 与 mmap</h1>
+  <p class="dek">Arrow 的序列化不转换数据 —— 只是在数据前面加上说明书。全部奥妙就在这里。</p>
+</div>
+
+<p>第 3 课结尾留了个悬念：buffer 不过是一堆字节，那要是根本不用重写它们呢？本课就把这个想法落到物理层面 —— <a href="https://arrow.apache.org/docs/format/IPC.html">IPC 协议</a>和 Arrow 文件格式（Feather V2）。学完你就明白为什么一个 40 GB 的文件可以"瞬间加载"。</p>
+
+<h2>封装：metadata + body</h2>
+
+<p>一条 IPC <strong>消息</strong>分两部分。先是 <em>metadata</em> 块 —— 一段序列化的 <a href="https://arrow.apache.org/docs/format/Metadata.html">Flatbuffer</a>，说的是"这是一条 schema 为 S 的 RecordBatch，含 N 个 buffer，位于这些（offset, length）对上，共这么多行"。然后是 <em>body</em>：buffer 本身，按它们在内存中的原样排布（第 1–2 课的布局），8 字节对齐。metadata 里不含数据 —— 它是一份 <strong>buffer 清单（manifest）</strong>：标记每个 buffer 在 body 块内的起点。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>body 是对活跃 buffer 的一次 memcpy；metadata 是指向它的一份 manifest。</strong>没有逐行序列化，也不需要把值解析回对象。反序列化 = 读 manifest，把 body 区域包装成 Buffer 视图。如果 body 来自 mmap，这些视图直接指向 page cache —— 文件<em>就是</em>内存。这就是 Arrow IPC 能跑 GB/s、而 JSON/protobuf 这类行式格式只能爬行的原因。
+</div>
+
+<h2>两种容器</h2>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 620 210" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="14" class="seg-lbl" style="font-weight:700">Stream (one pass: socket, pipe)</text>
+  <g transform="translate(0,22)">
+    <rect x="0" y="0" width="130" height="40" class="seg meta"/><text x="65" y="24" text-anchor="middle" class="seg-lbl">Schema msg</text>
+    <rect x="134" y="0" width="150" height="40" class="seg meta"/><text x="209" y="24" text-anchor="middle" class="seg-lbl">Dictionary msg</text>
+    <rect x="288" y="0" width="150" height="40" class="seg body"/><text x="363" y="24" text-anchor="middle" class="seg-lbl">RecordBatch</text>
+    <rect x="442" y="0" width="150" height="40" class="seg body"/><text x="517" y="24" text-anchor="middle" class="seg-lbl">RecordBatch…</text>
+    <rect x="0" y="46" width="592" height="0" fill="none"/>
+  </g>
+  <text x="0" y="96" class="seg-sub">sequential, length-prefixed frames; ends with 0-length message (or just EOF)</text>
+
+  <text x="0" y="134" class="seg-lbl" style="font-weight:700">File (random access: Feather V2, .arrow)</text>
+  <g transform="translate(0,142)">
+    <rect x="0" y="0" width="90" height="40" class="seg magic"/><text x="45" y="24" text-anchor="middle" class="seg-lbl">ARROW1</text>
+    <rect x="94" y="0" width="120" height="40" class="seg meta"/><text x="154" y="24" text-anchor="middle" class="seg-lbl">Schema</text>
+    <rect x="218" y="0" width="140" height="40" class="seg body"/><text x="288" y="24" text-anchor="middle" class="seg-lbl">Dictionaries</text>
+    <rect x="362" y="0" width="150" height="40" class="seg body"/><text x="437" y="24" text-anchor="middle" class="seg-lbl">RecordBatches</text>
+    <rect x="516" y="0" width="90" height="40" class="seg foot"/><text x="561" y="18" text-anchor="middle" class="seg-lbl">Footer</text>
+    <text x="561" y="31" text-anchor="middle" class="seg-sub">offsets</text>
+    <rect x="610" y="0" width="0" height="0"/>
+  </g>
+  <text x="0" y="200" class="seg-sub">same messages, plus a footer indexing every batch's position ── and "ARROW1" magic at both ends</text>
+</svg>
+<p class="legend"><span style="color:var(--accent)">■</span> metadata（Flatbuffer）&nbsp;&nbsp;<span style="color:var(--flow)">■</span> body（原始 buffer）&nbsp;&nbsp;<span style="color:var(--gain)">■</span> footer&nbsp;&nbsp;<span style="color:var(--muted)">■</span> magic bytes</p>
+</div>
+
+<p>同样的消息，两种塑形。<strong>stream</strong> 是只追加的：帧到达就读，无需寻址 —— 正适合 socket（也适合 Arrow Flight，第 7 课的地盘）。<strong>file</strong> 则加了一个 <em>footer</em>：一个 Flatbuffer，按 offset 索引每个 schema/dictionary/batch 块，并且在头尾各放 <span class="term">ARROW1</span> magic bytes（两端都检查，以便发现被截断的文件）。有 footer ⇒ 随机访问：<span class="term">open_file(...).read_batch(417)</span> 直接定位到第 417 个 batch，完全不碰其余 5000 个。</p>
+
+<p>几个要紧的规范细节：每个块都带长度前缀且 8 字节对齐（推荐 64，让 buffer 正好落在缓存行上）；一条 RecordBatch 的 buffer 按 manifest 顺序出现 —— 对第 2 课的字符串数组就是：validity、offsets、data —— <em>但是</em>被省略的 buffer（全默认的 validity，还记得吗？）会编码成长度为零的条目，所以即便 buffer 缺席，manifest 里也永远为每个 buffer 留了位置。</p>
+
+<h2>mmap：回报时刻</h2>
+
+<p>用内存映射源打开文件（<span class="term">pa.memory_map</span> → <span class="term">pa.ipc.open_file</span>）："读取"返回的数组，其 buffer <em>就是指向映射的视图</em>。不拷贝、不解析 —— kernel 碰到哪些页，OS 才懒加载哪些页。由此可以推导（而不是死记）以下结论：</p>
+<ul>
+  <li>"打开"一个 40 GB 的文件是瞬间的；实际付出的 I/O 只按真正触碰的页计算 —— 一个只读十列中一列的过滤器只碰大约 1/10。</li>
+  <li>数组会钉住映射，正如第 3 课的 slice 钉住父数组：同一套所有权模型，往上一层。</li>
+  <li>写操作需要拷贝 —— 被映射的 buffer 是只读的。zero-copy 是读路径上的超能力。</li>
+</ul>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>IPC 的 "metadata" 块里装的是什么 —— 数据、schema、还是别的？</summary>
+    <p class="answer">一份 buffer manifest。</p>
+    <p class="why">一个 Flatbuffer，包含 schema 引用、行数，以及每个 buffer 指向后续 body 的 (offset, length)。值从不出现在 metadata 里 —— 它们已经是 body 中的字节。</p>
+  </details>
+  <details><summary>为什么文件格式支持 <span class="term">read_batch(417)</span>，而 stream 格式不行？</summary>
+    <p class="answer">footer 提供索引。</p>
+    <p class="why">文件的 footer 记录了每个块的 offset，读方因此可以寻址。stream 是管道上只追加的帧 —— 随机访问不可能，只能按顺序读 batch。</p>
+  </details>
+  <details><summary>Arrow 的哪个机制让巨型文件的 mmap "加载"是瞬间的？</summary>
+    <p class="answer">buffer 变成视图。</p>
+    <p class="why">反序列化只是读 manifest、把 body 区域包装成 Buffer 视图 —— 用 mmap 时这些区域就是 page cache。懒分页意味着你只为真正触碰的页付费。</p>
+  </details>
+  <details><summary>schema 里可空的列在第 3 个 batch 中没有 null。它的 IPC body 里 validity 是什么样？</summary>
+    <p class="answer">一个长度为零的 buffer。</p>
+    <p class="why">第 1 课讲过：null_count = 0 允许省略 validity buffer。IPC 把它编码成零长度的 manifest 条目 —— 槽位存在，字节不存在。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — pyarrow，10 分钟</span>
+  <pre><code>import pyarrow as pa, pyarrow.ipc as ipc
+
+table = pa.table({"name": ["al", "paris", None, "hi"], "n": [10, 20, None, 40]})
+with ipc.new_file("batch.arrow", table.schema) as w:
+    w.write_table(table)
+
+blob = open("batch.arrow", "rb").read()
+print(blob[:6], blob[-6:])                     # 两端都是 ARROW1？
+
+# 然后是回报 —— 从磁盘 zero-copy：
+with pa.memory_map("batch.arrow") as src:
+    m = ipc.open_file(src)
+    t2 = m.read_all()
+    print(t2.combine_chunks().column("n").buffers()[1])  # 只读且来自 mmap？
+
+# 再验证"两种容器"的说法：
+with ipc.new_stream(open("batch.arrows", "wb"), table.schema) as w:
+    w.write_table(table)
+print(len(open("batch.arrows","rb").read()) - len(blob),  # footer+magic 的差值 ≈ 很小
+      "extra bytes for the footer")</code></pre>
+  加餐：hexdump 这个文件（<span class="term">xxd batch.arrow | head -20</span>），找出 Flatbuffer manifest —— 那些可读的片段 —— 与原始 body 块的分界。你看到的正是第 1 课的 buffer 被原样序列化。
+</div>
+
+<h2>下一步去哪</h2>
+<p>至此你拥有了完整流水线：布局（1–2）→ 所有权（3）→ 序列化（4）。还剩两个方向。<strong>计算层</strong>（第 5 课）：<span class="term">pa.compute</span> 的 kernel 如何消费这些 buffer —— 向量化扫描、作为 buffer 进/buffer 出函数的 kernel，以及让一个 kernel 服务所有类型的 visitor 分发。还有<strong>字典编码 + Flight</strong>（第 6–7 课）：dictionary encoding 是第三个伟大的布局技巧，再加上网络上的 IPC。你建立的 buffer 优先心智模型是这一切的前提。</p>
+
+<div class="source">
+  <span class="label">一手资料 — 值得一读</span>
+  <a href="https://arrow.apache.org/docs/format/IPC.html">Arrow IPC 规范</a> —— 封装消息的组帧、stream 与 file 之别，以及精确的 footer/magic 布局。
+</div>
+
+<div class="ask"><b>卡住了或好奇？</b>可以问 agent："为什么 metadata 用 Flatbuffers？"、"write_table 到底切成什么？"、"Feather V1 有什么不同？"</div>
+
+<div class="nav">
+  <span>← <a href="0003-zero-copy-slicing-lifetimes.zh.html">第 3 课：Zero-copy 切片</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 5 课（即将推出）：计算层</span>
+</div>
+</body>
+</html>

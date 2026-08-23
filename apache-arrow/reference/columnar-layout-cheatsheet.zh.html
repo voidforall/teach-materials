@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Arrow 列式布局 — Buffer 速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.layout { border-collapse: collapse; font-family: var(--mono); font-size: 0.84rem; margin: 1rem 0; width: 100%; }
+  table.layout th, table.layout td { border: 1px solid var(--rule); padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
+  table.layout th { font-family: var(--sans); font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  table.layout td .buf { font-weight: 700; color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Reference · 速查表</span><span>Apache Arrow <a class="langbtn" href="columnar-layout-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>列式布局 — Buffer 速查表</h1>
+  <p class="dek">每种 Arrow 数组类型各带哪些 buffer，每个 buffer 有多大。</p>
+</div>
+
+<p>每个 Arrow 数组就是 <strong>buffers + length + null_count + offset</strong>。buffer 才是全部故事 —— 那些 API 对象只是架在 buffer 上的视图。本表整理自<a href="https://arrow.apache.org/docs/format/Columnar.html">列式格式规范</a>。</p>
+
+<h2>通用规则</h2>
+<ul>
+  <li>所有数值都是<strong>小端序</strong>；buffer 按 <strong>8 字节</strong>对齐补齐（各实现以 64 字节对齐为目标）。</li>
+  <li><span class="term">validity bitmap</span>：每个槽位 1 个 bit，<strong>LSB 在前</strong> —— 第 <em>i</em> 个 bit 位于第 <em>i/8</em> 个字节，掩码为 <code>1 &lt;&lt; (i%8)</code>。bit 为 1 = 有值，为 0 = null。大小：<code>ceil(length / 8)</code> 字节。</li>
+  <li>buffer 在<strong>可以全为默认值时允许省略</strong>：<code>null_count = 0</code> 时省略 validity，为空时省略 offsets/数据。</li>
+  <li><span class="term">offset</span>（数组级的那个）实现了 <strong>zero-copy 切片</strong>：一个 slice 就是同一批 buffer 换个 offset/length —— 一个字节都不用拷贝。</li>
+</ul>
+
+<h2>按类型的 buffer 配方</h2>
+<table class="layout">
+  <tr><th>类型</th><th>Buffer 1（validity）</th><th>Buffer 2</th><th>Buffer 3</th><th>宽度</th></tr>
+  <tr><td>int / float（定长）</td><td class="buf">bitmap（可选）</td><td class="buf">values</td><td>—</td><td>values：length × T 位（8/16/32/64）</td></tr>
+  <tr><td>bool</td><td class="buf">bitmap（可选）</td><td class="buf">数据 bitmap</td><td>—</td><td>数据：ceil(length/8) 字节 —— 按位打包，不是按字节！</td></tr>
+  <tr><td>utf8 / binary / list</td><td class="buf">bitmap（可选）</td><td class="buf">offsets（int32）</td><td class="buf">values（字节 / 子数组）</td><td>offsets：(length+1) × 4；values：offsets[last] − offsets[0]</td></tr>
+  <tr><td>large 变体</td><td class="buf">bitmap（可选）</td><td class="buf">offsets（int64）</td><td class="buf">values</td><td>同上，offsets 为 8 字节 → 子数组可超 2 GB</td></tr>
+  <tr><td>struct</td><td class="buf">bitmap（可选）</td><td>—</td><td>—</td><td>各子数组自带自己的 buffer；struct 只多一个 validity bitmap</td></tr>
+  <tr><td>dictionary</td><td class="buf">bitmap（可选）</td><td class="buf">indices（整数）</td><td>—</td><td>indices：length × 索引宽度；另有一个独立的值类型 <em>dictionary</em> 数组</td></tr>
+</table>
+
+<h2>实例演算：<code>["al", "paris", null, "hi"]</code></h2>
+<table class="layout">
+  <tr><th>Buffer</th><th>字节</th><th>解读</th></tr>
+  <tr><td>validity</td><td><code>0b00000101</code></td><td>bit0=1 ✓，bit1=1 ✓，bit2=0 null，bit3=1 ✓</td></tr>
+  <tr><td>offsets（i32）</td><td><code>0, 2, 7, 7, 9</code></td><td>槽位 i = values[offsets[i] : offsets[i+1]]；null 槽位的区间仍然合法（这里是空区间）</td></tr>
+  <tr><td>data</td><td><code>a l p a r i s h i</code></td><td>9 个字节，一段连续的底层存储</td></tr>
+</table>
+
+<h2>超出单个数组</h2>
+<ul>
+  <li><strong>Dictionary 编码：</strong>列 = indices 数组（bitmap + 整数值）+ 独立的共享 <em>payload</em> 数组。null 存放在 indices 的 bitmap 里；切片会让整个 payload 保持被引用；<code>take</code> 只搬运索引。在基数（cardinality）远小于长度时占优。两个 payload/编号不同的 dictionary 在合并/比较前必须先<em>统一</em>（重新编号 = 拷贝）。</li>
+  <li><strong>IPC 消息：</strong>Flatbuffer manifest（buffer 在 body 中的偏移/长度对，被省略的 buffer 用零长度条目表示）+ body = 逐字原样的原始 buffer，按 8 字节对齐。<strong>流（stream）</strong> = 只追加的帧序列；<strong>文件</strong>（Feather V2）另加一个索引每个 batch 的 footer + 两端的 <code>ARROW1</code> magic ⇒ 支持随机访问。dictionary 作为独立消息排在使用它的 batch 之前（replace 或 delta 模式）。</li>
+  <li><strong>逐元素 kernel 的 validity：</strong>输出 bitmap = 输入 bitmap 的按位 AND（缺失的 buffer 视为全 1）。<code>add</code> 传播 null，<code>coalesce</code> 吸收 null，聚合跳过 null。kernel 的输出永远是全新的 buffer。</li>
+</ul>
+
+<h2>大小速算</h2>
+<ul>
+  <li>int64 列，n 行，k 个 null → 总计 <code>ceil(n/8) + 8n</code> 字节。</li>
+  <li>string 列 → <code>4(n+1) + total_string_bytes</code>（+ bitmap）。每行 4 字节的 offsets 开销正是短字符串被 offsets 摊重的原因。</li>
+  <li>对任意数组做 <code>[2:5]</code> 切片 → <strong>0 个新字节</strong>。</li>
+</ul>
+
+<div class="source">
+  <span class="label">一手资料</span>
+  <a href="https://arrow.apache.org/docs/format/Columnar.html">Arrow Columnar Format 规范</a> —— buffer 布局以此为准；本速查表是它的压缩版。
+</div>
+
+<div class="nav"><span>课程主页 · <a href="../lessons/0001-buffers-validity-bitmaps.zh.html">第 1 课：Buffers 与 validity bitmap</a></span></div>
+</body>
+</html>

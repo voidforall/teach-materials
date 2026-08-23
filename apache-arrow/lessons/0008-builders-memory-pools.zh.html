@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 8 课 — Builder 与内存池</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  code { font-family: var(--mono); font-size: 0.88em; background: #eef0ee; padding: 0.05em 0.3em; border-radius: 3px; }
+  pre { background: #f4f5f3; border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 8 课</span><span>构造 · 构建篇 <a class="langbtn" href="0008-builders-memory-pools.html" title="Switch to English">EN</a></span></div>
+  <h1>Builder 与内存池</h1>
+  <p class="dek">buffer 是不可变的——那数据究竟是怎么被创建出来的？草稿区、几何增长，以及一次交出所有权的 Finish。</p>
+</div>
+
+<p>构建篇从第 3 课那条规则最疼的地方开始：任何 buffer 都不会被修改，可数据却是一行一行到达的。<a href="https://arrow.apache.org/docs/cpp/api/builder.html"><span class="term">ArrayBuilder</span></a> 家族就是 Arrow 的答案——也是你接下来真正要构建于其上的 C++ 机制。</p>
+
+<h2>builder 就是草稿区 + 一次交接</h2>
+
+<p><span class="term">Int64Builder</span> 持有你在第 1 课起就在读的<em>同一种布局</em>——一个 validity 草稿位图和一个值草稿 buffer——只是可变且超额预留。你 append，它增长；<span class="term">Finish()</span> 把草稿封存为不可变的 <span class="term">ArrayData</span>，并把 buffer <strong>转移</strong>出去（没有最后一次拷贝——builder 交出自己的分配然后重置）。</p>
+
+<pre><code>arrow::Int64Builder bld(pool);
+for (auto v : values) {
+  if (v) bld.Append(*v);      // 设置 validity 位 + 写入值
+  else    bld.AppendNull();   // 清除该位；值槽位留作垃圾数据
+}
+auto maybe = bld.Finish();    // 用草稿 buffer 构建出 ArrayData——是转移，不是拷贝</code></pre>
+
+<p>每一节布局课都对应一个 builder：<span class="term">StringBuilder</span> 拥有<em>三</em>块草稿区（位图、offsets、字符串汤），<span class="term">Append("paris")</span> 写下一个 int32 界标（fencepost）外加 5 个字节；<span class="term">ListBuilder</span> 包着一个子 builder，在列表闭合时追加一个界标；<span class="term">StructBuilder</span> 是一捆共享同一个位图的字段 builder。嵌套构造就是递归 append——与第 2 课的递归布局如出一辙。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>builder 做的是摊销：容量翻倍，所以 append 是 O(1) 摊销、全程总共约 2 次元素拷贝——但最后一次翻倍会短暂地占住 2 倍于你数据的空间。</strong> 逃生门是分块：每 N 行 <span class="term">Finish()</span> 一次装进 <span class="term">ChunkedArray</span>，内存浪费就永远不超过一个块。翻倍 = 单一 buffer 的速度；分块 = 有界的富余和更早的可用性。Arrow 自家的写入器两者都用（这正是第 7 课的 <span class="term">max_chunksize</span>，往下一层）。
+</div>
+
+<h2>看它增长</h2>
+<div data-growth-sim></div>
+<script src="../assets/growth-sim.js"></script>
+
+<h2>一切之下的 MemoryPool</h2>
+
+<p>每块草稿分配都来自一个 <span class="term">arrow::MemoryPool</span>（内存池）——第 3 课介绍过的记账层。它为你做三件事：</p>
+<ul>
+  <li><strong>对齐分配：</strong>64 字节对齐（规范只要求 buffer 填充到 8；64 是为了照顾缓存行和 SIMD 加载——第 5 课的循环形态，在源头就得到保护）。</li>
+  <li><strong>后端选择：</strong>默认内存池可以以 <strong>jemalloc</strong> 或 <strong>mimalloc</strong> 为后端（Arrow 的构建版本通常捆绑其一），也可以用普通系统 malloc——在链接/初始化时选择。</li>
+  <li><strong>记账：</strong><span class="term">pool->bytes_allocated()</span> 让你能实时观察 builder 的翻倍过程，也是引擎按查询限额内存的手段（杀死一个查询，而不是整个进程）。</li>
+</ul>
+
+<p>builder 在构造函数里接收内存池；<span class="term">Finish()</span> 转移出去的 buffer 仍引用同一个池，所以释放也经由同一个池发生。自定义分配器也是从这里插入的——在嵌入 Arrow 时，你的构建任务大概率会遇到 <span class="term">MemoryPool::MakeBuilder</span> 一带的地界。</p>
+
+<h2>检索</h2>
+<div class="quiz">
+  <details><summary>为什么 <span class="term">Finish()</span> 不拷贝数据？</summary>
+    <p class="answer">草稿 buffer 是转移的。</p>
+    <p class="why">builder 的可变草稿分配通过所有权交接变成数组的不可变 buffer；builder 重置为空。不可变性（第 3 课）从 Finish 才开始——草稿区不受约束，因为没有别人能看到它。</p>
+  </details>
+  <details><summary>翻倍增长 vs 按 1k 分块，各 append 100 万行。比较最坏情况下的内存浪费。</summary>
+    <p class="answer">100 万个槽位 vs 约 1 千个。</p>
+    <p class="why">翻倍会让容量落在长度的 1× 到 2× 之间，最多约 100 万个槽位是富余；最后一次扩容还需要新旧两份同时存活。分块在固定边界收尾——富余从不超过一个块，代价是 ChunkedArray 的簿记开销。</p>
+  </details>
+  <details><summary>一个含 3 个元素的列表闭合时，<span class="term">ListBuilder.Append()</span> 写下了什么？</summary>
+    <p class="answer">一个 int32 界标。</p>
+    <p class="why">子元素的 append 进的是子 builder；闭合列表时追加下一个 offsets 条目（child_length）——第 2 课的配方，拆给了两个共享时序的 builder。</p>
+  </details>
+  <details><summary>规范只要求 8 字节对齐，为什么 Arrow 的 buffer 拿到 64 字节对齐？</summary>
+    <p class="answer">缓存行与 SIMD。</p>
+    <p class="why">规范强制 8 字节对齐/可移植性；内存池向上取整到 64，让 buffer 起点落在缓存行边界上，kernel（第 5 课）里的对齐 SIMD 加载就永远不会跨行。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — pyarrow（底下就是 C++ builder），5 分钟</span>
+  <pre><code>import pyarrow as pa
+
+b = pa.array([10, None, 30])        # Python 列表 → C++ ArrayBuilder 路径
+print(b.buffers())
+
+# 从 Python 观察翻倍：
+import pyarrow.compute as pc
+big = pa.array(range(2**20 + 1))    # 某处的某个 builder 构建的——
+print(big.nbytes)                   # …但完成的数组是紧凑的：Finish 后没有富余存活
+
+# 对比分块构造（有界富余策略）：
+t = pa.table({"n": range(3_000_000)}, schema=pa.schema([("n", pa.int64())]))
+t2 = t.combine_chunks()             # N 次 append → 分块 → 最后一次紧凑拷贝</code></pre>
+  注意第二个代码块展示的细节：富余只活在 builder <em>内部</em>——完成的 ArrayData 会被裁剪（如有需要，builder 会在 Finish 时拷贝一次）。2× 膨胀是一种<em>构造期</em>现象。
+</div>
+
+<h2>接下来去哪</h2>
+<p>你现在掌控了完整生命周期：构造（本课）→ 查看/slice（3）→ 计算（5）→ 移动（4、7）。构建篇剩余的站点：<strong>阅读真实 libarrow 源码</strong>（第 9 课）——一次带讲解的巡览，看真实的仓库里的 <span class="term">ArrayData</span>、你刚认识的那些 builder，以及一个计算 kernel；那之后如果有用，还有一个压轴项目：一个小的 C++ 工具，构建、切片、并 IPC 写出一个数组，你和 buffer 之间不隔任何框架。</p>
+
+<div class="source">
+  <span class="label">一手资料 — 去读它</span>
+  <a href="https://arrow.apache.org/docs/cpp/api/builder.html">C++ ArrayBuilder API 文档</a>（各 builder 的 Append/AppendNull/Finish 语义），旁边放上 <a href="https://arrow.apache.org/docs/cpp/api/memory.html">MemoryPool 参考</a>。
+</div>
+
+<div class="ask"><b>卡住了或好奇？</b> 问 agent：「Finish 什么时候裁剪——总是，还是只在有富余时？」「StringBuilder 怎么避免字符串汤的重新分配？」「给我看看 Reserve()/UnsafeAppend 的惯用法」。</div>
+
+<div class="nav">
+  <span>← <a href="0007-arrow-flight.zh.html">第 7 课：Flight</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 9 课（即将推出）：阅读 libarrow 源码</span>
+</div>
+</body>
+</html>

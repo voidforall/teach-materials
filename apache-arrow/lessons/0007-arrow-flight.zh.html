@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 7 课 — Arrow Flight</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .seg { stroke-width: 1.5; }
+  .seg.meta { fill: #fdf1de; stroke: var(--accent); }
+  .seg.body  { fill: var(--flow-soft); stroke: var(--flow); }
+  .seg.grpc  { fill: #e9edf1; stroke: var(--rule); }
+  .seg-lbl { font-family: var(--sans); font-size: 11px; fill: var(--ink); font-weight: 600; }
+  .seg-sub { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+  .legend { font-family: var(--sans); font-size: 0.8rem; color: var(--muted); text-align: center; margin: 0.3rem 0 0; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 7 课</span><span>传输 <a class="langbtn" href="0007-arrow-flight.html" title="Switch to English">EN</a></span></div>
+  <h1>Arrow Flight</h1>
+  <p class="dek">把第 4 课的流格式装进 gRPC 信封，再配上七个用于发现与搬运数据的动词。</p>
+</div>
+
+<p>到目前为止，一切都是进程内或磁盘上的事。<a href="https://arrow.apache.org/docs/format/Flight.html">Arrow Flight</a> 是网络这一章：一个用于对外提供 Arrow 数据的标准 RPC 协议。它的重点不在于新颍，而在于线上格式（wire format）<em>本来就是内存格式</em>，所以「数据上网络就得付序列化/解析税」这条传统规律在这里根本不成立。</p>
+
+<h2>信封</h2>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 620 150" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="seg-lbl">One FlightData message on the wire</text>
+  <g transform="translate(0,24)">
+    <rect x="0" y="0" width="150" height="44" class="seg meta"/><text x="75" y="20" text-anchor="middle" class="seg-lbl">data_header</text><text x="75" y="35" text-anchor="middle" class="seg-sub">IPC metadata (manifest)</text>
+    <rect x="154" y="0" width="230" height="44" class="seg body"/><text x="269" y="20" text-anchor="middle" class="seg-lbl">data_body</text><text x="269" y="35" text-anchor="middle" class="seg-sub">your Lesson 1–6 buffers, verbatim</text>
+    <rect x="388" y="0" width="110" height="44" class="seg meta"/><text x="443" y="20" text-anchor="middle" class="seg-lbl">descriptor /</text><text x="443" y="35" text-anchor="middle" class="seg-sub">app_metadata</text>
+  </g>
+  <g transform="translate(0,84)">
+    <rect x="0" y="0" width="498" height="36" class="seg grpc"/><text x="249" y="23" text-anchor="middle" class="seg-sub">gRPC/HTTP2 frame — protobuf bytes fields, TLS, flow control, auth headers</text>
+  </g>
+  <text x="0" y="142" class="seg-sub">same encapsulation as Lesson 4: manifest + body — the stream format lifted into protobuf fields</text>
+</svg>
+<p class="legend"><span style="color:var(--accent)">■</span> 元数据&nbsp;&nbsp;<span style="color:var(--flow)">■</span> 数据体&nbsp;&nbsp;<span style="color:var(--muted)">■</span> 传输层</p>
+</div>
+
+<p>一个诚实的提醒，因为你在意的是机制：gRPC 是基于 protobuf 的协议，而 protobuf 组装消息时会<em>拷贝</em>到发送缓冲区。说 Flight 是 zero-copy（零拷贝），是指<em>数据表示从不转换</em>——数据体字节原样上线、到达后被包装成 Buffer——但 gRPC 层在两端都各做一次 memcpy。对比一下：任何 JSON/Avro 路径都要<em>每一行</em>都付表示转换的税；Flight 每条消息只付一次批量 memcpy。同样继承自 gRPC 的还有<strong>默认约 4 MB 的消息上限</strong>——服务器必须把数据切成多条 FlightData 消息，这也正是写入器会暴露 <span class="term">max_chunksize</span> 的原因。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>Flight 的模型是：用 descriptor 广告数据，用 ticket 取回数据，以 IPC 流的形式传输。</strong> <span class="term">GetFlightInfo(descriptor)</span> 返回 schema + 端点；每个端点携带一个不透明的 <strong>ticket</strong>；<span class="term">DoGet(ticket)</span> 以流的形式返回 Arrow 的 record batch。ticket 刻意设计成不透明字节——它可以是你的查询计划、分区 ID、分页 token——这样 Flight 协议本身永远不会去解析你的意图。
+</div>
+
+<h2>七个动词</h2>
+<ul>
+  <li><span class="term">Handshake</span> — 可选的认证前奏（token 交换）。</li>
+  <li><span class="term">ListFlights</span> — 目录：有哪些 descriptor。</li>
+  <li><span class="term">GetFlightInfo</span> — 规划一次读取：schema、端点 + ticket、总行数/字节数。<span class="term">GetSchema</span> — 只取 schema 的廉价变体。</li>
+  <li><span class="term">DoGet</span> — 服务器→客户端的数据流（最常见的读取方式）。</li>
+  <li><span class="term">DoPut</span> — 客户端→服务器上传；服务器按流确认。</li>
+  <li><span class="term">DoExchange</span> — 双向流；<a href="https://arrow.apache.org/docs/sql/index.html">Flight SQL</a> 就跑在它上面。</li>
+</ul>
+
+<p>再连回第 6 课：dictionary 会以 dictionary 消息的形式在批次之前随流传输——Flight 读取器必须按流跟踪 replace/delta dictionary，否则批次到达时索引会指向空无一物的地方。布局上的细节在这里升级成了一个<em>协议状态机</em>。</p>
+
+<h2>配对练习</h2>
+<p>场景 → 动词。连续答对 7 题（每个动词一题——全都会出现）。</p>
+<div data-flight-verbs-drill></div>
+<script src="../assets/flight-verbs-drill.js"></script>
+
+<h2>检索</h2>
+<div class="quiz">
+  <details><summary>为什么 Flight 能躲开 JSON/Avro 服务那种按行计费的序列化税？</summary>
+    <p class="answer">数据体字节直接透传。</p>
+    <p class="why">data_body 字段原封不动地携带 Arrow buffer——线上、磁盘、内存里是同一种表示。没有行级转换；唯一的代价是 gRPC 把整块数据批量 memcpy 进/出 HTTP/2 流。</p>
+  </details>
+  <details><summary>ticket 里装的是什么？由谁决定？</summary>
+    <p class="answer">服务器自定义的不透明字节。</p>
+    <p class="why">ticket 的内容完全由签发它的服务器决定——查询句柄、分区号、续传 token 都行。Flight 从不解析它；它只是 GetFlightInfo 的广告与 DoGet 的流之间的关联凭证。</p>
+  </details>
+  <details><summary>你的 Flight 上传报错 "received message larger than max"。为什么？</summary>
+    <p class="answer">gRPC 默认的 4 MB 上限。</p>
+    <p class="why">FlightData 装在 gRPC 消息里，默认上限约 4 MB。在写入侧修复：调小 <span class="term">max_chunksize</span>，让每个批次各自成一条消息（流式传输可以绕开上限），或者在两端调高 gRPC 上限。</p>
+  </details>
+  <details><summary>为什么 Flight 读取器必须跨流跟踪 dictionary 状态？</summary>
+    <p class="answer">索引需要对应的载荷。</p>
+    <p class="why">dictionary 消息先于批次到达（第 6 课）。replace 消息会使之前的索引失效；delta 消息做追加。忽略它们的读取器会解出这样的批次：索引指向过期或不存在的载荷。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — pyarrow，15 分钟</span>
+  <pre><code>import pyarrow as pa
+import pyarrow.flight as fl
+
+class Demo(fl.FlightServerBase):
+    def list_flights(self, ctx, crit):
+        info = fl.FlightInfo(
+            pa.schema([("n", pa.int64())]),
+            fl.Descriptor.for_path("demo"),
+            [fl.Ticket(b"page-1")], total_records=3, total_bytes=24)
+        yield info
+    def do_get(self, ctx, ticket):
+        table = pa.table({"n": [1, 2, 3]})
+        return fl.RecordBatchStream(table)
+
+with Demo("grpc://localhost:8815"):
+    client = fl.connect("grpc://localhost:8815")
+    for f in client.list_flights(): print(f.schema, f.endpoints[0].ticket)
+    reader = client.do_get(fl.Ticket(b"page-1"))
+    print(reader.read_all())</code></pre>
+  约 20 行就完成了一个完整的「广告→取回」回路。然后故意弄坏它：试试 <span class="term">reader.read_chunk()</span> 并查看消息类型——你会先看到 Schema 消息，再看到 RecordBatch 消息：第 4 课的流正经由 gRPC 到达。
+</div>
+
+<h2>课程进度：格式篇完结</h2>
+<p>七课：布局（1–2）、所有权（3）、序列化（4）、计算（5）、编码（6）、传输（7）。你现在可以一路追踪一个值，从字节直到网络。下一篇章转向你的<em>构建</em>任务：用 C++ 高效构造数组（<span class="term">ArrayBuilder</span>、chunked builder、为什么 builder 要预分配）、内存池（memory pool）与分配策略，以及一次带讲解的真实 libarrow 源码阅读——从「理解 Arrow」毕业到「在 Arrow 之上构建」。</p>
+
+<div class="source">
+  <span class="label">一手资料 — 去读它</span>
+  <a href="https://arrow.apache.org/docs/format/Flight.html">Flight RPC 规范</a> — 动词、认证与 FlightData 帧格式；搭配你刚练习过的 <a href="https://arrow.apache.org/docs/python/flight.html">pyarrow Flight 指南</a>。
+</div>
+
+<div class="ask"><b>卡住了或好奇？</b> 问 agent：「Flight SQL 是如何扩展 DoExchange 的？」「RecordBatchStream 按什么分块？」「TLS 与 token 认证各有哪些选项？」</div>
+
+<div class="nav">
+  <span>← <a href="0006-dictionary-encoding.zh.html">第 6 课：字典编码</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 8 课（即将推出）：C++ 中的 builder 与内存池</span>
+</div>
+</body>
+</html>

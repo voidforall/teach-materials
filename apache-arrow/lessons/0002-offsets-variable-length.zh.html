@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 2 课 — Offsets 与变长布局</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.null { fill: #fdf1de; stroke: var(--accent); }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+  .span { fill: #c9e3d3; fill-opacity: 0.55; stroke: var(--gain); stroke-width: 1.4; stroke-dasharray: 3 2; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 2 课</span><span>内存格式 <a class="langbtn" href="0002-offsets-variable-length.html" title="Switch to English">EN</a></span></div>
+  <h1>Offsets（偏移量）与变长布局</h1>
+  <p class="dek">字符串没有固定步长 —— 于是 Arrow 存一锅连续的字节汤，外加标明每个值起止位置的栅栏桩。</p>
+</div>
+
+<p><a href="0001-buffers-validity-bitmaps.zh.html">第 1 课</a>给了你定宽类型的配方：一张位图、一个 values buffer，步长 = 类型宽度。但 <span class="term">"paris"</span> 是 5 字节，<span class="term">"al"</span> 是 2 字节。一个每行步长都在变的 buffer 是没法 SIMD 扫描的。Arrow 的答案就是整门课程反复复用的机制：<strong>offsets</strong>。</p>
+
+<h2>三个 buffer，一锅汤</h2>
+<p>这是 <span class="term">["al", "paris", null, "hi"]</span> 按 Arrow 的摆法（<a href="https://arrow.apache.org/docs/format/Columnar.html#variable-size-binary-layout">Variable-size Binary Layout</a>）：</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 580 210" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">Buffer 1 — validity bitmap</text>
+  <rect x="0" y="24" width="90" height="32" class="membuf null"/>
+  <text x="45" y="44" text-anchor="middle" class="mem-byte">0b00001101</text>
+  <text x="0" y="72" class="mem-sub">same as Lesson 1: slot 2 null</text>
+
+  <text x="0" y="106" class="mem-lbl">Buffer 2 — offsets (int32, length+1 entries)</text>
+  <g>
+    <rect x="0" y="114" width="104" height="32" class="membuf"/><text x="52" y="134" text-anchor="middle" class="mem-byte">0</text>
+    <rect x="106" y="114" width="104" height="32" class="membuf"/><text x="158" y="134" text-anchor="middle" class="mem-byte">2</text>
+    <rect x="212" y="114" width="104" height="32" class="membuf"/><text x="264" y="134" text-anchor="middle" class="mem-byte">7</text>
+    <rect x="318" y="114" width="104" height="32" class="membuf null"/><text x="370" y="134" text-anchor="middle" class="mem-byte">7</text>
+    <rect x="424" y="114" width="104" height="32" class="membuf"/><text x="527" y="134" text-anchor="middle" class="mem-byte">9</text>
+  </g>
+  <text x="0" y="162" class="mem-sub">slot i = data[offsets[i] : offsets[i+1]] — n values need n+1 fenceposts</text>
+
+  <text x="0" y="192" class="mem-lbl">Buffer 3 — data (9 bytes, the soup)</text>
+  <g>
+    <rect x="0" y="200" width="58" height="32" class="membuf"/><text x="29" y="220" text-anchor="middle" class="mem-byte">a</text>
+    <rect x="60" y="200" width="58" height="32" class="membuf"/><text x="89" y="220" text-anchor="middle" class="mem-byte">l</text>
+    <rect x="120" y="200" width="58" height="32" class="membuf"/><text x="149" y="220" text-anchor="middle" class="mem-byte">p</text>
+    <rect x="180" y="200" width="58" height="32" class="membuf"/><text x="209" y="220" text-anchor="middle" class="mem-byte">a</text>
+    <rect x="240" y="200" width="58" height="32" class="membuf"/><text x="269" y="220" text-anchor="middle" class="mem-byte">r</text>
+    <rect x="300" y="200" width="58" height="32" class="membuf"/><text x="329" y="220" text-anchor="middle" class="mem-byte">i</text>
+    <rect x="360" y="200" width="58" height="32" class="membuf"/><text x="389" y="220" text-anchor="middle" class="mem-byte">s</text>
+    <rect x="420" y="200" width="58" height="32" class="membuf"/><text x="449" y="220" text-anchor="middle" class="mem-byte">h</text>
+    <rect x="480" y="200" width="58" height="32" class="membuf"/><text x="509" y="220" text-anchor="middle" class="mem-byte">i</text>
+  </g>
+</svg>
+</div>
+
+<p>把槽 1 读出来：<span class="term">data[2:7]</span> = <span class="term">"paris"</span>。槽 2 是 null —— 位图说了算 —— 但它的 offsets 仍然是<em>格式良好</em>的：<span class="term">[7,7]</span>，一个空跨度。null 字符串在构造上长度就是 0，永远不会是一段垃圾跨度。（要与<em>空字符串</em> <span class="term">""</span> 区分开 —— 它同样是 <span class="term">[k,k]</span>，唯一能区分两者的就是位图。）</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>变长 = 定宽的 offsets + 一锅连续的汤。</strong>offsets buffer 拥有完全规整的 int32 步长 —— <em>它</em>才是你能向量化的东西，而那锅汤从不动窝。正是这套配方（offsets → 子 buffer，或 offsets → 子<em>数组</em>），让 Arrow 得以处理 <span class="term">utf8</span>、<span class="term">binary</span>、<span class="term">list</span>，并通过递归处理一切嵌套类型。
+</div>
+
+<h2>你真正会用到的推广</h2>
+
+<p>把字节汤换成一个子<strong>数组</strong>，你就得到了 <span class="term">list&lt;T&gt;</span> —— <a href="https://arrow.apache.org/docs/format/Columnar.html#variable-size-list-layout">Variable-size List Layout</a>。<span class="term">[[1,2,3], null, [4]]</span> 就是：位图（槽 1 为 null）、offsets <span class="term">[0,3,3,4]</span>、以及一个 int32 子数组 <span class="term">[1,2,3,4]</span>。那 <span class="term">list&lt;list&lt;int&gt;&gt;</span> 呢？对子数组再跑一遍配方即可。每层嵌套的代价是一个 offsets buffer —— 没有指针、没有逐节点的分配，这正是把嵌套 Arrow 数据在 C++ 和 Python 之间传递分文不花的原因（第 4 课，zero-copy）。</p>
+
+<p>两个值得知道的边界：</p>
+<ul>
+  <li>int32 offsets 把那锅汤封顶在 <strong>2&nbsp;GB</strong>；超过就要用 <span class="term">large_string</span> / <span class="term">large_list</span> 的 int64 offsets（栅栏桩税翻倍）。</li>
+  <li><span class="term">string_view</span>（C++17 时代的布局）则改为每行内联存储<em>指针+长度</em> —— 不同的取舍，出现在 DuckDB/Polars 的地盘，不属于核心规范。</li>
+</ul>
+
+<h2>练一练</h2>
+<p>按请求的槽位取出对应的值。栅栏桩习惯 —— <em>offsets[i] 到 offsets[i+1]</em>，先查位图 —— 应该变成本能。连对 5 题。</p>
+<div data-offsets-drill></div>
+<script src="../assets/offsets-drill.js"></script>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>一个 1000 行的 utf8 数组携带多少个 int32 offsets？</summary>
+    <p class="answer">1001 个栅栏桩。</p>
+    <p class="why">永远是 length + 1。n 个值需要 n+1 个边界 —— 就像栅栏桩与栅栏板。1001 × 4 字节 ≈ 4 KB 的纯簿记开销，与字符串本身无关。</p>
+  </details>
+  <details><summary>一列一百万个短字符串（"OK"、"NO"、……）—— 内存都花在哪了？</summary>
+    <p class="answer">offsets 占大头。</p>
+    <p class="why">每行 4 字节的偏移税 vs 约 2 字节的实际数据。短字符串列是栅栏桩主导的；这是诚实的开销列，不是要治的病（但它正是 dictionary 编码存在的原因 —— 第 6 课）。</p>
+  </details>
+  <details><summary>null 字符串和空字符串在 buffer 里有什么区别？</summary>
+    <p class="answer">就差位图上的那一个 bit。</p>
+    <p class="why">两者在数据汤里都是零长度的跨度 <span class="term">[k,k]</span>。只有 validity bit 不同：null 为 0，<span class="term">""</span> 为 1。只看 offsets 你根本分不出来。</p>
+  </details>
+  <details><summary><span class="term">[[1,2], [3]]</span> 的布局 —— 说出每个 buffer 的名字。</summary>
+    <p class="answer">位图、offsets、子数组。</p>
+    <p class="why">validity（无 null → 可省略）；int32 offsets <span class="term">[0,2,3]</span>；一个 int32 子数组 <span class="term">[1,2,3]</span>，带自己的（可省略的）位图。与字符串同一套三件配方 —— 只是汤变成了数组。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — pyarrow，5 分钟</span>
+  <pre><code>import pyarrow as pa
+s = pa.array(["al", "paris", None, "hi"])
+validity, offsets, data = s.buffers()
+
+import struct
+off = struct.unpack("5i", offsets.buffer()[:20])   # n+1 个 int32 栅栏桩
+print(off)                                          # 先预测：[0, 2, 7, ?, 9]
+
+# 加餐：手工读出槽 3
+start, end = off[3], off[4]
+print(data.buffer()[start:end])                     # 是 b'hi' 吗？
+
+# 以及 list 推广：
+l = pa.array([[1, 2], None, [4]])
+print(l.type, l.flatten())                          # flatten() 丢掉了什么？</code></pre>
+  如果 <code>off[3]</code> 让你意外，回去重读上面的 null 跨度规则。再看一眼 <code>l.buffers()</code> —— list 的 buffer 只有位图 + offsets；整数住在子数组里。
+</div>
+
+<h2>接下来去哪</h2>
+<p>你现在已经握着两套核心布局配方 —— 定宽（第 1 课）和 offsets（本课）。格式篇剩下的全是组合：<span class="term">struct</span>（纯粹的子数组打包，没有 offsets）、dictionary，然后是收获章节 —— <strong>zero-copy 切片与 buffer 生命周期</strong>（第 3 课），以及 <strong>IPC / Arrow 文件格式</strong>（第 4 课）：为什么一段用 Arrow 录制的字节流可以不经解析直接 <em>mmap</em> 成数组。<a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a>已经汇总了全部配方。</p>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://arrow.apache.org/docs/format/Intro.html">Arrow 格式导论</a> —— 其中嵌套数据一节是这个项目关于本机制写得最好的文字。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b> —— 我是你的 Agent 老师："为什么是 n+1 个 offsets 而不是 n 个长度？"、"给我看 list-of-struct 的字节"、"什么时候该选 large_list？"。</div>
+
+<div class="nav">
+  <span>← <a href="0001-buffers-validity-bitmaps.zh.html">第 1 课：Buffer 与位图</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 3 课（即将推出）：zero-copy 切片与生命周期</span>
+</div>
+</body>
+</html>

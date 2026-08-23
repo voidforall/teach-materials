@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 3 课 — Zero-copy 切片与 buffer 生命周期</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.shade { fill: #e9edf1; stroke: var(--rule); stroke-dasharray: 4 3; }
+  .membuf.hot { fill: #c9e3d3; stroke: var(--gain); stroke-width: 2.2; }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 3 课</span><span>所有权与共享 <a class="langbtn" href="0003-zero-copy-slicing-lifetimes.html" title="Switch to English">EN</a></span></div>
+  <h1>Zero-copy 切片与 buffer 生命周期</h1>
+  <p class="dek">第 1 课里你见过的那个 <span class="term">offset = 0</span> 整数？它是 Arrow 整个所有权模型的冰山一角。</p>
+</div>
+
+<p>你已经知道布局配方了。本课讲的是数据在视图之间<em>移动</em>时会发生什么 —— 切片、分块、跨语言 —— 以及那个发现：在 Arrow 里数据通常根本不动。</p>
+
+<h2>切片什么都不搬</h2>
+
+<p>取 <span class="term">a = pa.array([10, 20, 30, 40])</span> 并切片：<span class="term">b = a[1:3]</span>（值 <span class="term">[20, 30]</span>）。<span class="term">b</span> 拥有什么？<strong>什么都没有。</strong>还是那两个 buffer，只是数组级的元数据重新指了向：</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 580 150" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">values buffer (one allocation, forever)</text>
+  <g>
+    <rect x="0"   y="24" width="130" height="36" class="membuf shade"/><text x="65"  y="46" text-anchor="middle" class="mem-byte">10</text>
+    <rect x="134" y="24" width="130" height="36" class="membuf hot"/>  <text x="199" y="46" text-anchor="middle" class="mem-byte">20</text>
+    <rect x="268" y="24" width="130" height="36" class="membuf hot"/>  <text x="333" y="46" text-anchor="middle" class="mem-byte">30</text>
+    <rect x="402" y="24" width="130" height="36" class="membuf shade"/><text x="467" y="46" text-anchor="middle" class="mem-byte">40</text>
+  </g>
+  <text x="0" y="86" class="mem-sub">a: offset=0, length=4 ── sees all four slots</text>
+  <text x="0" y="106" class="mem-sub" style="fill:var(--gain)">b: offset=1, length=2 ── same buffer, window [1,3)</text>
+  <text x="0" y="136" class="mem-lbl">b's buffer overhangs: slots 0 and 3 are still allocated, just outside b's window</text>
+</svg>
+</div>
+
+<p>这就是为什么 <span class="term">Slice()</span>（C++）和 Python 切片在时间和内存上都是 O(1) —— 一张 10 GB 的表切成一千个窗口，一个字节都不分配。这个机制可以组合：<span class="term">a[1:3][1:]</span> 只是叠加 offset；<span class="term">ChunkedArray.slice()</span> 收窄一组 zero-copy 视图；<span class="term">Table.select(['b','a'])</span> 只重排元数据。</p>
+
+<p>一个要从第 1 课带过来的细节：数组级的 <span class="term">offset</span> 会平移<em>一切</em> —— values 的窗口<em>以及</em> validity bitmap 的起始 bit。切片的位图并不从 buffer 的 bit 0 开始；bit 运算永远相对 offset 进行。这就是库代码从不裸读 buffer 的原因 —— 它走 accessor。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>Arrow 的共享模型：一次不可变的分配，许多轻量视图。</strong>buffer 从不被原地修改 —— 每个"派生"数组都是同一批字节之上的新元数据（offset、length、buffers 列表）。只有当结果<em>不可能</em>是窗口时才会发生拷贝：拼接、gather/take、filter、cast、分块合并。
+</div>
+
+<h2>谁来释放这些字节？</h2>
+
+<p>buffer 是引用计数且不可变的 —— 在 C++ 里是由 <a href="https://arrow.apache.org/docs/cpp/api/memory.html"><span class="term">arrow::MemoryPool</span></a> 发出的 <span class="term">std::shared_ptr&lt;Buffer&gt;</span>；在 pyarrow 里，Python 的 GC 在 Arrow 的引用之上再持有一份。切片会保住父对象的 buffer；你无法造出一个悬空的 Arrow 视图。值得背下来的生命周期规则：</p>
+<ul>
+  <li><strong>Buffer 比视图活得久：</strong>一个 3 元素的切片会钉住整个 10 GB 的分配。释放大块内存有时需要显式丢弃父对象 —— 或者把窗口<em>拷贝</em>出来（<span class="term">combine_chunks()</span>、<span class="term">pa.concat_arrays</span>）以甩掉悬出部分。没错 —— 有时你是<em>故意</em>拷贝来缩身的。</li>
+  <li><strong>Zero-copy 桥梁：</strong>当数组是原始类型时，<span class="term">np.asarray(int64_arr)</span> 包装同一个 buffer —— numpy 没有 validity bitmap，所以可空数组或字符串数组必然触发拷贝。C++ 包装外部内存（<span class="term">Buffer::FromWrap</span> 一族，或 mmap）同理：Arrow 引用它没有分配过的字节，通过回调来释放。</li>
+  <li><strong>分块不是窗口：</strong><span class="term">ChunkedArray</span>只是一个独立数组组成的 Python/C++ 列表。<span class="term">combine_chunks()</span>必须拷贝 —— N 个 buffer 变不成一个。</li>
+</ul>
+
+<h2>分个类</h2>
+<p>对每个操作判断：它是搬字节，还是共享 buffer？刻意混入了第 1–2 课的检索题 —— 交错练习正是意义所在。连对 8 题。</p>
+<div data-zerocopy-drill></div>
+<script src="../assets/zero-copy-drill.js"></script>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>你从一张 10 GB 的表里切出 100 行，然后删掉了指向表的变量。内存里还留着什么？</summary>
+    <p class="answer">整整十个 GB。</p>
+    <p class="why">切片持有父对象 buffer 的引用 —— 悬出部分仍然处于已分配状态。只想留住窗口的话，就物化一份拷贝并丢弃父对象。</p>
+  </details>
+  <details><summary>为什么 <span class="term">pa.concat_arrays</span> 永远不可能是 zero-copy？</summary>
+    <p class="answer">两个 buffer，一个结果。</p>
+    <p class="why">结果必须是单个连续 buffer；两次独立的分配无法靠任何元数据伎俩融合。每个元素都被拷贝。</p>
+  </details>
+  <details><summary><span class="term">np.asarray(arrow_arr)</span> 什么时候会拷贝？</summary>
+    <p class="answer">可空或嵌套时。</p>
+    <p class="why">numpy 没有 validity bitmap，也没有变长布局。原始类型、无 null 的数组共享 buffer；其余的都必须转换成 numpy 的表示。</p>
+  </details>
+  <details><summary>一个字符串数组切成 <span class="term">[:3]</span> —— 那锅数据汤怎么样了？</summary>
+    <p class="answer">原封不动，悬在外面。</p>
+    <p class="why">切片只重指 offsets/元数据；后面那些字符串的字节仍留在 buffer 里、越过窗口末尾，被切片钉着不放。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — pyarrow，5 分钟</span>
+  <pre><code>import pyarrow as pa
+
+a = pa.array([10, 20, 30, 40])
+b = a[1:3]
+print(a.buffers()[1] is b.buffers()[1])   # 同一个 Buffer 对象吗？
+
+big = pa.array(range(10_000_000))
+window = big[9_000_000:]
+import sys; print("window len:", len(window))
+del big                                    # 猜猜：内存被释放了吗？
+# （可以用这个检查：import resource; resource.getrusage(...).ru_maxrss）
+
+c = pa.chunked_array([[1, 2], [3, 4]])
+print(c.combine_chunks().buffers())        # 现在只剩一个 values buffer 了 —— 代价是什么？</code></pre>
+  第 4 行那个恒等判断，就是一个 <span class="term">True</span> 装下的整堂课。
+</div>
+
+<h2>接下来去哪</h2>
+<p>不可变 buffer 模型还有一个更壮观的推论，也是 Arrow 作为一个<em>项目</em>而不只是一个 C++ 库存在的理由：如果 buffer 只是一堆字节，你就可以<strong>不经重写地序列化它们</strong> —— 把 buffer 写进磁盘、mmap 回来，而 mmap 到的字节<em>就是</em>数组。那就是 IPC / Feather 文件格式，第 4 课，zero-copy 从进程内的小知识升级为跨进程的架构。</p>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://arrow.apache.org/docs/python/data.html">pyarrow 数据与内存文档</a>（切片、zero-copy numpy 转换、分块）—— 配合<a href="https://arrow.apache.org/docs/cpp/api/memory.html">C++ 内存管理参考</a>读 pool/引用计数那一层。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b> —— 我是你的 Agent 老师："什么时候该切片加 filter 而不是直接 filter？"、"memory pool 怎么工作？"、"Buffer::FromWrap 到底做了什么？"。</div>
+
+<div class="nav">
+  <span>← <a href="0002-offsets-variable-length.zh.html">第 2 课：Offsets 与变长</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 4 课（即将推出）：IPC 与 Feather 文件格式</span>
+</div>
+</body>
+</html>

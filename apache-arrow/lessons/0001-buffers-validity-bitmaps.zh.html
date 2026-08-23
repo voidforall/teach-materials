@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Arrow · 第 1 课 — Buffer 与 validity bitmap</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.null { fill: #fdf1de; stroke: var(--accent); }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · 第 1 课</span><span>内存格式 <a class="langbtn" href="0001-buffers-validity-bitmaps.html" title="Switch to English">EN</a></span></div>
+  <h1>Buffer 与 validity bitmap（位图）</h1>
+  <p class="dek">Arrow 数组不是一张对象图。它是两块字节板 —— 一旦你能直接读懂它们，所有 Arrow API 就都成了视图。</p>
+</div>
+
+<p>你的任务是在 libarrow 和 pyarrow 之上做开发，同时<em>理解底层机器</em>。所以我们不从某个 API 开始，而是从字节开始。取这个你敲过一千遍的列：</p>
+
+<p style="text-align:center"><span class="term">[10, 20, null, 40]</span> <span style="color:var(--muted)">(int64)</span></p>
+
+<p>问一句：它在内存里长什么样？Arrow 的答案是这个课程里其余一切内容的根基 —— SIMD 扫描、zero-copy 切片、IPC，全都在其上。</p>
+
+<h2>两块字板的布局</h2>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="18" class="mem-lbl">Buffer 1 — validity bitmap</text>
+  <rect x="0" y="26" width="90" height="34" class="membuf null"/>
+  <text x="45" y="47" text-anchor="middle" class="mem-byte">0b00001101</text>
+  <text x="0" y="78" class="mem-sub">1 byte = ceil(4/8); bit i of byte i÷8, LSB first</text>
+  <text x="0" y="103" class="mem-lbl">Buffer 2 — values</text>
+  <g>
+    <rect x="0" y="111" width="120" height="34" class="membuf"/><text x="60" y="132" text-anchor="middle" class="mem-byte">10</text>
+    <rect x="122" y="111" width="120" height="34" class="membuf"/><text x="182" y="132" text-anchor="middle" class="mem-byte">20</text>
+    <rect x="244" y="111" width="120" height="34" class="membuf null"/><text x="304" y="132" text-anchor="middle" class="mem-byte">—</text>
+    <rect x="366" y="111" width="120" height="34" class="membuf"/><text x="426" y="132" text-anchor="middle" class="mem-byte">40</text>
+  </g>
+  <text x="0" y="162" class="mem-sub" transform="translate(0,-8)">4 × 8 bytes, contiguous little-endian int64 (null slot's bytes unspecified)</text>
+</svg>
+</div>
+
+<p>整个数组就这些。在 buffer 之外，<span class="term">Array</span> 对象只携带三个整数：<span class="term">length = 4</span>、<span class="term">null_count = 1</span>、<span class="term">offset = 0</span>。在 C++ 里这就是字面意义上的 <a href="https://arrow.apache.org/docs/cpp/api/datamodel.html"><span class="term">arrow::ArrayData</span></a> 结构体；pyarrow 包装的是同一个东西。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>值住在一块连续的 buffer 里，而"是否为 null"住在一块单独压缩的位图（validity bitmap）里 —— 每个值一个 bit。</strong>一个 null 的代价是 1 个 bit 的开销，而不是一个带标签的指针或哨兵值。把"是不是 null"与"值是什么"分开，正是 values buffer 能保持稠密、规整、可 SIMD 扫描的原因。
+</div>
+
+<h2>逐 bit 读位图</h2>
+
+<p>位图在每个字节内是 <strong>LSB 优先</strong>的：槽位 <em>i</em> 的 bit 位于字节 <em>i ÷ 8</em> 的第 <em>i mod 8</em> 位 —— 所以<em>第一个</em>槽位是<em>最低</em>有效位。bit 为 1 = 值存在；bit 为 0 = null。我们的 <span class="term">0b00001101</span> 从右往左读：槽 0 ✓、槽 1 ✓、槽 2 <strong>null</strong>、槽 3 ✓。与那个列正好对应。</p>
+
+<p>两个值得刻进脑子里的规范细节：</p>
+<ul>
+  <li>如果 <span class="term">null_count = 0</span>，validity buffer 可以整个省略 —— 隐含一张全 1 位图。</li>
+  <li>values buffer 中 null 槽位上的<em>字节</em>是未指定的垃圾值。永远不要读它们；先查位图。</li>
+</ul>
+
+<h2>练一练</h2>
+<p>解码字节，点出 null 槽位。连对 5 题 —— LSB 优先的方向正是人人都搞反的那一处。</p>
+<div data-drill></div>
+<script src="../assets/validity-drill.js"></script>
+
+<h2>检索一下</h2>
+<div class="quiz">
+  <details><summary>一个 100 行、37 个 null 的 int32 数组，它的 validity bitmap 有多少字节？</summary>
+    <p class="answer">13 字节。</p>
+    <p class="why">ceil(100 / 8) = 13。位图的大小取决于<em>长度</em>，从不取决于 null_count —— 37 个 null 和 1 个 null，同样是 13 字节。</p>
+  </details>
+  <details><summary>位图字节为 <span class="term">0b01000000</span>。哪个槽位是 null —— 它的下标是多少？</summary>
+    <p class="answer">槽 1。</p>
+    <p class="why">只有 bit 1 是 0。bit 按 LSB 优先编号，所以 0b01000000 → 槽 1 为 null，槽 0 和 2–7 都有值。</p>
+  </details>
+  <details><summary>为什么 Arrow 用位图，而不是在 values buffer 里保留一个 null 哨兵值？</summary>
+    <p class="answer">稠密的 buffer 扫得快。</p>
+    <p class="why">压缩位图的开销约每行 1 bit，并让 values buffer 保持均匀：每个值步长相同、每个类型都完整可表示，向量化 kernel 直接在裸内存上循环，数据通路里不必穿插逐值的 null 检查。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — pyarrow，5 分钟</span>
+  <pre><code>import pyarrow as pa
+a = pa.array([10, 20, None, 40], type=pa.int64())
+buf = a.buffers()          # [validity, values]
+print(buf[0])              # size 是多少？它到底存不存在？
+print(a.null_count, a.offset)
+
+b = pa.array([1, 2, 3], type=pa.int64())   # 没有 null...
+print(b.buffers()[0])      # ...那 validity buffer 怎么了？</code></pre>
+  运行<em>之前</em>先预测两个输出。如果第二个 validity buffer 让你意外，回去重读上面的"两个规范细节"。
+</div>
+
+<h2>接下来去哪</h2>
+<p>定宽类型是最简单的情形 —— 一张位图、一个 values buffer。你的任务自然会引出下一个问题：<span class="term">["al", "paris", null, "hi"]</span> 在内存里怎么摆？这就是 offsets（偏移量）机制（第 2 课），并且它可推广到 <span class="term">list</span> 和嵌套类型。每种类型的完整 buffer 配方都在<a href="../reference/columnar-layout-cheatsheet.zh.html">布局速查表</a>里。</p>
+
+<div class="source">
+  <span class="label">首选阅读</span>
+  <a href="https://arrow.apache.org/docs/format/Columnar.html">Arrow Columnar Format 规范</a>，"Buffering and Memory Model" 与 "Validity Bitmaps" 两节（很短 —— 上述一切的标准版本）。
+</div>
+
+<div class="ask"><b>有问题？随时问你的老师</b> —— 我是你的 Agent 老师："为什么 LSB 优先？"、"给我看 C++ 里的 ArrayData 结构体"、"buffer 的生命周期是什么？"。</div>
+
+<div class="nav">
+  <span>课程 · 任务</span>
+  <span><a href="../reference/columnar-layout-cheatsheet.zh.html">速查表</a> · 第 2 课（即将推出）：offsets 与字符串</span>
+</div>
+</body>
+</html>

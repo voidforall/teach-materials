@@ -244,3 +244,21 @@ li { margin: 0.3rem 0; }
   body { padding: 2.5rem 1.1rem 4rem; font-size: 1.05rem; }
   .masthead h1 { font-size: 1.5rem; }
 }
+
+/* --- Language toggle (EN ↔ 中) --- */
+.langbtn {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 0.35rem;
+  white-space: nowrap;
+}
+.langbtn:hover { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+@media print { .langbtn { display: none; } }
