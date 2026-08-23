@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 7 课 — AlphaZero 配方</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · 第 7 课</span><span>Silver/Song <a class="langbtn" href="0007-alphazero-recipe.html" title="Switch to English">EN</a></span></div>
+  <h1>AlphaZero 配方</h1>
+  <p class="dek">纯 RL 学得慢，因为它必须靠猜去摸索那些从没试过的走法。AlphaZero 把策略/价值网络与树搜索结合起来：网络引导搜索，搜索反过来改进网络的训练目标。两半各自治好对方的盲区。</p>
+</div>
+
+<p>谱系：<a href="https://www.nature.com/articles/nature24270">AlphaGo Zero</a>（Silver 等，2017）从纯自博弈学会围棋，随后 <a href="https://arxiv.org/abs/1712.01815">AlphaZero</a>（2018）把配方推广到国际象棋与将棋。核心机制是用神经网络取代模拟到终局的蒙特卡洛树搜索（MCTS）：</p>
+<ul>
+  <li><strong>选择</strong>——按 <strong>PUCT</strong> 沿树下行挑选子节点：<span class="term">Q(s,a) + c·P(s,a)·√Σvisits / (1+N(s,a))</span>。它在网络的先验 P、平均价值 Q 与访问次数之间权衡——访问不足的走法始终值得试试。</li>
+  <li><strong>扩展与评估</strong>——在叶节点问一次网络：得到各走法的先验和价值估计 v(s)。不再一路模拟到终局。</li>
+  <li><strong>回传</strong>——把 v(s)（零和对局中要为对手翻转符号）沿访问路径向上传播。</li>
+</ul>
+
+<pre>对局面 s 走棋 → 运行 N 次 MCTS 模拟 → 得到访问次数 π(s)
+训练网络:  (s, π(s), z)   # z = 从 s 视角看的对局胜负
+真实对局落子:  在 π(s) 上取 argmax（或按温度采样）</pre>
+
+<p>训练目标才是关键思想：策略目标不是网络自己的猜测，而是 <strong>MCTS 改进后的访问分布</strong>；价值目标则是真实胜负。于是网络在模仿一个比自己稍强的自己，循环成千上万次——策略改进与策略评估收在一个环里。这也解释了它为何能在大多数现代仿真竞赛中胜过纯 PPO：搜索提供了裸策略梯度所没有的前瞻能力。</p>
+
+<h2>Kaggle 的现实</h2>
+<p>在 Kaggle 的量级上没人重写 DeepMind 的流水线。几乎所有公开方案的祖师爷是 Junxiao Song 的 <a href="https://web.stanford.edu/~surag/posts/alphazero.html">AlphaZero_General</a>：一个约 300 行的通用循环（MCTS、Coach、Arena），你只需为自己的游戏类和网络做特化——正是套在 kaggle-environments 仿真器外面的那副骨架。要提前算好的成本：自博弈很贵（每步棋要调用网络成百上千次），训练以 GPU-天计，吞吐工程（快速仿真器、批量推理、缓存）与算法同样重要；提交时的推理必须装进每回合时限，所以要限制每步的模拟次数、用小网络。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>AlphaZero = 用 MCTS 做策略改进 + 用策略/价值网络做引导，用搜索的访问次数做训练目标。</strong>网络让搜索变便宜；搜索让网络的训练目标比自己更强。这个闭合的循环——而不是任何单个组件——才是配方本身。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>用策略网络自己的原始输出当训练目标（自我蒸馏循环）。</strong>如果策略损失的目标是 π_θ 而不是 MCTS 的访问分布，改进算子就消失了——你只是在用更多算力复利放大自己的偏差。相邻的失败：自博弈时每步模拟次数太少；这时访问计数目标接近随机噪声，网络从中学不到任何东西。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>在 AlphaZero 的 MCTS 里，是什么取代了经典 MCTS 的随机走子模拟？</summary>
+    <p class="answer">一次网络评估。</p>
+    <p class="why">在每个叶节点，网络返回各走法的先验和一个价值估计 v(s)，后者沿路径回传。这比模拟到终局便宜得多，也是网络学到的棋感进入搜索的地方。</p>
+  </details>
+  <details><summary>策略网络对一个局面的训练目标到底是什么？</summary>
+    <p class="answer">MCTS 的访问计数。</p>
+    <p class="why">模拟结束后，访问次数在各走法上的分布编码了搜索改进后的意见。让 π_θ 去拟合它，等于让网络模仿"带搜索的棋力"——这个改进步在训练迭代中不断复利。</p>
+  </details>
+  <details><summary>PUCT 中的 √Σvisits / (1+N(s,a)) 因子起什么作用？</summary>
+    <p class="answer">强制探索。</p>
+    <p class="why">随着兄弟节点的访问总数增长，任何访问不足的动作的加成也随之增长，没有哪步棋会永远"试不起"。没有它，先验 P(s,a) 会把搜索锁死在最初看着不错的走法上，错误的先验永远得不到纠正。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 —— 20–30 分钟，追踪训练环</span>
+  读 <a href="https://web.stanford.edu/~surag/posts/alphazero.html">Junxiao Song 的 AlphaZero_General 文章</a>，打开仓库里的 <span class="term">Coach.py</span> 与 <span class="term">MCTS.py</span>。端到端追踪一个迭代，写三句话回答：(1) 游戏类在哪里把输入交给网络（编码）？(2) 访问计数在哪里变成策略训练目标？(3) Arena 在哪里决定是否接受新检查点？还有时间的话，在纸上为 Connect X 草拟游戏类方法：<span class="term">getValidMoves</span>、<span class="term">getGameEnded</span>、<span class="term">getCanonicalForm</span>。
+</div>
+
+<h2>主要来源</h2>
+<p><a href="https://www.nature.com/articles/nature24270">Silver 等，《Mastering the game of Go without human knowledge》</a>（Nature, 2017）——配方最干净的表述；图 1（自博弈/训练循环）就是整个算法。接着读 <a href="https://web.stanford.edu/~surag/posts/alphazero.html">AlphaZero_General 博文</a>——绝大多数 Kaggle 方案的直系始祖，再看 <a href="https://arxiv.org/abs/1712.01815">AlphaZero 论文</a>了解推广。</p>
+
+<p class="next"><a href="0006-policy-gradient-ppo.zh.html">← 上一课：策略梯度与 PPO</a> &nbsp;·&nbsp; <a href="0008-imitation-bootstrap.zh.html">下一课：模仿引导 →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方就问你的老师——这个代理就是干这个的。</p>
+</body>
+</html>

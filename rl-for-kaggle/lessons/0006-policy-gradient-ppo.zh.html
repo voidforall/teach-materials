@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 6 课 — 策略梯度方法：PPO</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · 第 6 课</span><span>School: SB3 <a class="langbtn" href="0006-policy-gradient-ppo.html" title="Switch to English">EN</a></span></div>
+  <h1>策略梯度方法：PPO</h1>
+  <p class="dek">不是给动作打分，而是直接学策略：把"比预期更好"的动作的概率往上推。PPO 就是这个想法加上一个 clip，防止每次更新用力过猛。</p>
+</div>
+
+<p>基线算法是 REINFORCE：采样一段轨迹，然后按回报比例去推动 log π(a|s)。它的问题是方差大——少数几个幸运回合会主导梯度。修正链条上每一步都在降方差或降偏差：</p>
+<ul>
+  <li><strong>优势（advantage）</strong> A(s,a) = Q − V：减去一个学习到的基线，让驱动更新的只有动作的<em>相对</em>好坏。</li>
+  <li><strong>GAE(λ)</strong>：在不同时间视野上混合 TD 误差，得到方差小、偏差可接受的优势估计。</li>
+  <li><strong>PPO 的裁剪目标</strong>（<a href="https://arxiv.org/abs/1707.06347">Schulman 等，2017</a>）：不用二阶优化的"信赖域"思想。</li>
+</ul>
+
+<pre>L = −E[ min( r(θ)·A,  clip(r(θ), 1−ε, 1+ε)·A ) ]  −  c_ent · H(π)
+其中 r(θ) = π_θ(a|s) / π_θ_old(a|s)</pre>
+
+<p>clip 的读法是：如果新策略已把概率比推到 1±ε 之外，该方向上的进一步改进梯度为零——更新<em>饱和</em>了，不再有奖励。通常对每段 rollout 跑几个 epoch 的小批量 SGD，然后丢弃（PPO 是 on-policy 的），外加一个<strong>熵奖励项</strong>，防止策略在变强之前就塌缩成确定性策略。</p>
+
+<h2>为什么 Kaggle 自博弈是 PPO 的天下</h2>
+<p>价值方法需要回放池；而在自博弈里，旧转移来自与<em>过时对手</em>的对局，不加小心就会毒化 off-policy 学习。PPO 是 on-policy 的：它始终用当前快照天梯上的新鲜对局来训练——这正是自博弈该有的样子。它还很宽容——超参平庸也能学起来。所以 <a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">Lux AI 的优胜者们</a>都在 gym 封装的仿真器上跑 PPO 流水线（通常基于 <a href="https://stable-baselines3.readthedocs.io/">Stable-Baselines3</a>）。典型起点：<span class="term">n_steps=2048</span>、<span class="term">n_epochs=10</span>、<span class="term">clip_range=0.2</span>、<span class="term">ent_coef=0.01</span>、<span class="term">gae_lambda=0.95</span>，外加大量并行环境。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>PPO = 策略梯度 + 优势（GAE）+ 限制单次更新幅度 的 clip。</strong>它统治 Kaggle 自博弈，是因为 on-policy 训练永远匹配当前的对手池，而且超参只是"还行"时它也能体面地退化而不是崩溃。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>用损失曲线调试 PPO。</strong>PPO 的损失是裁剪过、加过熵项的替代目标——棋力变强时它可能上升，棋力崩掉时它也可能下降。要看的是<em>固定对手池上的胜率</em>和<em>策略的熵</em>。它的表亲：在策略更新后继续复用旧 rollout（破坏 on-policy 性质），然后纳闷为什么毫无长进。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>减去基线 V(s) 对策略梯度做了什么？</summary>
+    <p class="answer">降方差，不改方向。</p>
+    <p class="why">梯度的期望不变（基线不依赖动作），但以 V(s) 为中心的回报缩小了回合间的噪声幅度——这正是 REINFORCE 的核心弱点。中心化之后的量就是优势。</p>
+  </details>
+  <details><summary>在裁剪目标里，若 r(θ) 超过 1+ε 且优势为正，会发生什么？</summary>
+    <p class="answer">梯度变为零。</p>
+    <p class="why">clip 饱和：min 选中被裁剪的项，而它对 θ 的梯度为零。更新被设了上限——策略不会因为一个幸运动作就在单次更新里把概率猛推一大截。</p>
+  </details>
+  <details><summary>为什么 on-policy 的 PPO 天然适合自博弈，而 DQN 式回放却很别扭？</summary>
+    <p class="answer">对手一直在变。</p>
+    <p class="why">池子里的转移来自与对手旧快照的对局，Q 目标值是陈旧的——属于最糟糕的 off-policy 数据。PPO 在几个 epoch 后就丢弃 rollout，永远针对当前对手池训练，与自博弈的演化方式天然一致。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 —— 15–25 分钟，先跑通再弄坏它</span>
+  <span class="term">pip install "stable-baselines3[extra]"</span> 之后，在 CartPole-v1 上跑 SB3 PPO 约 100k 步并画曲线（每 10k 步用 <span class="term">evaluate_policy</span>）。然后逐一弄坏它，每次只改一处并简短重跑：(1) <span class="term">clip_range=10.0</span>；(2) <span class="term">ent_coef=0</span> 并延长训练；(3) <span class="term">n_epochs=100</span>。记录每种改动导致的失败形态（不稳定、过早确定性化、过拟合 rollout）。对照 <a href="https://spinningup.openai.com/en/latest/algorithms/ppo.html">Spinning Up 的 PPO 页面</a>和 <a href="https://stable-baselines3.readthedocs.io/en/master/modules/ppo.html">SB3 PPO 文档</a>。
+</div>
+
+<h2>主要来源</h2>
+<p><a href="https://arxiv.org/abs/1707.06347">Schulman 等，《Proximal Policy Optimization Algorithms》</a>（2017）——短文；精读第 2 节（裁剪替代目标），其余略读。搭配 <a href="https://spinningup.openai.com/en/latest/algorithms/ppo.html">Spinning Up 的 PPO 页面</a>看 REINFORCE → GAE → clip 的推导链。</p>
+
+<p class="next"><a href="0005-value-based-dqn.zh.html">← 上一课：价值方法 DQN</a> &nbsp;·&nbsp; <a href="0007-alphazero-recipe.zh.html">下一课：AlphaZero 配方 →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方就问你的老师——这个代理就是干这个的。</p>
+</body>
+</html>

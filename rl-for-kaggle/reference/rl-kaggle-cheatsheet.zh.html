@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>RL for Kaggle — 速查表</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.cs { border-collapse: collapse; font-size: 0.84rem; margin: 1rem 0; width: 100%; }
+  table.cs th, table.cs td { border: 1px solid var(--rule); padding: 0.32rem 0.55rem; text-align: left; vertical-align: top; }
+  table.cs th { font-size: 0.7rem; background: #f1f3f5; color: var(--muted); }
+  table.cs td:first-child { font-weight: 600; white-space: nowrap; }
+  pre { font-size: 0.78rem; }
+  ul { margin: 0.4rem 0; }
+  h2 { margin: 1.6rem 0 0.4rem; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Reference</span><span>RL for Kaggle <a class="langbtn" href="rl-kaggle-cheatsheet.html" title="Switch to English">EN</a></span></div>
+  <h1>RL for Kaggle — 速查表</h1>
+  <p class="dek">十课内容压缩成一页可打印的速查表：何种情形用何种技术、核心更新公式、奖励塑形纪律、自博弈与提交清单、术语表。从<a href="../lessons/0001-the-simulation-landscape.zh.html">第 1 课</a>开始。</p>
+</div>
+
+<h2>1 · 何种情形用何种技术</h2>
+<table class="cs">
+  <tr><th>技术</th><th>适用情形</th><th>注意事项</th></tr>
+  <tr><td>手写策略</td><td>规则已知；时间预算紧；需要可击败的基线</td><td>硬天花板；它是你的 BC 老师，不是你的智能体</td></tr>
+  <tr><td>树搜索（minimax/negamax）</td><td>博弈树小、模拟廉价（Santa 类谜题、Connect X）</td><td>分支数 × 深度 = 时钟时间；需要好的评估函数</td></tr>
+  <tr><td>DQN</td><td>小的离散动作空间；单网络 + 经验回放的简洁性</td><td>离策略不稳；超大/结构化掩码动作表现差</td></tr>
+  <tr><td>PPO</td><td>自博弈循环、结构化动作；要简单稳健</td><td>在策略 = 吃数据；熵奖励太小会策略塌缩</td></tr>
+  <tr><td>AlphaZero 式</td><td>任何能快速镜像的模拟赛冲奖牌；策略+价值+MCTS</td><td>算力开销大；瓶颈是模拟速度，自己写快仿真</td></tr>
+  <tr><td>模仿引导</td><td>只要存在脚本专家就用——RL 前的热启动</td><td>BC 天花板与分布偏移；专家数据要退火掉</td></tr>
+</table>
+
+<h2>2 · 核心更新公式</h2>
+<pre><code>DQN 目标：      y = r + γ · Q_target(s', argmax_a Q_online(s',a))   # 双重 DQN
+PPO 目标：      L = E[ min(ρ·A, clip(ρ, 1−ε, 1+ε)·A) ]  其中 ρ = π(a|s)/π_old(a|s)
+MCTS（PUCT）：  argmax_a Q(s,a) + c_puct · P(s,a)·√ΣN / (1+N(s,a))</code></pre>
+<ul>
+  <li>DQN 全家桶：经验回放、目标网络（慢同步）、ε-贪心、动作掩码 Q 头。</li>
+  <li>PPO 附加件：GAE(λ) 优势、熵奖励、价值函数损失、每批仅跑几个 epoch。</li>
+  <li>AlphaZero：策略以 MCTS 访问计数（改进目标）训练，价值以对局结果训练。</li>
+</ul>
+
+<h2>3 · 奖励塑形经验法则</h2>
+<ul>
+  <li>终局胜负 ±1 是唯一不可谈判的项——它就是排行榜指标。</li>
+  <li>优先用基于势函数的塑形：<code>r' = r + γΦ(s') − Φ(s)</code>——可证不改变最优策略。</li>
+  <li>启发式塑形（分数增量、生存奖励）：小、可监控、随胜率上升衰减到零。</li>
+  <li>警报：塑形奖励上涨而真实胜率停滞、回合拉长 = 奖励被钻空子。</li>
+</ul>
+
+<h2>4 · 自博弈清单</h2>
+<ul>
+  <li>每 N 个存档点快照进对手池——绝不只对最新策略训练。</li>
+  <li>混风格：快照 + 脚本机器人 + 官方示例（规则允许时加公开机器人）。</li>
+  <li>快速仿真：封装成 Gymnasium 环境；官方运行器慢就自己写镜像。</li>
+  <li>非对称博弈换边；固定种子；并行向量化环境。</li>
+  <li>只有联赛证据支持才晋升快照，不是一个头对头胜率。</li>
+</ul>
+
+<h2>5 · 提交清单</h2>
+<ul>
+  <li>每回合时间预算达标——测最坏情况推理耗时，不是平均值。</li>
+  <li>网络在 import 时构建；绝不放进 <code>agent(obs, config)</code> 里。</li>
+  <li>先用平凡智能体通过 Kaggle 校验（先跑通流水线再谈智力）。</li>
+  <li>纯推理：权重离线烘入，提交时不训练、不联网。</li>
+  <li>确定性种子——且评测方换种子时依然正确。</li>
+  <li>文件大小低于上限（内联约 100 KB / 附文件约 20 MB）；必要时量化权重。</li>
+  <li>推理编码与训练完全一致（平面、视角、掩码）。</li>
+</ul>
+
+<h2>6 · 术语表</h2>
+<table class="cs">
+  <tr><td>MDP</td><td>马尔可夫决策过程：(状态, 动作, 奖励, 转移)——你强加给模拟赛的框架。</td></tr>
+  <tr><td>POMDP</td><td>部分可观测 MDP：只看到自己的视角（Lux）；用记忆/循环网络或信念搜索。</td></tr>
+  <tr><td>自博弈</td><td>智能体对自己或自己的历史版本训练——生成无限对手。</td></tr>
+  <tr><td>快照池</td><td>冻结的历史存档点，用作训练对手与评估基准。</td></tr>
+  <tr><td>联赛</td><td>种群内全员互赛并用 Elo/TrueSkill 评分；AlphaStar 的微缩版。</td></tr>
+  <tr><td>GAE</td><td>广义优势估计：用 λ 混合 TD 残差，得到低方差的优势。</td></tr>
+  <tr><td>PUCT</td><td>Predictor + UCT：MCTS 选择规则，在价值、先验、访问计数间权衡。</td></tr>
+  <tr><td>行为克隆</td><td>对专家动作做监督式模仿；热启动，但有硬天花板。</td></tr>
+  <tr><td>Elo / TrueSkill</td><td>由胜负估计成对技能评分；TrueSkill 带不确定度（σ）——Kaggle 天梯即此类。</td></tr>
+</table>
+
+<p class="dek">资料来源：<a href="http://incompleteideas.net/book/the-book-2nd.html">Sutton &amp; Barto</a>、<a href="https://spinningup.openai.com/">Spinning Up</a>、<a href="https://docs.cleanrl.dev/">CleanRL</a>、<a href="https://stable-baselines3.readthedocs.io/">Stable-Baselines3</a>、<a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a>、<a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">Lux AI 冠军总结</a>。</p>
+</body>
+</html>

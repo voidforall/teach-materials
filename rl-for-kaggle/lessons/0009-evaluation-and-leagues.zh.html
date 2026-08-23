@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 9 课 — 评估与联赛</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · 第 9 课</span><span><a class="langbtn" href="0009-evaluation-and-leagues.html" title="Switch to English">EN</a></span></div>
+  <h1>评估与联赛</h1>
+  <p class="dek">公开天梯噪声大、反馈慢、还有提交限额——如果你对着它调参，它会骗你。在家里建自己的联赛，把 Kaggle 的天梯当期末考试。</p>
+</div>
+
+<p>两个智能体下 100 局能告诉你的东西少得惊人：按每局方差算，胜率估计的标准误 √(p(1−p)/100) ≈ 5%。本地 53% 的胜率可能纯属运气。而公开天梯让你的提交面对不断更替的对手池，缓慢更新一个 TrueSkill 式评分，还限制提交频率（常常一天几次）。追着这个数字优化，等于优化一个非平稳环境里的噪声代理指标。</p>
+
+<h2>对手池</h2>
+<p>解法是一个由你掌控的、固定且多样的<strong>对手池</strong>：</p>
+<ul>
+  <li><strong>自己的历史快照</strong>（每 N 个存档点一份）——防止遗忘与自博弈循环。</li>
+  <li><strong>风格多样性</strong>——脚本机器人、官方示例智能体、激进与龟缩的变体，加上最强的公开 notebook（规则允许时）。</li>
+  <li><strong>冻结的评估协议</strong>——同样的种子、同样的局数、任何不对称都换边重下（先手互换）。</li>
+</ul>
+<p>报告对池子带<strong>置信区间</strong>的胜率，而不是单个数字。只有当新快照对上一版最优的区间排除 50% 时，它才算「更强」。</p>
+
+<h2>联赛与评分</h2>
+<p>快照一多，就跑一个<strong>联赛</strong>：所有智能体互相对局，本地维护 Elo 或 TrueSkill 评分。评分表就是你的训练仪表盘——看的是每一代评分的曲线而非单个胜率，还能发现病灶（一个新智能体赢最新快照却输给三个旧风格，那是循环，不是进步）。这是 AlphaStar 联赛训练的微缩版，也是 Kaggle 天梯机制本身。</p>
+
+<pre># 每晚的评估循环
+for a in candidates:
+    for opp in pool:                      # 快照 + 脚本 + 公开机器人
+        wins[a, opp] = play(a, opp, n=200, swap_sides=True)
+ratings = trueskill.update_all(wins)
+promote(a) if beats(prev_best, CI>50%) and pool 中无硬克星</pre>
+
+<h2>防住对局面的过拟合</h2>
+<p>要设计性防范两种失败模式。<strong>蹭天梯：</strong>特化去打当前公开 meta——一块统治本季剪刀的石头——meta 一变就崩（决赛评估常常用全新智能体组）。<strong>追评分：</strong>每次提交后对评分小幅波动过度解读；置信区间几乎从不支持这种解读。节奏纪律：只有本地联赛证据说更好才提交，而不是「看看天梯怎么说」。</p>
+
+<h2>回放就是你的调试器</h2>
+<p>天梯和本地的每一局都有回放。评分掉了，别盲目重训——打开败局，找出你的智能体处理不好的那三五个局面，判断是状态编码的缺口（第 2 课）还是奖励问题（第 4 课）。一份认真研究的回放胜过一百次盲目的 PPO 重跑。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>带置信区间的本地联赛才是你的 ground truth；公开天梯只是你偶尔核对的噪声样本。</strong>每一次晋升决定都依据对手池做出，绝不依据评分的小幅波动。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>只对单个对手评估。</strong>「它对上周的存档 55%」只是一个数据点，不是证据——而且共同针对单一对手训练的智能体会互相利用对方的怪癖，形成共同的盲区。多样的池子、双边对局、误差条，否则一切免谈。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>为什么两个智能体下 100 局常常不足以做判断？</summary>
+    <p class="answer">误差条吞掉了差异。</p>
+    <p class="why">n=100 时胜率的标准误约 5 个百分点；53% 对 50% 的差距远在噪声之内。要么加局数，要么报区间并暂缓结论。</p>
+  </details>
+  <details><summary>快照池提供了单个陪练给不了什么？</summary>
+    <p class="answer">记忆与多样性。</p>
+    <p class="why">历史快照防止遗忘和自博弈循环；混合风格暴露单个对手藏起来的盲区。合起来近似真实天梯的种群。</p>
+  </details>
+  <details><summary>公开评分下跌时，调试的第一步是什么？</summary>
+    <p class="answer">看输掉的回放。</p>
+    <p class="why">回放把失败定位到具体局面、具体阶段、具体对手风格，把「评分掉了」变成一个具体的编码或奖励 bug，而不是盲目重跑训练。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — 30 分钟</span>
+  从 <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a> 取任意两个 Connect X 智能体（比如 <code>negamax</code> 对你自己写的脚本）。先下 100 局，再下 1000 局，每次计算胜率置信区间。看 n=100 时「明朗」的 55% 如何在 n=1000 时变得「不明朗」。然后翻一篇 <a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">顶尖方案总结</a>，看冠军如何组织本地评估。
+</div>
+
+<h2>首选资料</h2>
+<p><a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">Kaggle 模拟赛讨论区与冠军总结</a>——评估协议、对手池、提交节奏的累积经验都在各比赛的 Discussion 标签下，按投票排序。</p>
+
+<p class="next"><a href="0008-imitation-bootstrap.zh.html">← 上一课：模仿引导</a> &nbsp;·&nbsp; <a href="0010-capstone-pipeline.zh.html">下一课：毕业项目流水线 →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方？尽管问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

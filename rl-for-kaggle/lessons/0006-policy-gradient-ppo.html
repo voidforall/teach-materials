@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — Policy Gradient Methods: PPO</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 6</span><span>School: SB3 <a class="langbtn" href="0006-policy-gradient-ppo.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Policy Gradient Methods: PPO</h1>
+  <p class="dek">Instead of scoring actions, learn the policy directly: push up the probability of actions that worked better than expected. PPO is that idea with a clip that stops each update from overcommitting.</p>
+</div>
+
+<p>The baseline algorithm is REINFORCE: sample a rollout, then nudge log π(a|s) in proportion to the return. Its problem is variance — a few lucky episodes dominate the gradient. The fix chain, each step cutting variance or bias:</p>
+<ul>
+  <li><strong>Advantage</strong> A(s,a) = Q − V: subtract a learned baseline so only the <em>relative</em> goodness of an action drives the update.</li>
+  <li><strong>GAE(λ)</strong>: blend TD errors across time horizons to estimate advantage with low variance and tolerable bias.</li>
+  <li><strong>PPO's clipped objective</strong> (<a href="https://arxiv.org/abs/1707.06347">Schulman et al., 2017</a>): the trust-region idea without the second-order math.</li>
+</ul>
+
+<pre>L = −E[ min( r(θ)·A,  clip(r(θ), 1−ε, 1+ε)·A ) ]  −  c_ent · H(π)
+where r(θ) = π_θ(a|s) / π_θ_old(a|s)</pre>
+
+<p>Read the clip as: if the new policy has already moved probability ratio beyond 1±ε, further improvement in that direction earns zero gradient — the update is <em>saturated, not rewarded</em>. You typically run a few epochs of minibatch SGD over each rollout, then discard it (PPO is on-policy), plus an <strong>entropy bonus</strong> so the policy doesn't collapse to determinism before it's good.</p>
+
+<h2>Why PPO owns self-play on Kaggle</h2>
+<p>Value-based methods need a replay buffer; in self-play, old transitions come from matches against <em>stale opponents</em>, which poisons off-policy learning unless you're careful. PPO is on-policy: it always trains on fresh games against the current ladder of snapshots, which is exactly how you want self-play to work. It's also forgiving — mediocre hyperparameters still learn. That's why the <a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">Lux AI winners</a> used PPO-based pipelines (usually via <a href="https://stable-baselines3.readthedocs.io/">Stable-Baselines3</a>) on top of a gym-wrapped simulator. Typical starting points: <span class="term">n_steps=2048</span>, <span class="term">n_epochs=10</span>, <span class="term">clip_range=0.2</span>, <span class="term">ent_coef=0.01</span>, <span class="term">gae_lambda=0.95</span>, many parallel envs.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>PPO = policy gradient + advantage (GAE) + a clip that caps how far one update may move the policy.</strong> It dominates Kaggle self-play because on-policy training always matches the current opponent pool, and it degrades gracefully when your hyperparameters are merely okay.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Debugging with the loss curve.</strong> PPO's loss is a clipped, entropy-augmented surrogate — it can go up while play gets better and down while play collapses. Watch <em>episode win-rate against a fixed opponent pool</em> and <em>entropy of the policy</em>. A second cousin: reusing old rollouts after policy updates (breaking on-policyness) and wondering why nothing improves.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>What does subtracting the baseline V(s) do to the policy gradient?</summary>
+    <p class="answer">Cuts variance, keeps direction.</p>
+    <p class="why">The expectation of the gradient is unchanged (baseline doesn't depend on the action), but returns centered on V(s) shrink the magnitude of noise across episodes — REINFORCE's core weakness. The centered quantity is the advantage.</p>
+  </details>
+  <details><summary>In the clipped objective, what happens when r(θ) exceeds 1+ε with positive advantage?</summary>
+    <p class="answer">The gradient goes to zero.</p>
+    <p class="why">The clip saturates: min picks the clipped term, whose gradient with respect to θ is zero. The update is capped — the policy cannot chase one lucky action into a huge probability shift within a single update.</p>
+  </details>
+  <details><summary>Why is on-policy PPO a natural fit for self-play, where DQN-style replay is awkward?</summary>
+    <p class="answer">Opponents keep changing.</p>
+    <p class="why">Buffered transitions come from play against old snapshots of the opponent, so their Q-targets are stale — off-policy data of the worst kind. PPO discards rollouts after a few epochs and always trains against the current pool, matching how self-play actually evolves.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 15–25 minutes, run then break it</span>
+  With <span class="term">pip install "stable-baselines3[extra]"</span>, run SB3 PPO on CartPole-v1 for ~100k steps and plot it (<span class="term">evaluate_policy</span> every 10k steps). Then break it three ways, one at a time, re-running briefly each time: (1) <span class="term">clip_range=10.0</span>; (2) <span class="term">ent_coef=0</span> and long training; (3) <span class="term">n_epochs=100</span>. Note which failure each change produces (instability, premature determinism, overfitting the rollout). Compare against the <a href="https://spinningup.openai.com/en/latest/algorithms/ppo.html">Spinning Up PPO page</a> and the <a href="https://stable-baselines3.readthedocs.io/en/master/modules/ppo.html">SB3 PPO docs</a>.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://arxiv.org/abs/1707.06347">Schulman et al., <em>Proximal Policy Optimization Algorithms</em></a> (2017) — short paper; read Section 2 (the clipped surrogate) carefully, skim the rest. Pair with <a href="https://spinningup.openai.com/en/latest/algorithms/ppo.html">Spinning Up's PPO page</a> for the derivation chain REINFORCE → GAE → clip.</p>
+
+<p class="next"><a href="0005-value-based-dqn.html">← Previous: Value-Based DQN</a> &nbsp;·&nbsp; <a href="0007-alphazero-recipe.html">Next: The AlphaZero Recipe →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

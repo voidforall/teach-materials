@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 3 — Self-Play Infrastructure</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 3</span><span><a class="langbtn" href="0003-self-play-infrastructure.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Self-Play Infrastructure</h1>
+  <p class="dek">RL results are won in the harness: the environment wrapper, the simulator speed, and the opponent policy. Build this before you build the learner.</p>
+</div>
+
+<p>Training needs thousands of episodes per hour; the official runner needs correctness. Use both: wrap the game once, correctly, and reuse the wrapper everywhere.</p>
+
+<h2>The Gymnasium seam</h2>
+<p>Standardize on the <a href="https://gymnasium.farama.org/">Gymnasium API</a>: <code>reset()</code> returns <code>(obs, info)</code>, <code>step(action)</code> returns <code>(obs, reward, terminated, truncated, info)</code>. Every off-the-shelf library — <a href="https://stable-baselines3.readthedocs.io/">Stable-Baselines3</a>, <a href="https://docs.cleanrl.dev/">CleanRL</a> — plugs into this contract. The wrapper's job:</p>
+<ul>
+  <li>translate <code>obs/config</code> into your state tensor from <a href="0002-framing-the-mdp.html">Lesson 2</a>;</li>
+  <li>apply the action mask for invalid moves;</li>
+  <li>assign rewards at terminals (and shaped rewards along the way, Lesson 4);</li>
+  <li>route the <em>opponent's</em> move — by calling an opponent policy inside <code>step</code> — so the learner always sees one-decision-per-step.</li>
+</ul>
+
+<h2>Simulator speed is a hyperparameter</h2>
+<p>The official <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a> engine is built for fairness and replay, not throughput. Nearly every serious team writes a <strong>fast mirror simulator</strong> of the rules (vectorized with NumPy, or bit-packed) for training, and validates on the official engine periodically to catch divergence. A 100× faster simulator is a 100× cheaper learning curve — mislabel it as "engineering detail" at your peril.</p>
+
+<h2>Self-play and snapshots</h2>
+<p>Self-play — the current policy playing itself — generates endlessly challenging data. But a policy playing its exact current self chases a moving target and forgets old skills. The standard fix: an <strong>opponent pool</strong>. Each training run (or interval) saves a snapshot; opponents are sampled from past snapshots, with a bias toward recent ones. This both stabilizes learning and, as <a href="0009-evaluation-and-leagues.html">Lesson 9</a> shows, gives you an honest local ladder.</p>
+
+<h2>Submission constraints shape the design</h2>
+<p>No training happens on Kaggle's servers. The submission is inference-only: network weights (pickled or as a file) plus a lean <code>agent()</code> that builds the network, loads weights, and acts — within the per-turn time limit and total file-size budget. Design your checkpoint format for this from day one.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Wrap once, train fast, submit lean.</strong>One Gymnasium wrapper over a fast simulator, opponents drawn from a snapshot pool, and an inference-only submission file — this skeleton carries every algorithm in the rest of the course.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Training against the current policy only.</strong>Latest-vs-latest self-play is a non-stationary chase: strategies cycle (attack/counter-attack) and old strengths are lost. Sample opponents from snapshots of the past to anchor the target.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>What does <code>step</code> return in Gymnasium?</summary>
+    <p class="answer">Observation, reward, terminated, truncated, info.</p>
+    <p class="why">The five-tuple contract every modern RL library expects. Terminated ends the episode by game logic; truncated by a time limit — many algorithms treat them differently.</p>
+  </details>
+  <details><summary>Why write your own simulator mirror?</summary>
+    <p class="answer">Throughput, hence more experience.</p>
+    <p class="why">The official engine favors correctness and replay over speed. A vectorized mirror multiplies episodes per hour; you periodically cross-check against the official engine to catch rule divergence.</p>
+  </details>
+  <details><summary>What does the submission file actually contain?</summary>
+    <p class="answer">Weights plus inference code.</p>
+    <p class="why">Kaggle runs no training. The agent builds the network, loads pickled weights, and returns one action per turn within the time budget. Plan this packaging early.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 30–45 minutes</span>
+  Wrap Connect X as a Gymnasium env: opponent routed inside <code>step</code> (start with a random opponent), action mask in <code>info</code>, ±1 terminal reward. Run a random-vs-random loop and measure episodes/second — that number is your training budget for Lessons 5–7.
+</div>
+
+<h2>Primary source</h2>
+<p>The <a href="https://gymnasium.farama.org/api/env/">Gymnasium environment API page</a> (short, canonical), alongside the <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a> source for what the wrapper must adapt.</p>
+
+<p class="next"><a href="0004-reward-shaping.html">Next: Reward Shaping →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

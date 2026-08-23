@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 10 课 — 毕业项目流水线</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · 第 10 课</span><span><a class="langbtn" href="0010-capstone-pipeline.html" title="Switch to English">EN</a></span></div>
+  <h1>毕业项目流水线</h1>
+  <p class="dek">所有内容汇于一处：把 Connect X 封装成 Gym 环境、自博弈训练智能体、对对手池评估、交付一个能通过校验的提交文件。</p>
+</div>
+
+<p>这是整门课拼成的一张施工图，本周就能在 Connect X 上跑通——小到能做完，真到能泛化。每个阶段都标注了讲授它的课程。</p>
+
+<h2>阶段 1 — 环境（第 3 课）</h2>
+<p>把 <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a> 本地运行器封装成 Gymnasium 环境：<code>reset()</code> 返回观测棋盘，<code>step(action)</code> 同时推进双方（对手从池中抽取），奖励按第 4 课的塑形来。棋盘编码成两个二值平面（己方棋子、对方棋子），每一步都屏蔽非法列。</p>
+
+<pre>class ConnectXGym(gym.Env):
+    def reset(self, seed=None):
+        self.env = make("connectx")         # kaggle-environments
+        return self._obs(), self._info()
+    def step(self, action):
+        # 走学习者的动作，再走池中对手的回应
+        ...  # -> obs, reward(胜负/塑形), terminated, False, info
+    def action_masks(self):                 # 供掩码头 / PPO 使用
+        return 按列返回棋盘空位合法性</pre>
+
+<h2>阶段 2 — 学习器（第 5–7 课）</h2>
+<p>按动作空间大小和时间预算选型：<strong>DQN</strong>（CleanRL 的 <code>dqn.py</code>——7 个动作、掩码 Q 头）是一个周末能做完的选项；<strong>AlphaZero-lite</strong>（AlphaZero_General 血统——PUCT 搜索 + 按访问量训练的策略/价值网络）是奖牌级选项，也是更好的练习。按第 8 课可选：先克隆 <code>negamax</code> 热启动。自博弈从第一步起就对快照池打——永远不要只对最新策略。</p>
+
+<h2>阶段 3 — 联赛（第 9 课）</h2>
+<p>每晚：候选者对池子（快照 + negamax + 你的脚本机器人），各 200 局、双边、TrueSkill 表。只有置信区间明确占优才晋升。这张表就是你的实验日志——每个训练决策都应能由表中的一行来支撑。</p>
+
+<h2>阶段 4 — 提交文件（第 1、3 课）</h2>
+<p>提交物是单个 <code>submission.py</code>：只做推理，不训练、不联网。权重直接烘进去——pickle 进文件，或作为 Kaggle 数据集挂在旁边。</p>
+
+<pre># submission.py — 整个智能体
+import pickle
+weights = pickle.loads(b"...")   # 或从附带数据集 np.load
+net = load_net(weights)          # 在 import 时构建，而非每回合
+
+def agent(obs, config):
+    board = encode(obs, config)          # 与训练完全相同的平面！
+    return int(net.act(board, mask=legal(obs)))</pre>
+
+<h2>Kaggle 陷阱清单</h2>
+<ul>
+  <li><strong>每回合超时：</strong>首回合与其后每回合有各自预算（Connect X：秒级，不是分钟级）。测最坏情况的推理耗时，不是平均值；网络在 import 时构建，绝不放进 <code>agent()</code> 里。</li>
+  <li><strong>通过校验：</strong>尽早用平凡智能体提交一次，把流水线跑通；这里的错误是格式问题，不是智力问题。</li>
+  <li><strong>提交时不训练：</strong>文件必须是确定性推理；任何「回合内学习」的花招都得塞进回合预算和规则之内。</li>
+  <li><strong>确定性种子：</strong>固定种子保证可复现，但要验证评测方换种子时智能体依旧正常。</li>
+  <li><strong>文件大小：</strong>查清上限（内联文件常约 100 KB，带 utility script/数据集约 20 MB）——必要时压缩或量化权重。</li>
+  <li><strong>推理离线：</strong>没有网络；所有依赖打包或附带。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>Kaggle 智能体既是学习问题，也是交付问题。</strong>超时、校验失败、偏离训练编码的最强策略，得分恰好为零。第一周就把流水线端到端跑通，然后再在一个循环里持续改进。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>把研究 notebook 当智能体提交。</strong>训练脚本要建数据集、起环境、下模型——这些在评测沙箱里统统不存在。提交物是一个文件、import 时加载、每回合推理，仅此而已。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>为什么网络必须在 submission.py 的 import 时构建？</summary>
+    <p class="answer">构建开销会吃掉一整回合。</p>
+    <p class="why">在 agent() 里建模型会把启动开销记到单个回合的预算上，可能瞬间超时。import 时构建只付一次，且在计时开始之前。</p>
+  </details>
+  <details><summary>为什么候选者要对池子评估，而不是只对上一版最优？</summary>
+    <p class="answer">单一对手藏盲区。</p>
+    <p class="why">赢下最新快照是必要非充分条件——多样池中的硬克星风格会暴露头对头对局掩盖的退化。联赛里的每一行才是证据。</p>
+  </details>
+  <details><summary>什么编码 bug 会悄悄毁掉一次提交？</summary>
+    <p class="answer">推理与训练不一致。</p>
+    <p class="why">若提交时的棋盘编码与训练时不同（平面顺序、视角、掩码），网络收到的是分布外输入，走出昏招——却照样通过校验。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 — 真正的毕业项目</span>
+  搭建流水线：gym 封装 → DQN 或 AlphaZero-lite 自博弈 → 对 negamax 与快照的联赛表 → <code>submission.py</code>。提交到 Connect X。然后把你本地联赛胜率与约 50 局后的 Kaggle 实际评分对比——这个差距就是你评估水平度量。起点：<a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a> 与 <a href="https://docs.cleanrl.dev/">CleanRL</a> 的单文件实现。
+</div>
+
+<h2>首选资料</h2>
+<p><a href="https://github.com/Kaggle/kaggle-environments">github.com/Kaggle/kaggle-environments</a>——官方评测框架：本地对局运行器、智能体 API、校验，以及你必须扛住的每一条超时与提交约束的权威出处。</p>
+
+<p class="next"><a href="0009-evaluation-and-leagues.zh.html">← 上一课：评估与联赛</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.zh.html">速查表</a> &nbsp;·&nbsp; <a href="0001-the-simulation-landscape.zh.html">回到第 1 课 — 模拟赛的版图</a></p>
+<p class="ask">有不清楚的地方？尽管问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 2 — Framing the MDP</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 2</span><span><a class="langbtn" href="0002-framing-the-mdp.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Framing the MDP</h1>
+  <p class="dek">A game engine is not an MDP until you decide the state, the actions, and the reward. Those three decisions are yours — and they make or break training.</p>
+</div>
+
+<p>A <a href="http://incompleteideas.net/book/the-book-2nd.html">Markov decision process</a> is states <em>S</em>, actions <em>A</em>, transition dynamics, and rewards <em>r(s,a)</em>, with the Markov property: the state contains everything needed to predict the future. A Kaggle sim gives you raw observations; converting them into a learning problem is a <strong>modeling act</strong>:</p>
+
+<ul>
+  <li><strong>State.</strong> The raw <code>obs</code> board is a start, rarely the end. Flatten grids, add channels (whose turn, remaining time, unit identities), stack frames if dynamics need history. If the observation genuinely lacks information (fog of war in Lux), you have a <strong>POMDP</strong>: give the network a recurrent memory or a reconstructed belief state.</li>
+  <li><strong>Action space.</strong> Discrete and small (Connect X: 7 columns) suits value-based methods. Structured, large, or hierarchical (Lux: per-unit commands each turn) needs factorized heads or an autoregressive policy. Always pair it with <strong>action masking</strong>: illegal moves get probability zero, so the network never wastes learning signal on them.</li>
+  <li><strong>Reward.</strong> Terminal win/loss ±1 is faithful but sparse. Shaping it is important enough to get its own <a href="0004-reward-shaping.html">lesson</a>.</li>
+  <li><strong>Discount factor γ.</strong> Close to 1 (0.99+) for episodic games — you care about winning, not about winning fast. γ encodes how much the future matters, not impatience.</li>
+</ul>
+
+<h2>Self-play turns one MDP into two</h2>
+<p>In a two-player zero-sum game, your agent's opponent is another copy of a policy. The environment is therefore <em>non-stationary</em>: as training progresses, the transitions change. This is the defining difficulty of competitive RL — handled with opponent snapshots and leagues (<a href="0003-self-play-infrastructure.html">Lesson 3</a>, <a href="0009-evaluation-and-leagues.html">Lesson 9</a>).</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>The frame is a modeling decision, not a given.</strong> State encoding, action factorization, and reward design each change what the network can learn. When training fails, suspect the frame before the algorithm.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Letting the network learn legality.</strong> Feeding illegal actions as ordinary choices and punishing them wastes capacity and destabilizes training. Mask them in the output distribution from the start — a one-line change with outsized effect.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>What are the four components you must pin down?</summary>
+    <p class="answer">State, actions, reward, discount.</p>
+    <p class="why">Together they define the MDP your learner sees. The engine fixes transitions; everything else — encoding, factorization, shaping, γ — is your modeling choice.</p>
+  </details>
+  <details><summary>The observation hides part of the map. What is that called?</summary>
+    <p class="answer">A partially observable MDP.</p>
+    <p class="why">POMDP: the observation is not a sufficient statistic of the true state. Remedies are memory (recurrent policy), frame stacking, or learned belief reconstruction.</p>
+  </details>
+  <details><summary>Why is γ ≈ 0.99 typical here?</summary>
+    <p class="answer">Episodic games reward winning.</p>
+    <p class="why">You discount the far future only mildly because the objective is the match result, not speed. γ mainly serves variance reduction and stability, not impatience.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 10 minutes, on paper</span>
+  Write the MDP frame for Connect X: the exact state tensor (shape, channels), the action space with mask rule, terminal reward, and γ. Then do the same for tic-tac-toe. Compare: what changed and why? Keep both — Lesson 3 wraps them in code.
+</div>
+
+<h2>Primary source</h2>
+<p>Chapter 3 of <a href="http://incompleteideas.net/book/the-book-2nd.html">Sutton &amp; Barto</a> — the MDP formalism in twenty pages. Read it once now, and again after Lesson 5.</p>
+
+<p class="next"><a href="0003-self-play-infrastructure.html">Next: Self-Play Infrastructure →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

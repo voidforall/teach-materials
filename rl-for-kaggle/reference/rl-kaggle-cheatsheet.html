@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RL for Kaggle — Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.cs { border-collapse: collapse; font-size: 0.84rem; margin: 1rem 0; width: 100%; }
+  table.cs th, table.cs td { border: 1px solid var(--rule); padding: 0.32rem 0.55rem; text-align: left; vertical-align: top; }
+  table.cs th { font-size: 0.7rem; background: #f1f3f5; color: var(--muted); }
+  table.cs td:first-child { font-weight: 600; white-space: nowrap; }
+  pre { font-size: 0.78rem; }
+  ul { margin: 0.4rem 0; }
+  h2 { margin: 1.6rem 0 0.4rem; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Reference</span><span>RL for Kaggle <a class="langbtn" href="rl-kaggle-cheatsheet.zh.html" title="切换到中文">中</a></span></div>
+  <h1>RL for Kaggle — Cheat Sheet</h1>
+  <p class="dek">The 10-lesson course on one printable page: which technique when, the core update rules, reward-shaping discipline, self-play and submission checklists, glossary. Start at <a href="../lessons/0001-the-simulation-landscape.html">Lesson 1</a>.</p>
+</div>
+
+<h2>1 · Which technique when</h2>
+<table class="cs">
+  <tr><th>Technique</th><th>Use when</th><th>Watch out</th></tr>
+  <tr><td>Handcrafted policy</td><td>Rules are known; short time budget; baseline to beat</td><td>Hard ceiling; becomes your BC teacher, not your agent</td></tr>
+  <tr><td>Tree search (minimax/negamax)</td><td>Small game tree, cheap simulation (Santa-style puzzles, Connect X)</td><td>Branching × depth = wall clock; needs good eval function</td></tr>
+  <tr><td>DQN</td><td>Small discrete action space; single net, replay buffer simplicity</td><td>Off-policy instability; poor with huge/masked structured actions</td></tr>
+  <tr><td>PPO</td><td>Self-play loops, structured actions, want simple and robust</td><td>On-policy = data hungry; entropy collapse if bonus too small</td></tr>
+  <tr><td>AlphaZero-style</td><td>Medal push on any sim you can mirror fast; policy+value+MCTS</td><td>Compute cost; sim speed is the bottleneck, write your own</td></tr>
+  <tr><td>Imitation bootstrap</td><td>Always, if any scripted expert exists — warm start before RL</td><td>BC ceiling &amp; distribution shift; anneal expert data away</td></tr>
+</table>
+
+<h2>2 · Core update rules</h2>
+<pre><code>DQN target:     y = r + γ · Q_target(s', argmax_a Q_online(s',a))   # double DQN
+PPO objective:  L = E[ min(ρ·A, clip(ρ, 1−ε, 1+ε)·A) ]  with ρ = π(a|s)/π_old(a|s)
+MCTS (PUCT):    argmax_a Q(s,a) + c_puct · P(s,a)·√ΣN / (1+N(s,a))</code></pre>
+<ul>
+  <li>DQN machinery: replay buffer, target net (slow sync), ε-greedy, action-masked Q-heads.</li>
+  <li>PPO extras: GAE(λ) advantages, entropy bonus, value-function loss, few epochs per batch.</li>
+  <li>AlphaZero: train policy on MCTS visit counts (improved targets), value on game outcome.</li>
+</ul>
+
+<h2>3 · Reward shaping rules of thumb</h2>
+<ul>
+  <li>Terminal win/loss ±1 is the only non-negotiable term — it is the leaderboard metric.</li>
+  <li>Prefer potential-based shaping: <code>r' = r + γΦ(s') − Φ(s)</code> — provably policy-invariant.</li>
+  <li>Heuristic shaping (score deltas, survival): small, monitored, faded to zero as win-rate climbs.</li>
+  <li>Alarm bell: shaped reward up while true win-rate stalls or episodes stretch = reward hacking.</li>
+</ul>
+
+<h2>4 · Self-play checklist</h2>
+<ul>
+  <li>Snapshot every N checkpoints into the opponent pool — never train vs latest only.</li>
+  <li>Mix styles: snapshots + scripted bots + starter agents (+ public bots if rules allow).</li>
+  <li>Fast sim: wrap as Gymnasium env; write your own mirror if the official runner is slow.</li>
+  <li>Swap seats in asymmetric games; fix seeds; vectorize parallel envs.</li>
+  <li>Promote snapshots only on league evidence, not one head-to-head win-rate.</li>
+</ul>
+
+<h2>5 · Submission checklist</h2>
+<ul>
+  <li>Per-turn time budget respected — measure worst-case inference, not average.</li>
+  <li>Build nets at import time; never inside <code>agent(obs, config)</code>.</li>
+  <li>Passed Kaggle validation with a trivial agent first (pipeline before intelligence).</li>
+  <li>Inference only: offline weights baked in, no training, no network at submit time.</li>
+  <li>Deterministic seeds — and still correct when the harness seeds differently.</li>
+  <li>File size under cap (~100 KB inline / ~20 MB with attached files); quantize if needed.</li>
+  <li>Encoding at inference identical to training (planes, perspective, masks).</li>
+</ul>
+
+<h2>6 · Glossary</h2>
+<table class="cs">
+  <tr><td>MDP</td><td>Markov decision process: (state, action, reward, transition) — the frame you impose on the sim.</td></tr>
+  <tr><td>POMDP</td><td>Partially observable MDP: you see only your view (Lux); memory/recurrent nets or search over beliefs.</td></tr>
+  <tr><td>Self-play</td><td>Agent trains against itself or its own past versions — generates unlimited opponents.</td></tr>
+  <tr><td>Snapshot pool</td><td>Frozen past checkpoints used as training opponents and eval benchmarks.</td></tr>
+  <tr><td>League</td><td>All-vs-all evaluation of a population with Elo/TrueSkill ratings; miniature AlphaStar.</td></tr>
+  <tr><td>GAE</td><td>Generalized advantage estimation: λ-blended TD residuals for low-variance advantage.</td></tr>
+  <tr><td>PUCT</td><td>Predictor + UCT: MCTS selection rule trading value, prior, and visit counts.</td></tr>
+  <tr><td>Behavioral cloning</td><td>Supervised imitation of an expert's actions; warm start with a hard ceiling.</td></tr>
+  <tr><td>Elo / TrueSkill</td><td>Pairwise skill ratings from win/loss; TrueSkill adds uncertainty (σ) — Kaggle's ladder flavor.</td></tr>
+</table>
+
+<p class="dek">Sources: <a href="http://incompleteideas.net/book/the-book-2nd.html">Sutton &amp; Barto</a>, <a href="https://spinningup.openai.com/">Spinning Up</a>, <a href="https://docs.cleanrl.dev/">CleanRL</a>, <a href="https://stable-baselines3.readthedocs.io/">Stable-Baselines3</a>, <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a>, <a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">Lux AI winner write-ups</a>.</p>
+</body>
+</html>

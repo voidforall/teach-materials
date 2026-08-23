@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 7 — The AlphaZero Recipe</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 7</span><span>Silver/Song <a class="langbtn" href="0007-alphazero-recipe.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The AlphaZero Recipe</h1>
+  <p class="dek">RL alone learns slowly because it must guess its way through moves it never tries. AlphaZero combines a policy/value network with tree search: the net guides the search, and the search improves the net's targets. Each half fixes the other's blindness.</p>
+</div>
+
+<p>The lineage: <a href="https://www.nature.com/articles/nature24270">AlphaGo Zero</a> (Silver et al., 2017) learned Go from pure self-play, then <a href="https://arxiv.org/abs/1712.01815">AlphaZero</a> (2018) generalized the recipe to chess and shogi. The mechanism is Monte Carlo Tree Search (MCTS) where a neural net replaces rollouts:</p>
+<ul>
+  <li><strong>Selection</strong> — descend the tree picking children by <strong>PUCT</strong>: <span class="term">Q(s,a) + c·P(s,a)·√Σvisits / (1+N(s,a))</span>. It balances the net's prior P, the average value Q, and visit counts — under-visited moves stay cheap to try.</li>
+  <li><strong>Expansion &amp; evaluation</strong> — at a leaf, ask the net once: get priors over moves and a value estimate v(s). No playout to the end.</li>
+  <li><strong>Backup</strong> — propagate v(s) (sign-flipped for the opponent in zero-sum play) up the visited path.</li>
+</ul>
+
+<pre>play position s → run N sims of MCTS → visit counts π(s)
+train net on:  (s, π(s), z)   # z = game outcome from s's perspective
+act in the real game:  argmax over π(s)  (or sample with temperature)</pre>
+
+<p>The training targets are the key idea: the policy target is not the net's own guess but the <strong>MCTS-improved visit distribution</strong>, and the value target is the real game outcome. So the net imitates a slightly stronger version of itself, iterated thousands of times — policy improvement and evaluation in one loop. This is why it beats plain PPO in most modern sim competitions: search supplies lookahead the raw policy gradient doesn't have.</p>
+
+<h2>The Kaggle reality</h2>
+<p>Nobody at Kaggle scale reimplements DeepMind's pipeline. The ancestor of nearly every public solution is Junxiao Song's <a href="https://web.stanford.edu/~surag/posts/alphazero.html">AlphaZero_General</a>: a ~300-line generic loop (MCTS, coach, arena) you specialize with your own game class and network — exactly the skeleton you'd wrap around a kaggle-environments sim. The costs to plan for: self-play games are expensive (every move needs hundreds of net calls), so training is measured in GPU-days and throughput engineering (fast simulator, batched inference, caching) matters as much as the algorithm; and inference at submit time must fit the per-turn time limit, so cap simulations per move and use small nets.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>AlphaZero = MCTS for policy improvement + a policy/value net for guidance, trained on the search's visit counts.</strong> The net makes search cheap; the search makes the net's targets stronger than the net itself. That closing loop, not any single component, is the recipe.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Training the policy on its own raw outputs (a self-distilling loop).</strong> If your policy loss target is π_θ instead of the MCTS visit distribution, there is no improvement operator — you're compounding your own bias with extra compute. Related failure: too few simulations per move during self-play; the visit-count targets are then near-random noise and the net learns nothing from them.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>In AlphaZero's MCTS, what replaces the random playouts of classic MCTS?</summary>
+    <p class="answer">A single net evaluation.</p>
+    <p class="why">At each leaf the network returns move priors and a value estimate v(s), which is backed up the path. This is far cheaper than simulating to the terminal state and is where the network's learned intuition enters the search.</p>
+  </details>
+  <details><summary>What exactly is the policy network's training target for a position?</summary>
+    <p class="answer">The MCTS visit counts.</p>
+    <p class="why">After the simulations, the distribution of visits over moves encodes the search's improved opinion of the position. Training π_θ on it makes the net imitate search-augmented play — the improvement step that compounds over training iterations.</p>
+  </details>
+  <details><summary>What does the PUCT term's √Σvisits / (1+N(s,a)) factor accomplish?</summary>
+    <p class="answer">It forces exploration.</p>
+    <p class="why">As a sibling's visit count grows, every under-visited action's bonus grows too, so no move stays cheap to try forever. Without it, the prior P(s,a) would lock the search into its first good-looking move and never correct a wrong prior.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 20–30 minutes, trace the loop</span>
+  Read <a href="https://web.stanford.edu/~surag/posts/alphazero.html">Junxiao Song's AlphaZero_General write-up</a> and open the repo's <span class="term">Coach.py</span> and <span class="term">MCTS.py</span>. Trace one iteration end to end and write three sentences answering: (1) where does the game class hand the net its input (encoding)?; (2) where do visit counts become the policy training target?; (3) where does the arena decide whether to accept the new checkpoint? If you have time left, sketch (on paper) the game-class methods you'd write for Connect X: <span class="term">getValidMoves</span>, <span class="term">getGameEnded</span>, <span class="term">getCanonicalForm</span>.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://www.nature.com/articles/nature24270">Silver et al., <em>Mastering the game of Go without human knowledge</em></a> (Nature, 2017) — the cleanest statement of the recipe; Figure 1 (the self-play/training loop) is the whole algorithm. Follow with <a href="https://web.stanford.edu/~surag/posts/alphazero.html">the AlphaZero_General blog post</a> for the minimal implementation most Kaggle solutions descend from, and the <a href="https://arxiv.org/abs/1712.01815">AlphaZero paper</a> for the generalization.</p>
+
+<p class="next"><a href="0006-policy-gradient-ppo.html">← Previous: Policy Gradient & PPO</a> &nbsp;·&nbsp; <a href="0008-imitation-bootstrap.html">Next: Imitation Bootstrap →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

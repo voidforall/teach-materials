@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 9 — Evaluation and Leagues</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 9</span><span><a class="langbtn" href="0009-evaluation-and-leagues.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Evaluation and Leagues</h1>
+  <p class="dek">The public ladder is noisy, slow, and rate-limited — and if you tune against it, it will lie to you. Build your own league at home and treat Kaggle's as the final exam.</p>
+</div>
+
+<p>Two agents playing 100 games tell you shockingly little: with per-game variance, the standard error of a win-rate estimate is √(p(1−p)/100) ≈ 5%. A 53% local win-rate can be luck. Meanwhile the public ladder runs your submission against a shifting pool of opponents and updates a TrueSkill-like rating slowly, with submission caps (often a few per day). Chasing that number is optimizing a noisy proxy against a non-stationary meta.</p>
+
+<h2>The opponent pool</h2>
+<p>The fix is a fixed, diverse <strong>opponent pool</strong> you control:</p>
+<ul>
+  <li><strong>Past snapshots</strong> of your own policy (every N checkpoints) — prevents forgetting and self-play cycles.</li>
+  <li><strong>Style diversity</strong> — scripted bots, the starter agents, aggression- and turtling-tuned variants, plus the strongest public notebooks (where the rules allow).</li>
+  <li><strong>Frozen evaluation protocol</strong> — same seeds, same game count, both sides of any asymmetry (swap first-player).</li>
+</ul>
+<p>Report win-rate <em>with a confidence interval</em> against the pool, not a single number. A new snapshot is "better" only if the interval against the previous best excludes 50%.</p>
+
+<h2>Leagues and ratings</h2>
+<p>Once you have more than a handful of snapshots, run a <strong>league</strong>: every agent plays every other, and you maintain Elo or TrueSkill ratings locally. The rating table becomes your training dashboard — you watch the curve of each generation's rating rather than a single win-rate, and you spot pathologies (a new agent that beats the latest snapshot but loses to three older styles is a cycle, not progress). This is a miniature of AlphaStar's league training, and of Kaggle's own ladder mechanics.</p>
+
+<pre># nightly eval loop
+for a in candidates:
+    for opp in pool:                      # snapshots + scripted + public bots
+        wins[a, opp] = play(a, opp, n=200, swap_sides=True)
+ratings = trueskill.update_all(wins)
+promote(a) if beats(prev_best, CI>50%) and no hard-counter in pool</pre>
+
+<h2>Guarding against meta-overfit</h2>
+<p>Two failure modes to design against. <strong>Ladder-gaming:</strong> specializing to beat the current public meta — a rock that rules this season's scissors — which collapses when the meta shifts (and the final evaluation often uses a fresh agent set). <strong>Ladder-chasing:</strong> reading too much into small rating moves after each submission; the confidence intervals rarely justify it. Cadence discipline: submit a candidate only when local league evidence says it's better, not to "see what the ladder thinks."</p>
+
+<h2>Replays are your debugger</h2>
+<p>Every ladder and local episode has a replay. When a rating drops, don't retrain blindly — open the losses, find the three positions your agent mishandles, and check whether they're a state-encoding gap (Lesson 2) or a reward issue (Lesson 4). One studied replay is worth a hundred blind PPO reruns.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Local league with confidence intervals is your ground truth; the public ladder is a noisy, non-stationary sample you check occasionally.</strong>Every promotion decision is made against the pool, never against a rating wiggle.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Evaluating against a single opponent.</strong>"It beats last week's checkpoint 55%" is one point, not evidence — and agents co-trained against one opponent exploit each other's quirks into a mutual blind spot. Diverse pool, both sides, error bars, or it didn't happen.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why are 100 games between two agents often not enough to decide?</summary>
+    <p class="answer">The error bar swamps it.</p>
+    <p class="why">SE of a win-rate at n=100 is about 5 percentage points; a 53-vs-50 difference is well inside noise. Either play many more games or report an interval and withhold judgment.</p>
+  </details>
+  <details><summary>What does a snapshot pool add that a single sparring partner cannot?</summary>
+    <p class="answer">Memory and diversity.</p>
+    <p class="why">Past snapshots prevent forgetting and self-play cycling; mixed styles expose blind spots a single opponent hides. Together they approximate the real ladder's population.</p>
+  </details>
+  <details><summary>What is the first debugging step when the public rating drops?</summary>
+    <p class="answer">Read the lost replays.</p>
+    <p class="why">Replays localize the failure — which positions, which phase, which opponent style — turning "rating down" into a concrete encoding or reward bug instead of a blind retraining run.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 30 minutes</span>
+  Take any two Connect X agents from <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a> (e.g. <code>negamax</code> vs your scripted bot). Run 100 games, then 1000, computing the win-rate CI each time. Watch how a "clear" 55% at n=100 becomes "unclear" at n=1000. Then scan a <a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">top solution write-up</a> for how the winner structured local evaluation.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">Kaggle simulation competition discussion and winner write-ups</a> — the accumulated wisdom on evaluation protocols, opponent pools, and submission cadence lives in the Discussion tabs, sorted by votes.</p>
+
+<p class="next"><a href="0008-imitation-bootstrap.html">← Previous: Imitation Bootstrap</a> &nbsp;·&nbsp; <a href="0010-capstone-pipeline.html">Next: Capstone Pipeline →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

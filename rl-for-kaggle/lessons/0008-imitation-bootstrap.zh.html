@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 8 课 — 模仿引导</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · 第 8 课</span><span><a class="langbtn" href="0008-imitation-bootstrap.html" title="Switch to English">EN</a></span></div>
+  <h1>模仿引导</h1>
+  <p class="dek">从随机策略开始的自博弈，要烧掉几百万局才能发现一个像样的脚本机器人早就懂的东西。先克隆机器人，再让 RL 从那里往上爬。</p>
+</div>
+
+<p>每个 Kaggle 模拟赛都附送一件宝贝：<strong>基于规则的官方示例智能体</strong>，而且公开 notebook 区往往还有一堆脚本机器人。它们不是要打败的对手——它们是<em>老师</em>。行为克隆（BC）把它们的轨迹变成监督数据集：状态进、动作出、交叉熵损失。一个晚上的 GPU 就能得到一个下得像模像样的策略；从零自博弈可能一周都到不了这个水平。</p>
+
+<h2>为什么要先克隆再学习</h2>
+<p>机制很直白：让脚本专家跑 N 局，记录 <code>(obs, expert_action)</code> 对，用监督学习训练策略网络。你的 RL 循环于是从一个开局合理、会攒资源、极少自杀的策略出发。探索预算全部投入<strong>打磨</strong>棋力，而不用去重新发现规则。Lux AI 的冠军们正是这么做的——多支顶尖方案先在内置示例智能体（以及更强的公开机器人）生成的轨迹上预训练，再在其上跑 PPO 自博弈。</p>
+
+<pre># 引导，只做一次
+obs, actions = rollout(scripted_expert, n_episodes=50_000)
+policy_net = train_supervised(obs, actions, loss=cross_entropy,
+                              mask=invalid_action_mask(obs))
+# 之后照常 RL，热启动
+ppo_self_play(policy_net, ...)</pre>
+
+<p>注意那个 <code>mask</code>：克隆策略只在合法动作上训练，这样它就继承了第 2 课的动作掩码纪律。</p>
+
+<h2>DAGGER：弥合分布差</h2>
+<p>BC 的致命伤是<strong>分布偏移</strong>：专家的数据只覆盖专家到过的状态，而你的克隆——略逊一筹——会漂进专家从未到过的状态，在那里没有任何训练信号，于是错得更离谱，漂得更远……DAGGER 用迭代来修复：让<em>当前学习者</em>下棋，但请<em>专家</em>在学习者实际到过的状态上标注「它会怎么走」，加入数据集，重训。数据集在学习者真正生活的地方生长。</p>
+
+<pre>重复：
+    states = play_episodes(current_learner)
+    labels = scripted_expert.query(states)   # 用专家重新标注
+    dataset.add(states, labels)
+    learner.train(dataset)</pre>
+
+<h2>BC 的天花板</h2>
+<p>克隆的收敛点是专家的水平（加上偏移损耗，还要更低一点）。脚本机器人有硬天花板；RL 的意义正是击穿它。所以把克隆当作<strong>初始化，而不是终点</strong>：克隆，然后交给 PPO 或 AlphaZero 式自博弈。一个实用做法是把专家数据混进早期 RL 批次（类似预训练加微调），再逐步退火到零。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>模仿用 1% 的算力买下前 80% 的棋力；RL 的存在是为了挣得超越老师的最后 20%。</strong>先克隆脚本机器人作为热启动，再交给自博弈——绝不要把策略留在 BC 天花板上。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>把克隆策略当成训练完的智能体。</strong>你提交它，它输给被克隆的那个机器人加一个 ε。而且只用专家数据继续训练的话，策略会停在专家水平减去分布偏移损耗——这个天花板是结构性的，不是调参能调掉的 bug。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>为什么行为克隆即使数据很多也只能到略低于专家的水平？</summary>
+    <p class="answer">分布偏移会复利累积。</p>
+    <p class="why">专家数据只覆盖专家到过的状态。克隆稍有差错就落入没见过的状态，那里没有标签，错得更狠——漂移复利式放大。DAGGER 靠重新标注学习者到过的状态来堵住这个缺口。</p>
+  </details>
+  <details><summary>DAGGER 对训练数据做了什么改动？</summary>
+    <p class="answer">状态来自学习者，标签来自专家。</p>
+    <p class="why">对局由当前学习者来下，但每个到过的状态都由专家标注动作。数据集因此覆盖策略真正会面对的状态。</p>
+  </details>
+  <details><summary>从克隆切换到 RL 的正确姿势是什么？</summary>
+    <p class="answer">热启动，然后退火。</p>
+    <p class="why">用 BC 权重初始化策略网络，可选地把专家批次混进早期 PPO 更新，再把模仿损失衰减到零。克隆是初始化，不是常驻老师。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — 一个晚上</span>
+  拿 Connect X 的内置 <code>"negamax"</code> 智能体（见 <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a>）。让它自对弈（并对随机）跑一万局，记录 <code>(board, action)</code>，对 7 个掩码后的小策略网络做交叉熵训练。让克隆对 negamax 下 200 局。预期胜率不到 50%——然后去读一篇 <a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">Lux AI 冠军总结</a>，看他们如何处理同样的天花板。
+</div>
+
+<h2>首选资料</h2>
+<p><a href="https://www.kaggle.com/competitions/lux-ai-2021/discussion?sort=votes">Lux AI Prize 冠军总结帖</a>——多支顶尖队伍都描述了先在示例智能体轨迹上预训练、再做 PPO 自博弈；「先克隆后 RL」流水线最扎实的公开范例。</p>
+
+<p class="next"><a href="0007-alphazero-recipe.zh.html">← 上一课：AlphaZero 配方</a> &nbsp;·&nbsp; <a href="0009-evaluation-and-leagues.zh.html">下一课：评估与联赛 →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方？尽管问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 4 — Reward Shaping</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 4</span><span><a class="langbtn" href="0004-reward-shaping.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Reward Shaping</h1>
+  <p class="dek">Win/loss is what you want; it is also nearly unlearnable from when episodes are long. Shaping bridges the gap — and, done carelessly, quietly changes the game you are playing.</p>
+</div>
+
+<p>Terminal reward ±1 (win/lose) is <strong>faithful</strong>: optimizing it optimizes exactly the Kaggle score. It is also <strong>sparse</strong>: in a 400-step Lux episode, the single bit at the end carries almost no gradient signal about move 7. Shaping adds dense, intermediate reward to guide learning — the question is how to do it without corrupting the objective.</p>
+
+<h2>Potential-based shaping: the safe road</h2>
+<p><a href="https://arxiv.org/abs/1806.01282">Ng, Harada &amp; Russell (1999)</a> proved that shaping of the form</p>
+<pre>r' = r + γ·Φ(s') − Φ(s)</pre>
+<p>with a <strong>potential function Φ</strong> over states, provably leaves the optimal policy unchanged — the telescoping terms cancel over an episode. Φ can be a score estimate, a value-function estimate, or a heuristic "how good does this position look." Shape with potentials when you can; it converts dense guidance into a free lunch.</p>
+
+<h2>Heuristic shaping and its tax</h2>
+<p>Common practical shaping: reward per-step score deltas (Halite: cargo collected; Kore: fleet income), small penalties for wasted moves or suicides, bonuses for early development. These are <em>not</em> potential-based in general, and each one is a bet: the agent will exploit whatever pays, including in ways that hurt winning. A cargo-maximizing agent may hoard instead of cashing in; a survival-bonus agent may stall. Heuristic shaping is a <strong>crutch to be annealed away</strong>: fade it toward zero as win-rate climbs.</p>
+
+<h2>Multi-player credit</h2>
+<p>In zero-sum two-player games, use the symmetric frame: reward is from the learner's perspective, opponent's reward is the negative. In team or multi-episode scoring formats, check whether the competition metric is per-episode win/loss or cumulative score — shape toward the actual leaderboard metric, not a purer one you invented.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Every shaping term is a rule the agent will exploit literally.</strong>Potential-based shaping is provably safe; anything else must be small, monitored, and faded out. The terminal win/loss signal is the only term you never renegotiate.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Reward hacking your own shaping.</strong>The agent discovers that avoiding terminals keeps the survival bonus flowing, or that farming a score delta beats pushing for the win. Watch episode length and shaped-vs-true reward curves together — divergence between them is the alarm bell.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Write the potential-based shaping rule.</summary>
+    <p class="answer">r plus gamma-phi difference.</p>
+    <p class="why">r' = r + γΦ(s') − Φ(s). The discounted potential difference telescopes to zero over an episode, so the optimal policy is unchanged — dense guidance for free.</p>
+  </details>
+  <details><summary>Why is terminal ±1 often unlearnable-from directly?</summary>
+    <p class="answer">One bit, long episodes.</p>
+    <p class="why">A single win/lose signal at step 400 gives near-zero credit to early decisions. Learning needs dense signal linking decisions to consequences within the horizon the learner can correlate.</p>
+  </details>
+  <details><summary>What signals reveal reward hacking?</summary>
+    <p class="answer">Shaped and true diverge.</p>
+    <p class="why">Track shaped reward and win-rate on the same plot, plus episode length. Shaped reward rising while win-rate stalls or episodes stretch means the agent is farming your shaping, not playing your game.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 15 minutes, on paper</span>
+  For Connect X, design two shapings: (a) a potential-based one with Φ = (your 4-in-a-row threats) − (opponent's); (b) a heuristic "+0.01 per own disc added". Argue which can change the optimal policy and how. Then check the <a href="https://www.kaggle.com/competitions/halite/discussion?sort=votes">Halite discussion</a> for real shaping war stories.
+</div>
+
+<h2>Primary source</h2>
+<p>Ng, Harada &amp; Russell, <a href="https://arxiv.org/abs/1806.01282"><em>Policy invariance under reward transformations</em></a> (ICML 1999) — six pages that justify everything above.</p>
+
+<p class="next"><a href="0005-value-based-dqn.html">Next: Value-Based Methods, DQN →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

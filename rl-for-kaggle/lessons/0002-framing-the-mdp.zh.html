@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 2 课 — 把游戏表述为 MDP</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · 第 2 课</span><span><a class="langbtn" href="0002-framing-the-mdp.html" title="Switch to English">EN</a></span></div>
+  <h1>把游戏表述为 MDP</h1>
+  <p class="dek">游戏引擎本身并不是 MDP——直到你定下状态、动作和奖励。这三个决定权在你手里，它们决定训练的成败。</p>
+</div>
+
+<p><a href="http://incompleteideas.net/book/the-book-2nd.html">马尔可夫决策过程</a>包含状态集 <em>S</em>、动作集 <em>A</em>、转移动力学和奖励 <em>r(s,a)</em>，并满足马尔可夫性：状态包含预测未来所需的一切。Kaggle 模拟只给你原始观测；把它变成学习问题是一场<strong>建模行为</strong>：</p>
+
+<ul>
+  <li><strong>状态。</strong>原始的 <code>obs</code> 棋盘只是起点，很少是终点。展平网格、增加通道（轮到谁、剩余时间、单位编号），若动力学需要历史则堆叠帧。若观测确实缺信息（Lux 的战争迷雾），你面对的是 <strong>POMDP</strong>：给网络加上循环记忆或重建的信念状态。</li>
+  <li><strong>动作空间。</strong>离散且小（Connect X：7 列）适合价值类方法。结构化、巨大或分层（Lux：每回合对每个单位下命令）需要分解输出头或自回归策略。始终配套<strong>动作掩码</strong>：非法动作概率置零，网络就不会浪费学习信号。</li>
+  <li><strong>奖励。</strong>终局胜负 ±1 忠实但稀疏。如何塑形它值得单独一课（<a href="0004-reward-shaping.zh.html">第 4 课</a>）。</li>
+  <li><strong>折扣因子 γ。</strong>回合制游戏取接近 1（0.99+）——你在乎赢，而不是快点赢。γ 编码的是未来多重要，不是急躁。</li>
+</ul>
+
+<h2>自我对局把一个 MDP 变成两个</h2>
+<p>在双人零和游戏里，你的对手是策略的另一个副本。因此环境是<em>非平稳的</em>：训练推进，转移规律就改变。这是竞技强化学习的核心难点——用对手快照和联盟来应对（<a href="0003-self-play-infrastructure.zh.html">第 3 课</a>、<a href="0009-evaluation-and-leagues.zh.html">第 9 课</a>）。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>表述方式是建模决定，不是既定事实。</strong>状态编码、动作分解、奖励设计各自决定网络能学到什么。训练失败时，先怀疑表述，再怀疑算法。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>让网络自己学「合法性」。</strong>把非法动作当普通选项并施以惩罚，会浪费容量、破坏训练稳定。从一开始就在输出分布里掩掉它们——一行代码，收益巨大。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>你必须敲定的四个组成部分是什么？</summary>
+    <p class="answer">状态、动作、奖励、折扣。</p>
+    <p class="why">它们共同定义学习者看到的 MDP。引擎只固定转移规律；其余——编码、分解、塑形、γ——都是你的建模选择。</p>
+  </details>
+  <details><summary>观测遮住了部分地图，这叫什么？</summary>
+    <p class="answer">部分可观测 MDP。</p>
+    <p class="why">POMDP：观测不是真实状态的充分统计量。补救办法是记忆（循环策略）、帧堆叠，或学习信念重建。</p>
+  </details>
+  <details><summary>为什么这里常取 γ ≈ 0.99？</summary>
+    <p class="answer">回合制游戏以胜负为目标。</p>
+    <p class="why">只轻微折扣远期回报，因为目标是比赛结果而非速度。γ 主要用于降方差、稳训练，而不是表达急躁。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 — 纸上 10 分钟</span>
+  为 Connect X 写出 MDP 表述：确切的状态张量（形状、通道）、带掩码规则的动作空间、终局奖励和 γ。再对井字棋做一遍。对比：什么变了、为什么？两份都留着——第 3 课要把它们写成代码。
+</div>
+
+<h2>首选资料</h2>
+<p><a href="http://incompleteideas.net/book/the-book-2nd.html">Sutton &amp; Barto</a> 第 3 章——二十页讲清 MDP 形式体系。现在读一遍，第 5 课之后再读一遍。</p>
+
+<p class="next"><a href="0003-self-play-infrastructure.zh.html">下一课：自我对局基础设施 →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方？尽管问你的老师——agent 就是干这个的。</p>
+</body>
+</html>

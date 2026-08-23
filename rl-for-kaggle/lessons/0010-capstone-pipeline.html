@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 10 — Capstone Pipeline</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 10</span><span><a class="langbtn" href="0010-capstone-pipeline.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Capstone Pipeline</h1>
+  <p class="dek">Everything in one place: wrap Connect X as a Gym env, train an agent with self-play, evaluate against a pool, and ship a submission file that survives validation.</p>
+</div>
+
+<p>This is the whole course assembled into a build plan you can run this week on Connect X — small enough to finish, real enough to generalize. Every stage cites the lesson that taught it.</p>
+
+<h2>Stage 1 — The environment (Lesson 3)</h2>
+<p>Wrap the <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a> local runner as a Gymnasium env: <code>reset()</code> returns the observed board, <code>step(action)</code> advances both players (opponent from the pool), and rewards follow Lesson 4's shaping. Encode the board as two binary planes (your discs, opponent's) and mask illegal columns on every step.</p>
+
+<pre>class ConnectXGym(gym.Env):
+    def reset(self, seed=None):
+        self.env = make("connectx")         # kaggle-environments
+        return self._obs(), self._info()
+    def step(self, action):
+        # play learner's action, then the pool opponent's reply
+        ...  # -> obs, reward(win/shaped), terminated, False, info
+    def action_masks(self):                 # for masked heads / PPO
+        return self.board.count(0) legality per column</pre>
+
+<h2>Stage 2 — The learner (Lessons 5–7)</h2>
+<p>Pick by action-space size and time budget: <strong>DQN</strong> (CleanRL <code>dqn.py</code> — 7 actions, masked Q-heads) is the one-weekend option; <strong>AlphaZero-lite</strong> (AlphaZero_General lineage — PUCT search + policy/value net on visit targets) is the medal-grade option and the better teacher of the material. Optional per Lesson 8: clone <code>negamax</code> first as a warm start. Self-play against the snapshot pool from step one — never against only the latest policy.</p>
+
+<h2>Stage 3 — The league (Lesson 9)</h2>
+<p>Nightly: candidates vs pool (snapshots + negamax + your scripted bot), 200 games each, both seats, TrueSkill table. Promote only on CI-clear wins. This table is your experiment log — every training decision should be justifiable by a row in it.</p>
+
+<h2>Stage 4 — The submission file (Lessons 1, 3)</h2>
+<p>The submission is a single <code>submission.py</code>: inference only, no training, no network. Weights are baked in — pickled into the file or attached as a Kaggle dataset next to it.</p>
+
+<pre># submission.py — the entire agent
+import pickle
+weights = pickle.loads(b"...")   # or np.load from attached dataset
+net = load_net(weights)          # construct at import time, not per turn
+
+def agent(obs, config):
+    board = encode(obs, config)          # same planes as training!
+    return int(net.act(board, mask=legal(obs)))</pre>
+
+<h2>The Kaggle pitfalls checklist</h2>
+<ul>
+  <li><strong>Per-turn timeouts:</strong> first turn and every turn after have separate budgets (Connect X: seconds, not minutes). Measure worst-case inference time, not average; construct networks at import, never inside <code>agent()</code>.</li>
+  <li><strong>Validation pass:</strong> submit early with a trivial agent to burn in the pipeline; errors here are formatting, not intelligence.</li>
+  <li><strong>No training at submit time:</strong> the file must be deterministic inference; any "learn during the episode" trick must fit in turn budgets and rules.</li>
+  <li><strong>Deterministic seeds:</strong> fix seeds for reproducibility, but verify the agent works when the harness seeds differently.</li>
+  <li><strong>File size:</strong> check the cap (often ~100 KB for inline files or 20 MB with utility scripts/datasets) — compress or quantize weights if needed.</li>
+  <li><strong>Offline at inference:</strong> no network access; all dependencies vendored or attached.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A Kaggle agent is a delivery problem as much as a learning problem.</strong>The best policy that times out, fails validation, or drifts from its training encoding scores exactly zero. Ship the pipeline end-to-end in week one, then improve in a loop.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Submitting the research notebook as the agent.</strong>The training script builds datasets, spawns environments, and downloads models — none of which exists in the grading sandbox. The submission is one file, import-time loading, per-turn inference, and nothing else.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why must the network be constructed at import time in submission.py?</summary>
+    <p class="answer">Construction costs a whole turn.</p>
+    <p class="why">Building the model inside agent() charges setup time to a single turn's budget, risking an instant timeout. Import-time setup pays once, before the clock starts.</p>
+  </details>
+  <details><summary>Why evaluate candidates against a pool instead of the previous best only?</summary>
+    <p class="answer">One opponent hides blind spots.</p>
+    <p class="why">Beating the latest snapshot is necessary but not sufficient — hard-counter styles in a diverse pool expose regressions that head-to-head play conceals. League rows are the evidence.</p>
+  </details>
+  <details><summary>What encoding bug silently ruins a submission?</summary>
+    <p class="answer">Inference mismatching training.</p>
+    <p class="why">If the submission encodes the board differently than during training (plane order, perspective, masking), the net receives out-of-distribution inputs and plays garbage — while passing validation happily.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Do it — the actual capstone</span>
+  Build the pipeline: gym wrapper → DQN or AlphaZero-lite self-play → league table vs negamax and snapshots → <code>submission.py</code>. Submit to Connect X. Then compare your local league win-rate to your actual Kaggle skill rating after ~50 episodes — that gap is your measurement of how well you evaluate. Start from <a href="https://github.com/Kaggle/kaggle-environments">kaggle-environments</a> and the <a href="https://docs.cleanrl.dev/">CleanRL</a> single-file implementations.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://github.com/Kaggle/kaggle-environments">github.com/Kaggle/kaggle-environments</a> — the official harness: local episode runner, agent API, validation, and the source of truth for every timeout and submission constraint you must survive.</p>
+
+<p class="next"><a href="0009-evaluation-and-leagues.html">← Previous: Evaluation and Leagues</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a> &nbsp;·&nbsp; <a href="0001-the-simulation-landscape.html">Back to Lesson 1 — The Simulation Landscape</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

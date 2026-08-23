@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 5 — Value-Based Methods: DQN</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 5</span><span>CleanRL <a class="langbtn" href="0005-value-based-dqn.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Value-Based Methods: DQN</h1>
+  <p class="dek">Q-learning learns a table of "how good is this action here" and picks the argmax. DQN is that table replaced by a neural net — plus two tricks that keep it from eating itself.</p>
+</div>
+
+<p>Value-based methods never touch a policy directly. They learn <strong>Q(s, a)</strong> — the expected discounted return of taking action <em>a</em> in state <em>s</em> and acting optimally after — and derive the policy as <em>argmax<sub>a</sub> Q(s, a)</em>. The update is the Bellman backup:</p>
+
+<pre>r + γ · max&lt;sub&gt;a'&lt;/sub&gt; Q(s', a')  −  Q(s, a)   →  loss (TD error)</pre>
+
+<p>With a network approximating Q, this bootstrap is unstable: the target moves because the network itself computes it. The original <a href="https://www.nature.com/articles/nature14236">DQN paper</a> (Mnih et al., 2015) stabilized it with two mechanisms, and both are non-negotiable in any competition implementation:</p>
+<ul>
+  <li><strong>Replay buffer</strong> — store transitions, sample random minibatches. Breaks the temporal correlation of self-play trajectories and reuses each expensive simulated step many times.</li>
+  <li><strong>Target network</strong> — a frozen copy of Q computes targets; it is synced every N steps. The chase-me-myself pathology becomes a chase-a-slowly-moving-copy pathology, which converges.</li>
+</ul>
+
+<p>Two standard upgrades fix remaining biases. <strong>Double DQN</strong> (<a href="https://arxiv.org/abs/1509.06461">van Hasselt et al., 2015</a>) decouples <em>selection</em> from <em>evaluation</em>: the online net picks the argmax action, the target net scores it — killing the systematic overestimation of max. <strong>Dueling heads</strong> (<a href="https://arxiv.org/abs/1511.06581">Wang et al., 2015</a>) split Q into V(s) + A(s,a), so states with the same value for every action don't produce noisy phantom action preferences — useful in Kaggle sims where many turns are forced.</p>
+
+<h2>Action masking, the Kaggle way</h2>
+<p>Sims reject illegal moves (or worse, waste your turn on them). Don't let the network learn legality — <strong>mask before the argmax</strong>:</p>
+
+<pre>q = qnet(s)                      # shape [n_actions]
+q[~valid_action_mask(s)] = -inf  # or -1e9
+a = argmax(q)                    # greedy; add ε-greedy over valid set</pre>
+
+<p>This composes cleanly with dueling heads and is the single most common bug source in beginner DQN submissions: an agent that must choose among 7 legal Connect X columns should never have columns 8+ (or full ones) in its argmax.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>DQN = Q-learning + replay buffer + target network; everything else is bias reduction.</strong> If your value-based agent diverges, check these two stabilizers before touching hyperparameters — and mask invalid actions before the argmax, not after the environment rejects them.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Updating the target network every step (or forgetting the replay buffer).</strong> With a moving target the TD error never settles — loss oscillates, the Q-values inflate, the agent collapses to one action. Symptoms: Q-values drifting far beyond any plausible return; epsilon-greedy agent that stops exploring but also stops winning.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does DQN need a replay buffer at all — what breaks without it?</summary>
+    <p class="answer">Correlated, non-reused samples.</p>
+    <p class="why">Consecutive self-play transitions are highly correlated, which violates the i.i.d. assumption of SGD and causes catastrophic forgetting. Random sampling from a buffer decorrelates batches and reuses each simulated step many times — critical when steps are expensive.</p>
+  </details>
+  <details><summary>What specific bias does Double DQN remove?</summary>
+    <p class="answer">Overestimation of max-Q.</p>
+    <p class="why">max<sub>a</sub> Q(s', a) selects and scores with the same noisy values, so noise biases the target upward. Decoupling selection (online net) from evaluation (target net) removes most of that bias without changing the architecture.</p>
+  </details>
+  <details><summary>Your sim has 7 legal actions this turn, 3 the next. Where does legality enter the pipeline?</summary>
+    <p class="answer">Mask Q-values before argmax.</p>
+    <p class="why">Set invalid entries to −∞ (or a large negative) so both greedy action choice and ε-greedy exploration operate only on the legal set. Making the network "learn" legality from punishment signals wastes capacity and destabilizes training.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 20–30 minutes, reading real code</span>
+  Open CleanRL's single-file implementation at <a href="https://docs.cleanrl.dev/rl-algorithms/dqn/#dqnpy">docs.cleanrl.dev — dqn.py</a>. Find and annotate: (1) the replay buffer append and sample calls; (2) the target-network sync (`target.load_state_dict`); (3) the TD loss line — note it uses plain max, not Double DQN. Then modify it: implement the 3-line Double DQN change and add an action mask hook (a function taking the observation and returning a validity mask applied to <span class="term">q_values</span> before argmax). Check the <a href="https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html">Spinning Up Q-learning part 2</a> page if the math feels shaky.
+</div>
+
+<h2>Primary source</h2>
+<p><a href="https://www.nature.com/articles/nature14236">Mnih et al., <em>Human-level control through deep reinforcement learning</em></a> (Nature, 2015) — read the Methods section on replay and target networks. Pair with <a href="https://docs.cleanrl.dev/rl-algorithms/dqn/#dqnpy">CleanRL dqn.py</a>, which is this paper in 250 readable lines.</p>
+
+<p class="next"><a href="0004-reward-shaping.html">← Previous: Reward Shaping</a> &nbsp;·&nbsp; <a href="0006-policy-gradient-ppo.html">Next: Policy Gradient & PPO →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

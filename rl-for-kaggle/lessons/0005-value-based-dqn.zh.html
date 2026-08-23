@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 5 课 — 基于价值的方法：DQN</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · 第 5 课</span><span>CleanRL <a class="langbtn" href="0005-value-based-dqn.html" title="Switch to English">EN</a></span></div>
+  <h1>基于价值的方法：DQN</h1>
+  <p class="dek">Q-learning 学的是一张"在这个状态下走这步有多好"的表格，然后取 argmax。DQN 就是把这张表格换成神经网络——再加上两个防止它自我吞噬的机制。</p>
+</div>
+
+<p>基于价值的方法从不直接碰策略。它学习 <strong>Q(s, a)</strong>——在状态 <em>s</em> 执行动作 <em>a</em>、之后始终最优行动所能获得的期望折扣回报——策略由 <em>argmax<sub>a</sub> Q(s, a)</em> 推出。更新公式是 Bellman 回溯：</p>
+
+<pre>r + γ · max&lt;sub&gt;a'&lt;/sub&gt; Q(s', a')  −  Q(s, a)   →  损失（TD 误差）</pre>
+
+<p>用网络来近似 Q 之后，这个自举过程就不稳定了：目标值本身由这个网络计算，所以一直在动。<a href="https://www.nature.com/articles/nature14236">DQN 原论文</a>（Mnih 等，2015）用两个机制稳住了它，而在任何竞赛实现里，这两者都不可省略：</p>
+<ul>
+  <li><strong>经验回放池（replay buffer）</strong>——存下转移样本，随机抽取小批量。它打破了自博弈轨迹在时间上的相关性，还让每一步昂贵的仿真被复用多次。</li>
+  <li><strong>目标网络（target network）</strong>——用一个冻结的 Q 副本来计算目标值，每 N 步同步一次。"追自己"的病态变成了"追一个缓慢移动的副本"，这就收敛了。</li>
+</ul>
+
+<p>两个标准升级负责消除剩余偏差。<strong>Double DQN</strong>（<a href="https://arxiv.org/abs/1509.06461">van Hasselt 等，2015</a>）把<em>选动作</em>和<em>估值</em>解耦：在线网络选出 argmax 动作，目标网络来打分——从而消除 max 带来的系统性高估。<strong>Dueling 双头</strong>（<a href="https://arxiv.org/abs/1511.06581">Wang 等，2015</a>）把 Q 拆成 V(s) + A(s,a)，这样"每个动作价值都相同"的状态就不会产生噪声导致的虚假动作偏好——在许多回合属于强制着法的 Kaggle 仿真里很有用。</p>
+
+<h2>Kaggle 式动作屏蔽</h2>
+<p>仿真环境会拒绝非法动作（更糟的是白白浪费你的回合）。不要让网络去"学会"合法性——在 argmax <strong>之前做屏蔽</strong>：</p>
+
+<pre>q = qnet(s)                      # 形状 [n_actions]
+q[~valid_action_mask(s)] = -inf  # 或 -1e9
+a = argmax(q)                    # 贪心；ε-greedy 也只在合法集合上探索</pre>
+
+<p>它与 dueling 双头组合良好，也是新手 DQN 提交里最常见的 bug 来源：一个只能在 Connect X 的 7 列中选择的智能体，argmax 里永远不该出现第 8 列（或已满的列）。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>DQN = Q-learning + 经验回放 + 目标网络；其余都是偏差修正。</strong>当你的价值型智能体发散时，先检查这两个稳定器，再动超参数——并且要在 argmax 之前屏蔽非法动作，而不是等环境拒绝之后补救。
+</div>
+
+<div class="antipattern">
+  <span class="label">反面模式</span>
+  <strong>每一步都同步目标网络（或忘写经验回放）。</strong>目标不停移动，TD 误差永远无法稳定——损失震荡、Q 值膨胀、智能体塌缩成只会走一个动作。典型症状：Q 值飘到远超任何合理回报的范围；ε-greedy 智能体既不探索也不再赢棋。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>DQN 为什么必须要经验回放池——没有它会坏什么？</summary>
+    <p class="answer">样本相关且无法复用。</p>
+    <p class="why">自博弈的相邻转移高度相关，违反 SGD 的 i.i.d. 假设，并导致灾难性遗忘。从回放池随机采样可以给批量去相关，并让每一步仿真被复用多次——在每一步都很贵时尤为关键。</p>
+  </details>
+  <details><summary>Double DQN 消除的是哪种具体偏差？</summary>
+    <p class="answer">max-Q 的高估。</p>
+    <p class="why">max<sub>a</sub> Q(s', a) 用同一组带噪的值既做选择又做打分，噪声会把目标系统性推高。把选择（在线网络）与评估（目标网络）解耦，几乎不改结构就能消掉大部分偏差。</p>
+  </details>
+  <details><summary>你的仿真这一回合有 7 个合法动作，下一回合有 3 个。合法性应该在流程的哪一环介入？</summary>
+    <p class="answer">在 argmax 之前屏蔽 Q 值。</p>
+    <p class="why">把非法项设为 −∞（或很大的负数），贪心选择和 ε-greedy 探索就都只在合法集合上进行。让网络靠惩罚信号"学会"合法性，既浪费容量又 destabilize 训练。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">试一试 —— 20–30 分钟，读真实代码</span>
+  打开 CleanRL 的单文件实现：<a href="https://docs.cleanrl.dev/rl-algorithms/dqn/#dqnpy">docs.cleanrl.dev — dqn.py</a>。找到并做注释：(1) 回放池的写入与采样调用；(2) 目标网络同步（<span class="term">target.load_state_dict</span>）；(3) TD 损失那一行——注意它用的是普通 max，不是 Double DQN。然后动手修改：用 3 行实现 Double DQN，并加一个动作屏蔽钩子（一个接收观测、返回有效性掩码的函数，在 argmax 之前作用于 <span class="term">q_values</span>）。数学不稳的话，对照 <a href="https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html">Spinning Up 的 Q-learning 部分</a>。
+</div>
+
+<h2>主要来源</h2>
+<p><a href="https://www.nature.com/articles/nature14236">Mnih 等，《Human-level control through deep reinforcement learning》</a>（Nature, 2015）——重点读 Methods 里关于回放与目标网络的段落。搭配 <a href="https://docs.cleanrl.dev/rl-algorithms/dqn/#dqnpy">CleanRL dqn.py</a>：这篇论文的 250 行可读版本。</p>
+
+<p class="next"><a href="0004-reward-shaping.zh.html">← 上一课：奖励塑形</a> &nbsp;·&nbsp; <a href="0006-policy-gradient-ppo.zh.html">下一课：策略梯度与 PPO →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方就问你的老师——这个代理就是干这个的。</p>
+</body>
+</html>

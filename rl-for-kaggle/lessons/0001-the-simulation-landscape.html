@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 1 — The Simulation Competition Landscape</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>RL for Kaggle · Lesson 1</span><span><a class="langbtn" href="0001-the-simulation-landscape.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Simulation Competition Landscape</h1>
+  <p class="dek">Simulation competitions are the only Kaggle format where your submission plays a game against other submissions. That single fact changes every technique you should reach for.</p>
+</div>
+
+<p>In a normal Kaggle competition you fit a model to a fixed test set. In a <strong>simulation competition</strong> — Connect X, Halite, Kore, the Santa puzzle series, the <a href="https://www.kaggle.com/competitions/lux-ai-2021">Lux AI Prize</a> — you submit an <strong>agent</strong>: a file the platform matches against other agents on a ladder. Each match is an <strong>episode</strong> of a game; results update a skill rating (Kaggle uses a <a href="https://github.com/Kaggle/kaggle-environments">TrueSkill-style rating</a>); medals come from your rank when the competition closes.</p>
+
+<p>The agent contract is minimal: a Python file exposing <code>def agent(obs, config)</code> that returns an action, called once per turn under a strict time limit (often well under a second). You can run episodes locally with the official <a href="https://github.com/Kaggle/kaggle-environments"><code>kaggle-environments</code></a> package before ever submitting.</p>
+
+<h2>The four toolboxes</h2>
+<ul>
+  <li><strong>Handcrafted policy</strong> — rules and heuristics written by a human. Cheap, fast, debuggable, and the foundation every winner builds on or bootstraps from.</li>
+  <li><strong>Search</strong> — minimax, alpha-beta, Monte Carlo tree search over the game tree. Wins when the branching factor is small and evaluation is cheap. Santa 2020 was swept by wall-clock-efficient search, not deep RL.</li>
+  <li><strong>Reinforcement learning</strong> — learn a policy by playing (self-play), maximizing reward. Wins when the state space is huge and handcrafted features fail: Lux, Halite, Kore.</li>
+  <li><strong>Hybrid</strong> — RL or a neural net proposing moves, search verifying them; or a rules fallback when the learned agent is uncertain. Most winning entries are hybrids.</li>
+</ul>
+
+<p>The discipline this course teaches: pick the toolbox by the game's <em>branching factor, state size, and time budget</em> — not by fashion. Deep RL is expensive and finicky; if plain search solves the game, it solves it better.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>You are not fitting a test set; you are building a player for a ladder of adversaries.</strong> Every design decision — model, time budget, determinism — follows from the episode-based, adversarial evaluation, not from i.i.d. test rows.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Reaching for deep RL because the game feels "AI-ish".</strong> In Santa 2020, top solutions were bit-packed states and fast search; deep-RL entries lost to them. Choose the cheapest toolbox that can win, and only escalate when it provably can't.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>What does a simulation competition submission consist of?</summary>
+    <p class="answer">An agent file, not a model.</p>
+    <p class="why">A Python entry point called once per turn with the observation and config; the platform matches it against other agents in episodes and rates the results. Training happens offline — the submission only runs inference.</p>
+  </details>
+  <details><summary>Name the four toolboxes for sim competitions.</summary>
+    <p class="answer">Rules, search, learning, hybrids.</p>
+    <p class="why">Handcrafted policy, tree search, reinforcement learning, and combinations (e.g. network priors guiding search, or a rules fallback guarding a learned policy). Hybrids dominate real leaderboards.</p>
+  </details>
+  <details><summary>When is deep RL the wrong first choice?</summary>
+    <p class="answer">When search suffices.</p>
+    <p class="why">Small branching factor and cheap state evaluation favor alpha-beta or plain MCTS. Deep RL earns its cost only when the state space is too large or features too subtle for search and rules alone.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 15 minutes</span>
+  <code>pip install kaggle-environments</code>, then run a Connect X episode between two built-in agents locally (<code>env.run([agent1, agent2])</code> and <code>env.render(mode="ipython")</code>). Inspect what <code>obs</code> and <code>config</code> actually contain — you will wrap exactly this in Lesson 3.
+</div>
+
+<h2>Primary source</h2>
+<p>Read the <a href="https://github.com/Kaggle/kaggle-environments"><code>kaggle-environments</code> README</a> end to end — it is short, official, and the substrate for everything in this course. Then skim the highest-voted posts on the <a href="https://www.kaggle.com/competitions/santa-2020/discussion?sort=votes">Santa 2020 discussion board</a> to see search beating learning in public.</p>
+
+<p class="next"><a href="0002-framing-the-mdp.html">Next: Framing the MDP →</a> &nbsp;·&nbsp; <a href="../reference/rl-kaggle-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>
