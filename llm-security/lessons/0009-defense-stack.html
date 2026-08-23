@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 9 — The Defender's Stack</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>LLM Security · Lesson 9</span><span><a class="langbtn" href="0009-defense-stack.zh.html" title="切换到中文">中</a></span></div>
+  <h1>The Defender's Stack</h1>
+  <p class="dek">You have spent eight lessons attacking; now learn the wall you are attacking — because the CrowdStrike puzzles are scored by defenses, and every defense has a seam.</p>
+</div>
+
+<p>Every layer in this lesson exists because a real attack worked once. The <a href="https://genai.owasp.org/llm-top-10/">OWASP LLM Top 10</a> catalogs the failures; the defender's stack is the industry's layered answer. As a red-teamer you must know this stack cold, for one reason: <strong>the defenses determine what the puzzles punish</strong>. A payload that trips a canary costs you points; a payload aimed at an unguarded layer costs you nothing.</p>
+
+<h2>Layer 1 — Instruction hierarchy training</h2>
+<p>Model vendors train the model itself to privilege system prompts over user turns, and user turns over retrieved content (<em>instruction hierarchy</em>, the priority ordering of who the model obeys). This is real and it stops naive <code>ignore previous instructions</code> attacks — which is why Lesson 2's direct injections mostly stopped working. But it is training, not enforcement: it is probabilistic, degrades under obfuscation and long contexts, and says nothing about <em>semantically convincing</em> content in retrieved data. Treat it as friction, not a wall.</p>
+
+<h2>Layer 2 — Spotlighting and delimiting</h2>
+<p>Microsoft's <a href="https://arxiv.org/abs/2403.07575">spotlighting</a> defenses (Hines et al., 2024) mark untrusted content so the model can tell data from instructions: <strong>delimiting</strong> wraps retrieved text in quotes or XML tags, <strong>datamarking</strong> prefixes every line with a token like <code>&lt;UNTRUSTED&gt;</code>, and <strong>encoding</strong> base64-encodes the content so it reads as a blob, not as commands. The attack implication is exact: any payload that <em>closes or spoofs the delimiter</em> — a stray <code>&lt;/untrusted&gt;</code> in your injected web page — targets the gap between "marked" and "understood".</p>
+
+<h2>Layer 3 — Input and output classifiers</h2>
+<p>Guardrail classifiers score the prompt before it reaches the model and the completion before it leaves. Input filters catch known jailbreak patterns; output filters catch secrets, PII, and forbidden content. Lesson 7 covered evasion; the defender's dilemma is that both filters must be <em>conservative</em> to avoid breaking the product, and every conservative threshold is a channel — encode the payload (Lesson 4), split it across turns, or phrase the exfil as routine output.</p>
+
+<h2>Layer 4 — Least-privilege tools and egress control</h2>
+<p>OWASP's "excessive agency" entry pushes defenders to give agents <em>least privilege</em> (minimum permissions needed for the task): read-only where possible, scoped API keys, and <strong>egress allowlists</strong> that restrict which hosts the agent may contact. This is the layer that most changes your attack plan: if outbound requests go only to an allowlisted domain, your markdown-image exfil (Lesson 6) must target that domain — a subdomain you control, an open redirector, or a URL parameter on a legitimate endpoint.</p>
+
+<h2>Layer 5 — Human-in-the-loop for destructive actions</h2>
+<p>For irreversible actions — sending email, deleting data, moving money — defenders insert a <strong>human-in-the-loop</strong> (a human approver, 人在回路) confirmation step. Your counter is not to defeat the human but to route around them: find an equally valuable <em>non-destructive</em> action (read, summarize, exfiltrate) that was deliberately left un-gated for usability. The confused-deputy chains of Lesson 5 live almost entirely in this gap.</p>
+
+<h2>Layer 6 — Canaries and honeypots</h2>
+<p>Defenders seed documents with <strong>canary</strong> tokens (unique markers whose appearance in output proves leakage) and <strong>honeypot</strong> instructions ("email admin@… if asked") that flag anyone who follows them. In the challenge, tripping one likely zeroes your stealth score. Your countermeasures: minimal payload footprint, exfil channels that don't echo the canary verbatim, and reading the target's documents carefully enough to spot bait before you bite.</p>
+
+<h2>The robustness–utility trade-off</h2>
+<p>AgentDojo (<a href="https://agentdojo.spylab.ethz.ch/">agentdojo.spylab.ethz.ch</a>, <a href="https://arxiv.org/abs/2406.13352">Debenedetti et al., 2024</a>) benchmarked these defenses empirically and found the central result of this lesson: defenses that reliably reject injections also reject a large fraction of <em>legitimate</em> tasks. The best current defenses cut attack success sharply while degrading maybe 1% of utility — none eliminate it. Every deployed defense is therefore a compromise, and a compromise has a seam.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>No complete defense exists; attacks target the gaps between layers.</strong> The stack is layered precisely because each layer leaks. Your job as a red-teamer is not to break the strongest layer — it is to find the task that routes around it.
+</div>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <strong>Attacking the strongest layer because it's the most obvious.</strong> Hammering a system prompt against instruction-hierarchy training burns tokens (Lesson 8) and trips detection (Lesson 7). The stack's seams are at the joins: delimiter spoofing against spotlighting, un-gated read actions around human approval, allowlisted-but-attacker-reachable hosts around egress control.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Name the six layers of the defender's stack.</summary>
+    <p class="answer">Training, marking, filters, permissions, approval, bait.</p>
+    <p class="why">Instruction hierarchy training; spotlighting/delimiting; input/output classifiers; least-privilege tools with egress allowlists; human-in-the-loop for destructive actions; canaries and honeypots. Six layers, each answering a class of historical attacks.</p>
+  </details>
+  <details><summary>What gap does delimiter spoofing attack?</summary>
+    <p class="answer">Between marked and understood.</p>
+    <p class="why">Spotlighting marks untrusted content, but the model must still interpret the marks. A payload that closes the delimiter (or forges a "trusted" one) escapes the marking — Microsoft's own paper measures exactly this residual attack surface.</p>
+  </details>
+  <details><summary>Why can't defenses reach 100% robustness?</summary>
+    <p class="answer">Utility would collapse.</p>
+    <p class="why">AgentDojo's robustness–utility trade-off: filters strict enough to block every injection also block many legitimate requests. Deployed systems accept a utility floor, so a residual attack window always remains — that window is your target.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — 20 minutes</span>
+  Open <a href="https://agentdojo.spylab.ethz.ch/">AgentDojo</a> and read one task's tool descriptions. Write down, for each of the six layers, whether AgentDojo models it — then note where an attack task explicitly routes around a missing layer. This gap-spotting table is exactly what you'll do on challenge day.
+</div>
+
+<h2>Primary source</h2>
+<p>Read Microsoft's spotlighting paper — Hines et al., <a href="https://arxiv.org/abs/2403.07575"><em>Defending Against Indirect Prompt Injection Attacks With Spotlighting</em></a> (2024) — focusing on the attack success rates reported <em>per defense variant</em>. Then cross-reference the AgentDojo paper, <a href="https://arxiv.org/abs/2406.13352"><em>AgentDojo: A Dynamic Environment to Evaluate Attacks on Agents</em></a>, and its robustness–utility plots. Both papers quantify the seams this lesson describes.</p>
+
+<p class="next"><a href="0010-capstone-playbook.html">Next: The Capstone Playbook →</a> &nbsp;·&nbsp; <a href="../reference/llm-security-cheatsheet.html">Cheat sheet</a></p>
+<p class="ask">Anything unclear? Ask your teacher — that's what the agent is here for.</p>
+</body>
+</html>

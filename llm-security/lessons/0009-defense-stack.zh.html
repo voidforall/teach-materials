@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 9 课 — 防御者技术栈</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>LLM Security · 第 9 课</span><span><a class="langbtn" href="0009-defense-stack.html" title="Switch to English">EN</a></span></div>
+  <h1>防御者技术栈</h1>
+  <p class="dek">前八课你一直在进攻；现在来认识你要攻打的那堵墙 —— 因为 CrowdStrike 谜题的计分由防御决定，而每层防御都有接缝。</p>
+</div>
+
+<p>本课的每一层防御，都源于某次真实得手的攻击。<a href="https://genai.owasp.org/llm-top-10/">OWASP LLM Top 10</a> 编目了这些失败；防御者技术栈则是业界的分层应对。作为红队队员，你必须吃透这套栈，原因只有一个：<strong>防御决定了谜题惩罚什么</strong>。踩中金丝雀的载荷会扣分；瞄准无防护层的载荷则分文不费。</p>
+
+<h2>第 1 层 — 指令层级训练</h2>
+<p>模型厂商会训练模型优先服从系统提示词，其次是用户轮次，最后才是检索内容（<strong>instruction hierarchy</strong>，指令层级，即模型服从谁的优先级排序）。它确实存在，也确实挡住了朴素的 <code>ignore previous instructions</code> 攻击 —— 这正是第 2 课的直接注入大多失效的原因。但它是训练而非强制：具有概率性，在混淆和长上下文下会退化，而且对检索数据中<em>语义上具有说服力</em>的内容毫无办法。把它当作摩擦力，而不是墙。</p>
+
+<h2>第 2 层 — 聚光标记与定界</h2>
+<p>微软的 <strong>spotlighting</strong>（聚光标记）防御（Hines 等，2024，<a href="https://arxiv.org/abs/2403.07575">arXiv:2403.07575</a>）给不可信内容打上标记，让模型能区分数据与指令：<strong>delimiting</strong>（定界）用引号或 XML 标签包裹检索文本；<strong>datamarking</strong>（数据标记）给每行加 <code>&lt;UNTRUSTED&gt;</code> 前缀；<strong>encoding</strong>（编码）把内容整体 base64 化，使其读起来像一块数据而非命令。攻击含义是精确的：任何能<em>闭合或伪造定界符</em>的载荷 —— 比如你在注入网页里塞一个多余的 <code>&lt;/untrusted&gt;</code> —— 打的就是"已标记"与"被理解"之间的缝隙。</p>
+
+<h2>第 3 层 — 输入/输出分类器</h2>
+<p>护栏分类器（guardrail classifiers）在提示词进入模型前、补全离开模型前各打一次分。输入过滤器捕捉已知越狱模式；输出过滤器捕捉机密、个人隐私和违禁内容。第 7 课讲过规避方法；防御者的困境在于两个过滤器都必须<em>保守</em>，否则产品会被弄坏，而每个保守的阈值都是一条通道 —— 对载荷编码（第 4 课）、跨轮拆分，或把外泄伪装成常规输出。</p>
+
+<h2>第 4 层 — 最小权限工具与出口控制</h2>
+<p>OWASP 的"过度代理"（excessive agency）条目推动防御者给代理配置 <strong>least privilege</strong>（最小权限，只给完成任务所需的最少权限）：能只读就只读、API 密钥限定作用域，并加 <strong>egress allowlist</strong>（出口白名单）限制代理可访问的主机。这是最能改变你攻击计划的一层：如果出站请求只能去白名单域名，你的 markdown 图片外泄（第 6 课）就必须瞄准那个域名 —— 你控制的子域、开放跳转器，或合法端点上的 URL 参数。</p>
+
+<h2>第 5 层 — 破坏性操作的人在回路</h2>
+<p>对不可逆操作 —— 发邮件、删数据、转账 —— 防御者会插入 <strong>human-in-the-loop</strong>（人在回路，即人工审批）确认步骤。你的对策不是击败那个人，而是绕开：找一个价值相当但<em>非破坏性</em>的操作（读取、摘要、外泄），它们为了易用性被刻意留在了审批门之外。第 5 课的混淆代理链几乎全部活在这个缝隙里。</p>
+
+<h2>第 6 层 — 金丝雀与蜜罐</h2>
+<p>防御者会在文档中植入 <strong>canary</strong>（金丝雀令牌，唯一标记，一旦出现在输出中即证明泄露）和 <strong>honeypot</strong>（蜜罐指令，如"若被要求就发邮件到 admin@…"），用来标记任何上当的人。在挑战赛中，踩中一个就可能让你的隐身分清零。对策：压缩载荷足迹、选用不会原文回显金丝雀的外泄通道，以及在动手前仔细阅读目标文档、先识破诱饵再下口。</p>
+
+<h2>鲁棒性—实用性权衡</h2>
+<p>AgentDojo（<a href="https://agentdojo.spylab.ethz.ch/">agentdojo.spylab.ethz.ch</a>；Debenedetti 等，2024，<a href="https://arxiv.org/abs/2406.13352">arXiv:2406.13352</a>）对这些防御做了实证基准测试，得到本课的核心结论：能可靠拒绝注入的防御，同样会拒绝相当比例的<em>合法</em>任务。当前最好的防御能大幅压低攻击成功率，代价只有约 1% 的实用性 —— 但没有一种能根除。因此每个上线的防御都是妥协，而妥协必有接缝。</p>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>不存在完整的防御；攻击瞄准的是层与层之间的缝隙。</strong> 栈之所以分层，正是因为每层都会漏。红队队员的工作不是砸碎最坚固的一层，而是找到绕过它的那条任务路径。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>因为最显眼就去硬攻最强的一层。</strong> 拿系统提示词硬撼指令层级训练，既烧 token（第 8 课）又触检测（第 7 课）。栈的接缝在接合处：对聚光标记用定界符伪造、对人工审批用未设门的读操作、对出口控制用"在白名单里但攻击者可达"的主机。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>说出防御者技术栈的六层。</summary>
+    <p class="answer">训练、标记、过滤、权限、审批、诱饵。</p>
+    <p class="why">指令层级训练；聚光标记/定界；输入/输出分类器；带出口白名单的最小权限工具；破坏性操作的人在回路；金丝雀与蜜罐。六层各自回应一类历史攻击。</p>
+  </details>
+  <details><summary>定界符伪造攻击的是哪条缝隙？</summary>
+    <p class="answer">已标记与被理解之间。</p>
+    <p class="why">聚光标记给不可信内容打标，但模型仍须自行解释这些标记。能闭合定界符（或伪造"可信"标记）的载荷就能逃出标记 —— 微普论文本身就量化了这个残留攻击面。</p>
+  </details>
+  <details><summary>防御为什么达不到 100% 鲁棒？</summary>
+    <p class="answer">因为实用性会崩。</p>
+    <p class="why">AgentDojo 的鲁棒性—实用性权衡：足以挡下所有注入的过滤器，也会挡下大量合法请求。上线系统必须接受实用性下限，因此永远存在残留攻击窗口 —— 那个窗口就是你的目标。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 — 20 分钟</span>
+  打开 <a href="https://agentdojo.spylab.ethz.ch/">AgentDojo</a>，阅读一个任务的工具描述。针对六层防御逐层写下 AgentDojo 是否建模了它 —— 再记下攻击任务在哪处明确绕过了缺失的一层。这张"缝隙定位表"正是你比赛当天要做的事。
+</div>
+
+<h2>一手文献</h2>
+<p>精读微软聚光标记论文 —— Hines 等，<a href="https://arxiv.org/abs/2403.07575"><em>Defending Against Indirect Prompt Injection Attacks With Spotlighting</em></a>（2024）—— 重点看<em>每种防御变体各自报告的</em>攻击成功率。再对照 AgentDojo 论文 <a href="https://arxiv.org/abs/2406.13352"><em>AgentDojo: A Dynamic Environment to Evaluate Attacks on Agents</em></a> 及其鲁棒性—实用性曲线。两篇论文都量化了本课描述的接缝。</p>
+
+<p class="next"><a href="0010-capstone-playbook.zh.html">下一篇：终局作战手册 →</a> &nbsp;·&nbsp; <a href="../reference/llm-security-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方？尽管问你的老师 —— 这正是这个代理存在的意义。</p>
+</body>
+</html>

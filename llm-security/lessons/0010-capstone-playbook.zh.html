@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 10 课 — 终局作战手册</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>LLM Security · 第 10 课</span><span><a class="langbtn" href="0010-capstone-playbook.html" title="Switch to English">EN</a></span></div>
+  <h1>终局作战手册</h1>
+  <p class="dek">把前九课的全部内容压缩成一份可打印的作战手册，献给 CrowdStrike「AI Unlocked: Agents of Chaos」—— 比赛当天把它贴在显示器边上。</p>
+</div>
+
+<p><a href="https://www.crowdstrike.com/en-us/press-releases/crowdstrike-announces-international-ai-security-challenge/">CrowdStrike 国际 AI 安全挑战赛</a>于 2026 年 8 月 31 日开赛。你将在三个 Act —— <strong>The Sanctum</strong>（圣所）、<strong>The Gatekeeper</strong>（守门人）、<strong>The Basilisk</strong>（王蜥）—— 中对影子组织的 AI 代理进行红队测试，得分是<em>分值减 token</em>（第 1 课）。本课没有新知识；它是把前九课重排成一份执行顺序。打印它。</p>
+
+<h2>各 Act 的侦察流程</h2>
+<p>投放任何载荷之前，先花一笔固定的侦察预算 —— 每个谜题约 15% 的 token 配额 —— 在每个 Act 上问同样的四个问题。把答案写下来；重放时不要重新推导。</p>
+<ul>
+  <li><strong>Act 1 — The Sanctum：</strong>入门级环境。侦察：代理<em>摄取</em>什么（网页、邮件、文档）？哪个单一工具触达范围最广？圣所级谜题大多倒在一次干净利落的间接注入（第 3 课）之下 —— 摄取文档里一针见血，根本不需要越狱。</li>
+  <li><strong>Act 2 — The Gatekeeper：</strong>防御登场 —— 过滤器、聚光标记，可能还有人工审批门。侦察：确切是<em>哪一种</em>防御（第 9 课的六层）？检索文本里有定界符吗？有输出筛查吗？你的载荷要瞄准已识别那一层的接缝，而不是系统提示词。</li>
+  <li><strong>Act 3 — The Basilisk：</strong> Boss 战 —— 分层防御加金丝雀与行为监控。侦察：蜜罐在哪？注入之前先把代理能读的一切<em>先读完</em>。这一关隐身优先（第 7 课）：最小足迹、编码载荷、无害的中间步骤。</li>
+</ul>
+
+<h2>技术选择表</h2>
+<table>
+  <tr><th>局面（侦察发现）</th><th>攻击家族</th><th>课程</th></tr>
+  <tr><td>代理会读取你能影响的网页/邮件/文档</td><td>间接注入</td><td>3</td></tr>
+  <tr><td>模型拒绝听起来无害的操作</td><td>角色/框架包装、假设情境</td><td>2、4</td></tr>
+  <tr><td>输入端有已知护栏分类器</td><td>编码、载荷拆分</td><td>4</td></tr>
+  <tr><td>输出过滤器拦截机密</td><td>在外泄通道内编码，而非正文</td><td>6、7</td></tr>
+  <tr><td>存在高权限的敞开工具</td><td>直接工具滥用、混淆代理</td><td>5</td></tr>
+  <tr><td>最小权限工具 + 出口白名单</td><td>白名单滥用（子域、跳转、URL 参数）</td><td>6、9</td></tr>
+  <tr><td>破坏性操作需人工审批</td><td>改走无门的读取/外泄等价操作</td><td>5、9</td></tr>
+  <tr><td>存在金丝雀令牌或蜜罐文档</td><td>隐身载荷，不回显带标记文本</td><td>7、9</td></tr>
+  <tr><td>多次尝试均告失败</td><td>多轮渐进、many-shot 上下文</td><td>2、4</td></tr>
+</table>
+
+<h2>外泄链决策树</h2>
+<p>把机密<em>弄出去</em>是链条最容易断的地方。按顺序走这棵树：</p>
+<ol>
+  <li><strong>代理能渲染 markdown/图片吗？</strong> → 图片标签外泄，载荷放在 URL 里（第 6 课）。最便宜，通常无人设防。</li>
+  <li><strong>有出口白名单？</strong> → 白名单里有没有攻击者可影响的主机（用户生成内容、跳转器、合法端点上的 URL 参数）？经由它路由。</li>
+  <li><strong>只有封闭工具（邮件、日历、文件）？</strong> → 工具参数侧信道：用代理自己的消息/文件工具把机密发给<em>你自己</em>。</li>
+  <li><strong>有代码执行？</strong> → 用代码写出（DNS、文件落盘）—— 最后手段，被检测风险最高。</li>
+  <li><strong>什么都出不去？</strong> → 提示补全泄露：让机密在你有权读到的输出里复述一遍，然后你自己截图/记录。</li>
+</ol>
+
+<h2>Token 预算管理</h2>
+<p>得分 = 分值 − token，所以 token 就是你的货币（第 8 课）：</p>
+<ul>
+  <li><strong>单谜题：</strong>约 15% 侦察、60% 首次利用尝试、25% 留给一次转向和重放。尝试花费超过 85% 即硬停。</li>
+  <li><strong>单提示词：</strong>一个目标、零叙事水分、先取结构再取细节。提示词超过约 150 token，先砍半再发。</li>
+  <li><strong>整场运行：</strong>先用便宜 token 拿下 Act 1 的容易分，它们资助你的 Act 3 尝试。便宜地解出的谜题，永远胜过优雅地失败的谜题。</li>
+</ul>
+
+<h2>重放策略</h2>
+<p>重放是廉价的学习：每次重放只改变载荷中的<em>恰好一个变量</em> —— 定界符样式、编码方式、触发措辞。向最小可用载荷收敛，然后再重放一次确认 token 数。每次尝试记一行日志（载荷要点 → 结果 → token 数）；否则比赛当天你一定记不清哪个变体生效了。</p>
+
+<h2>赛前登记清单（2026 年 8 月 31 日前）</h2>
+<ul>
+  <li>阅读官方比赛规则、计分公式与条款 —— 以它为准，而非任何摘要。</li>
+  <li>完成注册，端到端验证账号与提交路径。</li>
+  <li>打印本课与<a href="../reference/llm-security-cheatsheet.zh.html">速查表</a>；都贴上墙。</li>
+  <li>热身：限时完成一个 Gandalf（<a href="https://gandalf.lakera.ai/">gandalf.lakera.ai</a>）关卡和一个 AgentDojo 任务。</li>
+  <li>准备好尝试日志模板（谜题 / 载荷要点 / 结果 / token 数）。</li>
+  <li>再通读一遍 OWASP LLM Top 10 —— 出题人也读它。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">关键点</span>
+  <strong>侦察做决定，查表做调度，预算保性命。</strong> 九十秒的纪律性侦察从表中选定攻击家族；决策树选定外泄路线；token 预算决定你在 Act 3 还玩不玩得起。即兴发挥是留给预算的 —— 在计划之后，而不是取而代之。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>一上来就用最华丽的越狱硬闯 Act 3。</strong> 不计成本的英雄主义把 token 先烧在最难、监控最严的谜题上，转向时弹尽粮绝。先拿便宜分，每次重放只改一个变量，Boss 战要揣着满钱包去打。
+</div>
+
+<h2>回忆检索</h2>
+<div class="quiz">
+  <details><summary>单谜题的 token 怎么分配？</summary>
+    <p class="answer">十五、六十、二十五。</p>
+    <p class="why">约 15% 侦察、60% 首次利用、25% 留给一次转向加确认性重放。花费到 85% 就硬停，储备才真实存在。</p>
+  </details>
+  <details><summary>谜题重放之间改变什么？</summary>
+    <p class="answer">恰好一个变量。</p>
+    <p class="why">每次重放只改一个变量，就把每次重试变成对照实验：你能看清载荷中哪个片段起了作用，收敛到最小可用版本，而不是瞎猜。</p>
+  </details>
+  <details><summary>外泄的第一个问题是什么？</summary>
+    <p class="answer">能否渲染图片。</p>
+    <p class="why">载荷放 URL 里的 markdown 图片外泄是最便宜的通道，且通常无人设防。只有当代理不能渲染图片时，才依次往下走白名单滥用、工具参数侧信道和代码写出。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 — 30 分钟</span>
+  现在就做你的比赛日单页：把技术选择表和外泄决策树抄到一张纸上，再加三条个人备注 —— 你最擅长的攻击家族、你最薄弱的一课、你的 token 纪律规则。你刚刚起草了比赛压力下唯一要翻的那份文档。
+</div>
+
+<h2>一手文献</h2>
+<p><a href="https://www.crowdstrike.com/en-us/press-releases/crowdstrike-announces-international-ai-security-challenge/">CrowdStrike 挑战赛公告</a>是机制、日期与规则的 ground truth —— 开赛当周再读一遍，因为公告里的细节会在官方规则中细化。本课程的其他一切，都是为那份文件的细则所做的准备。</p>
+
+<p class="next"><a href="0001-threat-landscape.zh.html">重温本课程：威胁全景 →</a> &nbsp;·&nbsp; <a href="../reference/llm-security-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有不清楚的地方？尽管问你的老师 —— 这正是这个代理存在的意义。</p>
+</body>
+</html>

