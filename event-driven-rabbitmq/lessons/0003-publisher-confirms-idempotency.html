@@ -1,0 +1,97 @@
+<title>MQ · Lesson 3 — Publisher Confirms &amp; Idempotency</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Event-Driven Systems · Lesson 3</span><span>≈12 min</span></div>
+  <h1>Your Publish Might Have Done Nothing</h1>
+  <p class="dek">The publisher's half of the contract: confirms, returns, and why duplicates are guaranteed.</p>
+</header>
+
+<p>Lesson 2 made the <em>consumer</em> side safe: no ack, no deletion. But that's worthless if the message never made it into the broker — and a plain <code>publish()</code> is a fire into the dark. It's <strong>asynchronous and unacknowledged</strong>: a TCP send that succeeds tells you nothing about whether RabbitMQ accepted, routed, or persisted anything.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>Two failure modes, two features</h2>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>Publisher-side failures and the RabbitMQ feature for each</caption>
+  <tr><th>Failure</th><th>What goes wrong</th><th>Feature</th></tr>
+  <tr><td>Broker never got it</td><td>connection died mid-publish; broker crashed</td><td class="match">publisher confirms</td></tr>
+  <tr><td>Broker got it, routed nowhere</td><td>routing key matched no binding (Lesson 1's silent drop)</td><td class="match">mandatory + returns</td></tr>
+</table>
+</div>
+
+<p><strong>Confirms</strong> flip the ack relationship around: the broker sends you back an <em>ack* for each publish that was accepted and — on a durable queue — persisted to disk. No confirm = you don't know it landed = you <strong>retry</strong>. That's the whole protocol: enable confirms, wait (or collect async), retry on failure/timeout.</p>
+
+<p><strong>Mandatory + returns</strong> close the Lesson 1 trap: publish with <span class="term">mandatory=true</span> and an unroutable message comes <em>back to you</em> (a "basic.return") instead of vanishing. In production, unroutable messages are a topology bug — you want the alarm, not the silence.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Confirms + retries on the publisher, acks + redelivery on the consumer — put together, both ends can fail and no message is lost. The price: duplicates on both ends too.</strong> A retried publish after a lost confirm may have actually landed; a redelivered message was maybe already processed. At-least-once is a <em>system-wide</em> property, and it terminates in one place: the handler must be idempotent.
+</div>
+
+<h2>Duplicates are guaranteed — design for them</h2>
+
+<p>People treat duplicates as a rare corruption. In a confirmed, redelivering system they are a <strong>normal occurrence</strong> — the cost of never losing anything. Three idempotency strategies, in order of preference:</p>
+
+<ol>
+  <li><strong>Natural idempotency</strong> — the operation is already a no-op when repeated. <code>user.email = x</code> is idempotent; <code>balance += 10</code> is not. Prefer setting end-state over applying deltas whenever you control the event schema.</li>
+  <li><strong>Deduplication key</strong> — give every message a unique ID at creation (<code>order-4711-created</code>, or a UUID) and record processed IDs in the consumer: <code>INSERT INTO processed_messages … ON CONFLICT DO NOTHING</code>; if the insert conflicts, you've seen it — ack and skip.</li>
+  <li><strong>Version/state guard</strong> — for state machines, gate on version: "only apply <code>order.cancelled</code> if state = PAID." Stale or duplicate transitions fall through harmlessly.</li>
+</ol>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern — the dual write</span>
+  Commit the order to your DB, then publish <code>order.created</code>. Two systems, no shared transaction: the publish after a failed commit fires anyway (phantom event), or the process dies between commit and publish (lost event). You cannot atomically "write DB and publish." The fix is the <strong>transactional outbox</strong> — write the event into an <code>outbox</code> table in the same DB transaction, and relay it to the broker separately. Full treatment in Lesson 6.
+</div>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. Your publish call returned without error. Where is the message?</summary>
+    <p class="answer">Unknown — a plain publish promises nothing.</p>
+    <p class="why">Send success covers the socket, not the broker. Only a confirm proves acceptance (and persistence, for durable queues).</p>
+  </details>
+  <details>
+    <summary>Q2. A confirm never arrives; you retry the publish. What can happen?</summary>
+    <p class="answer">Both copies land — a duplicate message.</p>
+    <p class="why">The original may have succeeded with the confirm lost on the way back. Retries make duplicates routine, never rare.</p>
+  </details>
+  <details>
+    <summary>Q3. Handler does: email a gift card, then balance -= 10. Idempotent?</summary>
+    <p class="answer">No — the email doubles and balance drops twice.</p>
+    <p class="why">Side effect plus delta: the worst case. Needs a dedup key before the email, and balance guarded by it too.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Design it — before you reveal</span>
+  <p style="margin-top:0">Your service handles <code>invoice.paid</code> by: marking the invoice paid in the DB, adding 100 loyalty points (<code>points += 100</code>), and emailing a receipt. Redelivery just happened. <strong>(a)</strong> Which steps are already idempotent? <strong>(b)</strong> Which need guarding, and how? <strong>(c)</strong> Write the ordering of steps that makes the whole handler safe.</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal one good answer</summary>
+      <p class="answer">(a) Marking paid — natural idempotency, if it's <code>SET state='paid' WHERE id=?</code> rather than a delta; state guard helps too (only apply if state was OPEN). (b) <code>points += 100</code> — a delta; convert to dedup: insert <code>(message_id → invoice_id)</code> into a processed table <code>ON CONFLICT DO NOTHING</code> and award points only if the insert landed. The email — an external side effect; gate it on that same fresh insert. (c) Order: <strong>dedup-insert first</strong> (it's the once-only token), then mark paid + points in one DB transaction, then send the email, <em>then</em> ack — accepting the one residual window (email sent, ack lost, redelivered) where the dedup row now suppresses the duplicate email.</p>
+      <p class="why">The dedup insert is the linchpin: it converts "did I already handle this?" into a single atomic DB question. Everything else hangs off that answer.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <strong>RabbitMQ: Publisher Confirms</strong> — second half of the confirms guide, including the async-confirm pattern and throughput guidance: <a href="https://rabbitmq.com/docs/confirms">rabbitmq.com/docs/confirms</a>. Note what it does <em>not</em> promise: confirms are broker-accepted, not consumer-processed — that gap is your observability problem to monitor.
+</div>
+
+<div class="ask"><b>Ask me anything.</b> Especially worth raising: "isn't the dedup table just a distributed transaction in disguise?" and "what's the actual window where an email double-sends?" — both have precise answers we can walk through.</div>
+
+<div class="nav">
+  <span>◄ <a href="0002-consumer-acks-prefetch.html">Lesson 2 — Acks &amp; prefetch</a></span>
+  <span><a href="../reference/glossary.html">Glossary</a> · Next: Dead letters, retry &amp; poison messages ►</span>
+</div>
+
+<h2 id="sources">Sources</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — Publisher confirms: <a href="https://rabbitmq.com/docs/confirms">rabbitmq.com/docs/confirms</a> · Unroutable messages / mandatory: <a href="https://rabbitmq.com/docs/confirms#unroutable-messages-in-publishers">docs/confirms</a></li>
+</ol>

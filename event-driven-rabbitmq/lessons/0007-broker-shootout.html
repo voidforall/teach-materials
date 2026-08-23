@@ -1,0 +1,109 @@
+<title>MQ · Lesson 7 — RabbitMQ vs Kafka vs SQS</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Event-Driven Systems · Lesson 7</span><span>≈14 min</span></div>
+  <h1>Task Queue or Log of Record?</h1>
+  <p class="dek">Choosing a broker is one question, not a feature matrix — and the answer is often "both."</p>
+</header>
+
+<p>The comparison you actually need isn't a checklist of features. Three tools, three different answers to the question <strong>"what happens to a message after it's handled?"</strong> — and everything else follows from that design commitment.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>The one axis that decides it</h2>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>The fundamental commitment each tool makes</caption>
+  <tr><th></th><th>RabbitMQ</th><th>Kafka</th><th>SQS</th></tr>
+  <tr><td>Core model</td><td class="match">routing fabric over queues</td><td class="match">append-only log of records</td><td class="match">managed task queue</td></tr>
+  <tr><td>After handling</td><td>deleted on ack</td><td>nothing — retained for days/forever</td><td>deleted on request / visibility timeout</td></tr>
+  <tr><td>Re-read history?</td><td>no (gone is gone)</td><td>yes — rewind any consumer, any offset</td><td>no</td></tr>
+  <tr><td>Consumer model</td><td>push, prefetch-shaped (L2)</td><td>pull, offset-tracked groups</td><td>poll, visibility-timeout (L2's ghost)</td></tr>
+  <tr><td>Routing</td><td>rich (exchanges/bindings, L1)</td><td>none — topic &amp; partition only; consumers filter</td><td>none — one queue; SNS for fan-out</td></tr>
+  <tr><td>Ordering</td><td>best-effort per queue (L5)</td><td>strict per partition</td><td>FIFO queues, throughput-capped</td></tr>
+  <tr><td>Ops</td><td>you run it (or a host): clusters, upgrades</td><td>heaviest self-hosted; managed exists (MSK/Confluent)</td><td>zero — it's an API</td></tr>
+</table>
+</div>
+
+<div class="keystone">
+  <span class="label">Keystone — the decision procedure</span>
+  Ask in order: <strong>(1) Work or history?</strong> Work to be done once and deleted → RabbitMQ or SQS. History to re-read → Kafka. <strong>(2) If work: routing or ops?</strong> Rich routing, retry ladders, multi-protocol, on your infra → RabbitMQ. No infra team, already on AWS, simple queues → SQS (+SNS for fan-out). <strong>(3) If history: you're done</strong> — Kafka, partitioned by entity for ordering (L5's consistent-hash logic, native). And the mature answer at scale is routinely <strong>both</strong>: Kafka as the stream of record, RabbitMQ as the work queues downstream of it.
+</div>
+
+<h2>Why the hybrids fail and succeed</h2>
+
+<div class="antipattern">
+  <span class="label">Two classic misfits</span>
+  <strong>Kafka as a task queue:</strong> the log has no per-message ack — a failed job can't be "returned"; offsets move for the whole partition, poison handling (L4) is DIY, and skipping ahead to unblock means <em>acknowledging failures</em>. It works, grudgingly, for idempotent bulk pipelines — it hurts for per-item work. <br><br>
+  <strong>RabbitMQ as an event store:</strong> acked messages are gone; consumers that fall behind and reconnect can't replay yesterday's stream; "keep the messages" means never acking — which caps throughput and re-creates the unacked flood from Lesson 2. Retention is fundamentally not what queues do.
+</div>
+
+<p>When the hybrid <em>succeeds</em>: Kafka holds the immutable <code>orders</code> stream every team replays at will; one consumer's job is thin — tail the log and publish work items onto RabbitMQ exchanges, where routing, retries, and parking lots (all of L1–L5) do their thing. Each tool holds its half of the at-least-once contract with idempotency at the seam.</p>
+
+<h2>What your RabbitMQ course knowledge maps to</h2>
+
+<ul>
+  <li><strong>Acks (L2):</strong> Kafka's equivalent is the committed <em>offset</em> — per consumer group, not per message. SQS has <code>DeleteMessage</code> after a <em>visibility timeout</em>: forget to delete fast and the message reappears — at-least-once with extra steps, same idempotency bill (L3).</li>
+  <li><strong>Competing consumers (L1):</strong> Kafka consumer <em>groups</em> give it natively — partition-count is your parallelism ceiling. SQS gives it free; that's its best trick.</li>
+  <li><strong>Ordering (L5):</strong> Kafka is strict per partition — you get the consistent-hash design whether you asked or not; a hot entity still hot-dogs one partition. RabbitMQ's best-effort needs the guard patterns either way.</li>
+  <li><strong>Retry ladders (L4):</strong> pure RabbitMQ idiom. Kafka needs application-level retry topics; SQS has redrive policies — a built-in parking lot, actually its nicest opinion.</li>
+</ul>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. Finance needs to reprocess every order event after a bug. Which broker?</summary>
+    <p class="answer">Kafka — retained log, rewind consumers to any offset.</p>
+    <p class="why">Replay is the defining capability of a log of record. In RabbitMQ, acked history is gone; retention-less queues can't retrofit it.</p>
+  </details>
+  <details>
+    <summary>Q2. A five-person startup on AWS needs a job queue. Which broker?</summary>
+    <p class="answer">SQS — zero operations, pay per request, no cluster.</p>
+    <p class="why">No routing finesse needed, no infra team to run RabbitMQ. Revisit when routing complexity or on-prem needs arrive (SNS covers broadcast).</p>
+  </details>
+  <details>
+    <summary>Q3. Kafka consumer fails one record in a partition. What's missing?</summary>
+    <p class="answer">A per-message ack — offsets move for everything.</p>
+    <p class="why">The whole partition's position commits; the failed record needs application-level retry topics or it blocks/skips with the batch.</p>
+  </details>
+  <details>
+    <summary>Q4. Why does SQS redeliver messages you haven't deleted yet?</summary>
+    <p class="answer">Visibility timeout expiry returns the message to service.</p>
+    <p class="why">It's at-least-once delivery (L2/L3) wearing different clothes: same redeliveries, same idempotency requirement.</p>
+  </details>
+</div>
+
+<h2>Now you drive — three calls to make</h2>
+
+<div class="task">
+  <span class="label">Argue each choice — before you reveal</span>
+  <p style="margin-top:0"><strong>(a)</strong> A rideshare company: driver-location stream (10k events/s) feeding ETA models <em>and</em> a live map, plus dispatch jobs ("match this ride") that must run once. <strong>(b)</strong> A bank: payment-events archive, every downstream audit consumer replays independently, new consumers join quarterly. <strong>(c)</strong> Your own work system — whatever you're building now. For each: broker, why, and the one risk your choice imports.</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal the reasoning</summary>
+      <p class="answer"><strong>(a) Both.</strong> The location stream is history-shaped — Kafka, partitioned by ride/driver ID; replayable map backfills and model training are exactly log strengths. Dispatch is work — RabbitMQ: exactly-one matching matters more than replay, retries and parking lots are idiomatic. Risk: two brokers to operate, idempotent seam between them.</p>
+      <p class="answer"><strong>(b) Kafka, clearly</strong> — the requirements are a definition of a log of record: retention, independent consumer groups, replay for newcomers. Key by account ID for per-account ordering. Risk: deletion/GDPR needs log compaction design, and partition count is set early-ish (adding partitions reorders keys' placement).</p>
+      <p class="answer"><strong>(c)</strong> The honest answer uses the keystone's procedure: work or history first, routing-vs-ops second, and it's fine for the first version to be just RabbitMQ — the whole L1–L6 toolkit applies — with Kafka added when a replay consumer actually appears, not before.</p>
+      <p class="why">The skill being drilled is refusing feature-matrix thinking: each requirement above names its broker by the <em>after-it's-handled</em> question, not by throughput numbers or fashion.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary sources — read both</span>
+  <strong>RabbitMQ's official comparison</strong> (honest, technical, from the team with the most to lose by honesty): <a href="https://www.rabbitmq.com/docs/compare/kafka">rabbitmq.com/docs/compare/kafka</a>. Then Jack Vanlightly's classic series for the deep architecture contrast: <a href="https://jack-vanlightly.com/blog/2017/12/4/rabbitmq-vs-kafka-part-1-messaging-topologies">RabbitMQ vs Kafka, Part 1</a> — core-team era, still the best long-form treatment. For SQS semantics, the AWS developer guide's pages on <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html">visibility timeouts</a>.
+</div>
+
+<div class="ask"><b>Ask me anything.</b> Best follow-up thread: run <em>your</em> scenario (c) past me as a design review — we now have the full vocabulary to argue it properly. And when you're ready to test these ideas against practitioners, <a href="https://www.reddit.com/r/rabbitmq">r/rabbitmq</a> and the <a href="https://groups.google.com/g/rabbitmq-users">rabbitmq-users group</a> (core team answers) are the right rooms.</div>
+
+<div class="nav">
+  <span>◄ <a href="0006-outbox-saga-eventual.html">Lesson 6 — Outbox &amp; sagas</a></span>
+  <span><a href="../reference/glossary.html">Glossary</a> · Planned arc complete ✔</span>
+</div>
+
+<h2 id="sources">Sources</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — official Kafka comparison: <a href="https://www.rabbitmq.com/docs/compare/kafka">rabbitmq.com/docs/compare/kafka</a> · Jack Vanlightly, <a href="https://jack-vanlightly.com/blog/2017/12/4/rabbitmq-vs-kafka-part-1-messaging-topologies">RabbitMQ vs Kafka Part 1</a> · AWS SQS developer guide</li>
+</ol>

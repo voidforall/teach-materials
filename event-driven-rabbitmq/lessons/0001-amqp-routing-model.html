@@ -1,0 +1,154 @@
+<title>MQ · Lesson 1 — The AMQP Routing Model</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Event-Driven Systems · Lesson 1</span><span>≈12 min</span></div>
+  <h1>Producers Never Touch Queues</h1>
+  <p class="dek">The one diagram all of RabbitMQ hangs off — and the folk model it corrects.</p>
+</header>
+
+<p>You've published and consumed messages before, so you've <em>used</em> this model — but most people who "know RabbitMQ basics" actually carry a folk model closer to SQS: <em>send message to queue, receive from queue</em>. RabbitMQ's model is richer, and the richness is exactly what you'll exploit when designing real systems. This lesson installs the correct mental diagram.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>The canonical pathway</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 210" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <!-- producer -->
+  <rect class="fl-box" x="10" y="75" width="110" height="50"/>
+  <text class="fl-name" x="65" y="96" text-anchor="middle">Producer</text>
+  <text class="fl-sub" x="65" y="112" text-anchor="middle">publish()</text>
+  <!-- broker boundary -->
+  <rect x="150" y="15" width="410" height="180" fill="none" stroke="#b8560f" stroke-width="1.2" stroke-dasharray="6 4" rx="10"/>
+  <text class="fl-sub" x="355" y="32" text-anchor="middle" style="fill:#b8560f">RabbitMQ broker</text>
+  <!-- exchange -->
+  <rect class="fl-box broker hot" x="175" y="75" width="120" height="50"/>
+  <text class="fl-name" x="235" y="96" text-anchor="middle">Exchange</text>
+  <text class="fl-sub" x="235" y="112" text-anchor="middle">+ routing key</text>
+  <!-- queues -->
+  <rect class="fl-box broker" x="400" y="25" width="130" height="44"/>
+  <text class="fl-name" x="465" y="44" text-anchor="middle">Queue A</text>
+  <text class="fl-sub" x="465" y="60" text-anchor="middle">binding: key = X</text>
+  <rect class="fl-box broker" x="400" y="140" width="130" height="44"/>
+  <text class="fl-name" x="465" y="159" text-anchor="middle">Queue B</text>
+  <text class="fl-sub" x="465" y="175" text-anchor="middle">binding: key = Y</text>
+  <!-- consumers -->
+  <rect class="fl-box" x="590" y="28" width="115" height="38"/>
+  <text class="fl-name" x="647" y="51" text-anchor="middle">Consumer</text>
+  <rect class="fl-box" x="590" y="143" width="115" height="38"/>
+  <text class="fl-name" x="647" y="166" text-anchor="middle">Consumer</text>
+  <!-- edges -->
+  <line class="fl-edge msg" x1="120" y1="100" x2="170" y2="100"/>
+  <path class="fl-edge msg2" d="M 295 95 C 340 80, 360 55, 396 47"/>
+  <path class="fl-edge dashed" d="M 295 105 C 340 120, 360 145, 396 160"/>
+  <line class="fl-edge" x1="530" y1="47" x2="585" y2="47"/>
+  <line class="fl-edge" x1="530" y1="162" x2="585" y2="162"/>
+  <!-- edge labels -->
+  <text class="fl-lbl" x="330" y="62">routed ✔</text>
+  <text class="fl-lbl o" x="330" y="152">no match ✘</text>
+</svg>
+<p class="flowlegend">A message is published <strong>to an exchange</strong>, never to a queue. The exchange copies it into every queue whose <strong>binding</strong> matches the routing key.</p>
+</div>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Producers address exchanges; consumers read queues; <em>bindings</em> are the glue.</strong> Producer and consumer share no names — only the exchange's routing rules decide where a message lands. That indirection is the whole point: it's what lets you add a consumer (an audit log, a new service) without touching the producer's code.
+</div>
+
+<div class="antipattern">
+  <span class="label">Folk model to unlearn</span>
+  "I'll publish to the <code>orders</code> queue." In AMQP you publish to an <em>exchange</em>. The common escape hatch — a <span class="term">default exchange</span> (<code>""</code>) that routes by queue name — is why the folk model survives: tutorials look like queue-to-queue messaging. It's a special case, not the model.
+</div>
+
+<h2>Message fate, decided at the exchange</h2>
+
+<p>A message that matches <strong>no</strong> binding is <strong>dropped</strong> — silently, unless the publisher asked otherwise (mandatory flag / publisher returns — Lesson 3). This is the number-one surprise in systems that "lose" messages: nothing crashed; the routing key just matched nothing.</p>
+
+<h2>The four exchange types you'd actually pick</h2>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>Exchange types — what the binding matches against the routing key</caption>
+  <tr><th>Type</th><th>Match rule</th><th>Use it for</th></tr>
+  <tr><td>direct</td><td>exact equality</td><td>one category of event (<code>order.created</code>)</td></tr>
+  <tr><td>fanout</td><td>ignore key, copy to all bound queues</td><td>broadcast (cache invalidation, config reload)</td></tr>
+  <tr><td class="match">topic</td><td>wildcard pattern: <code>*</code> = one word, <code>#</code> = zero+</td><td>most real systems (<code>order.*</code>, <code>#.failed</code>)</td></tr>
+  <tr><td>headers</td><td>match message headers, not key</td><td>rare; routing on structured attributes</td></tr>
+</table>
+</div>
+
+<p><strong>Default to <code>topic</code>.</strong> It subsumes <code>direct</code> (exact key) and costs nothing extra. Most production topologies end up as one durable <code>topic</code> exchange per domain, with a queue per consumer group bound by the events it wants.<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<h2>Two shapes every system is made of</h2>
+
+<p>Same pathway, opposite queue-sharing discipline. Getting this distinction crisp is what Lesson 5's topology design builds on:</p>
+
+<ul>
+  <li><strong>Work queue (competing consumers):</strong> several consumers share <em>one</em> queue; each message is handled by <em>exactly one</em> of them. For <em>doing</em> work — "process this payment." Scale by adding consumers.</li>
+  <li><strong>Pub/sub:</strong> each consumer has its <em>own</em> queue bound to the exchange; every consumer gets <em>a copy</em> of every message. For <em>reacting</em> to facts — "order created: send email, update analytics, audit log."</li>
+</ul>
+
+<p>The pattern lives in the <em>topology</em>, not the code: bind N queues for pub/sub, one queue with N consumers for work. Both can coexist against the same exchange.</p>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. A producer must deliver a copy of every order event to three services. What topology?</summary>
+    <p class="answer">One exchange; one queue per service; each queue bound to it.</p>
+    <p class="why">Three separate queues = pub/sub: each service consumes its own copy independently, at its own pace, with its own acks.</p>
+  </details>
+  <details>
+    <summary>Q2. A message's routing key matches no binding on that exchange. What happens?</summary>
+    <p class="answer">The broker discards the message outright, quietly.</p>
+    <p class="why">No error reaches the producer by default. Publisher-side detection (mandatory/returns) comes in Lesson 3.</p>
+  </details>
+  <details>
+    <summary>Q3. Bindings <code>order.*</code> and <code>#.failed</code> exist. Which matches <code>order.failed</code>?</summary>
+    <p class="answer">Both match — the message reaches both queues.</p>
+    <p class="why">Topic exchanges copy to <em>every</em> matching binding. <code>*</code> is exactly one dot-separated word; <code>#</code> is zero or more.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Design it — before you reveal</span>
+  <p style="margin-top:0">Your checkout service publishes <code>order.created</code>, <code>order.paid</code>, <code>order.cancelled</code>. Requirements: <strong>(a)</strong> payments must be processed by the worker pool (exactly one worker per order event); <strong>(b)</strong> the analytics service wants every order event; <strong>(c)</strong> a "failures" service wants only <code>order.cancelled</code>.</p>
+  <p>Sketch: exchange(s), type, queues, bindings. How many queues?</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal one good answer</summary>
+      <p class="answer"><strong>Three queues, one topic exchange</strong> (say <code>orders</code>):</p>
+      <ul>
+        <li><span class="term">q.payments</span> bound <code>order.*</code> → consumed by the worker pool <em>sharing this one queue</em> (competing consumers ⇒ exactly one worker per event, requirement a).</li>
+        <li><span class="term">q.analytics</span> bound <code>order.#</code> → analytics' private copy (b).</li>
+        <li><span class="term">q.failures</span> bound <code>order.cancelled</code> → only cancellations (c).</li>
+      </ul>
+      <p class="why">Notice the moves: requirement (a) is a work-queue, (b) and (c) are pub/sub — same exchange, different binding discipline per queue. Also notice what we did <em>not</em> do: no filter code anywhere; routing is declarative.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <strong>RabbitMQ tutorials 1–5</strong>, in order — each is ~10 minutes and maps exactly onto today's model: <a href="https://rabbitmq.com/getstarted.html">rabbitmq.com/getstarted.html</a>. Do them in your work language; watching routing behave beats reading about it.
+</div>
+
+<div class="ask"><b>Ask me anything.</b> Confused about why bindings exist at all, or when you'd reach for two exchanges instead of one? That's exactly what I'm here for — the follow-up question is the lesson working.</div>
+
+<div class="nav">
+  <span>◄ Course start</span>
+  <span><a href="../reference/glossary.html">Glossary</a> · Next: Consumer acks &amp; prefetch ►</span>
+</div>
+
+<h2 id="sources">Sources</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — AMQP 0-9-1 model: <a href="https://rabbitmq.com/tutorials/amqp-concepts">rabbitmq.com/tutorials/amqp-concepts</a></li>
+  <li id="s2">RabbitMQ — Tutorial 5 (Topics): <a href="https://rabbitmq.com/getstarted.html">rabbitmq.com/getstarted.html</a>; pattern vocabulary from <a href="https://www.enterpriseintegrationpatterns.com">Enterprise Integration Patterns</a> (Hohpe &amp; Woolf) — "Publish-Subscribe Channel" and "Competing Consumers."</li>
+</ol>

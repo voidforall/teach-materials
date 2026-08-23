@@ -1,0 +1,176 @@
+<title>MQ · Lesson 6 — Outbox, Sagas &amp; Eventual Consistency</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Event-Driven Systems · Lesson 6</span><span>≈14 min</span></div>
+  <h1>No Distributed Transactions. Design Accordingly.</h1>
+  <p class="dek">The outbox makes "commit + publish" atomic; sagas make multi-service processes recoverable; UX absorbs the rest.</p>
+</header>
+
+<p>Lesson 3 planted the dual-write problem and promised the outbox. But the outbox is one instance of a bigger truth: across a database and a broker — or across several services — <strong>there is no atomic commit</strong>. Nobody runs two-phase commit across service boundaries (2PC couples availability: one participant down, everything stalls). Everything in this lesson is what systems do instead.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>The transactional outbox, concretely</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 190" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <!-- app -->
+  <rect class="fl-box" x="15" y="55" width="130" height="70"/>
+  <text class="fl-name" x="80" y="80" text-anchor="middle">Order service</text>
+  <text class="fl-sub" x="80" y="97" text-anchor="middle">one DB tx:</text>
+  <text class="fl-sub" x="80" y="112" text-anchor="middle">row + event row</text>
+  <!-- db -->
+  <rect class="fl-box hot" x="185" y="30" width="160" height="120"/>
+  <text class="fl-name" x="265" y="52" text-anchor="middle">PostgreSQL</text>
+  <rect x="200" y="62" width="130" height="26" fill="#fff" stroke="#1f7a4d" stroke-width="1.4"/>
+  <text class="fl-sub" x="265" y="79" text-anchor="middle">orders (state)</text>
+  <rect x="200" y="98" width="130" height="26" fill="#fff" stroke="#1f7a4d" stroke-width="1.4"/>
+  <text class="fl-sub" x="265" y="115" text-anchor="middle">outbox (event)</text>
+  <text class="fl-sub" x="265" y="140" text-anchor="middle">committed atomically ✔</text>
+  <!-- relay -->
+  <rect class="fl-box" x="395" y="55" width="130" height="70"/>
+  <text class="fl-name" x="460" y="80" text-anchor="middle">Relay</text>
+  <text class="fl-sub" x="460" y="97" text-anchor="middle">poll / CDC</text>
+  <text class="fl-sub" x="460" y="112" text-anchor="middle">publish w/ confirms</text>
+  <!-- broker -->
+  <rect class="fl-box broker" x="575" y="55" width="130" height="70"/>
+  <text class="fl-name" x="640" y="80" text-anchor="middle">RabbitMQ</text>
+  <text class="fl-sub" x="640" y="97" text-anchor="middle">then mark row sent</text>
+  <!-- edges -->
+  <line class="fl-edge msg" x1="145" y1="90" x2="180" y2="90"/>
+  <line class="fl-edge msg2" x1="345" y1="90" x2="390" y2="90"/>
+  <path class="fl-edge dashed" d="M 460 125 C 460 165, 265 175, 265 155"/>
+  <text class="fl-sub" x="380" y="172" text-anchor="middle">mark sent (idempotent — relays may duplicate)</text>
+  <line class="fl-edge msg" x1="525" y1="90" x2="570" y2="90"/>
+</svg>
+<p class="flowlegend">The state change and its event commit <strong>together</strong>, or not at all. Publishing becomes a separate, retryable job — with confirms (L3) and idempotent marks, since the relay can crash between publish and mark.</p>
+</div>
+
+<p>Moving parts: an <span class="term">outbox</span> table (event payload, aggregate ID, sequence), a relay that publishes pending rows with publisher confirms and marks them sent. Relay implementations range from a 50-line poller to change-data-capture (Debezium) reading the transaction log. Consumers still must be idempotent — the relay itself can double-publish — so the L3 dedup key stays load-bearing.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A saga is a sequence of local transactions, each with its own outbox, where every step knows how to <em>undo</em> the ones before it.</strong> No step spans two systems — atomicity is always local; what's distributed is <em>recovery</em>. Failures aren't prevented, they're <em>designed for</em>: each forward action gets a <span class="term">compensating action</span> (reserve ↔ release, charge ↔ refund, create ↔ cancel).
+</div>
+
+<h2>Sagas: choreography vs orchestration</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <!-- forward steps -->
+  <rect class="fl-box hot" x="15" y="90" width="150" height="52"/>
+  <text class="fl-name" x="90" y="110" text-anchor="middle">1 · reserve stock</text>
+  <text class="fl-sub" x="90" y="126" text-anchor="middle">undo: release</text>
+  <rect class="fl-box hot" x="200" y="90" width="150" height="52"/>
+  <text class="fl-name" x="275" y="110" text-anchor="middle">2 · charge card</text>
+  <text class="fl-sub" x="275" y="126" text-anchor="middle">undo: refund</text>
+  <rect class="fl-box hot" x="385" y="90" width="150" height="52"/>
+  <text class="fl-name" x="460" y="110" text-anchor="middle">3 · schedule van</text>
+  <text class="fl-sub" x="460" y="126" text-anchor="middle">undo: cancel slot</text>
+  <rect class="fl-box hot" x="570" y="90" width="135" height="52"/>
+  <text class="fl-name" x="637" y="110" text-anchor="middle">4 · done ✔</text>
+  <text class="fl-sub" x="637" y="126" text-anchor="middle">order fulfilled</text>
+  <!-- forward edges -->
+  <line class="fl-edge msg" x1="165" y1="116" x2="195" y2="116"/>
+  <line class="fl-edge msg" x1="350" y1="116" x2="380" y2="116"/>
+  <line class="fl-edge msg" x1="535" y1="116" x2="565" y2="116"/>
+  <!-- failure marker -->
+  <text class="fl-lbl bad" x="460" y="70" text-anchor="middle">step 3 fails 💥</text>
+  <path class="fl-edge comp" d="M 460 92 C 460 40, 275 40, 275 85" marker-end="url(#fl-arrow2)"/>
+  <path class="fl-edge comp" d="M 250 100 C 180 50, 100 50, 90 85" marker-end="url(#fl-arrow2)"/>
+  <text class="fl-lbl bad" x="180" y="42">compensations run backward: refund, release</text>
+</svg>
+<p class="flowlegend">Forward path in green, compensation path in red. A saga failing at step 3 of 4 unwinds <em>only the completed steps</em>, in reverse.</p>
+</div>
+
+<p>Two ways to wire the steps together — this is a topology decision (L5):</p>
+
+<ul>
+  <li><strong>Choreography:</strong> services react to each other's events — inventory hears <code>order.placed</code>, emits <code>stock.reserved</code>; payment hears that, emits <code>card.charged</code>… No coordinator; the flow <em>emerges</em> from bindings. Wins on coupling and startup cost; loses track of the plot as steps grow — "who reacts to what?" becomes archaeology. Use for 2–3 steps.</li>
+  <li><strong>Orchestration:</strong> a saga state machine (own service or library) sends <em>commands</em> and consumes results: <code>reserve.stock</code>, then <code>charge.card</code>, and on failure it issues the compensations in order. The process lives in one readable place, with explicit failure branches. Use when steps ≥ 4, branch, or need timeouts. Watch the failure mode: an orchestrator that grows into a god service.</li>
+</ul>
+
+<p class="note">Naming carries the model (glossary): steps are <em>commands</em> — imperative, addressed, one logical consumer (<code>charge.card</code>); announcements are <em>events</em> — factual, broadcast (<code>card.charged</code>). Sagas speak commands forward, often emit events for the world.</p>
+
+<h2>Eventual consistency: it's a UX problem now</h2>
+
+<p>"Order confirmed" will be true in the payments service seconds after it's true in the order service. Technically fine (L3's guards handle stale reads); the user-facing part is <em>yours</em> to design:</p>
+
+<ul>
+  <li><strong>Model the pending state</strong> — "payment processing…" is a real state in your domain, not a spinner hiding one. Expose it in the API and UI.</li>
+  <li><strong>Don't fake synchronous answers over async plumbing</strong> — if the caller needs the result now, that's a request/response (HTTP) call. Request/reply over RabbitMQ exists (correlation IDs, reply queues) and is legitimate for genuinely async request-response, but a sync façade over a saga just moves the timeout.</li>
+  <li><strong>Make lag a metric</strong> — queue depth and consumer lag (L5) are your "how eventual?" dashboard. Eventual with a 30-second tail isn't a consistency policy; it's an outage you haven't declared yet.</li>
+</ul>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. Why can't a DB commit and a publish ever be one transaction?</summary>
+    <p class="answer">The database and the broker share no transaction coordinator.</p>
+    <p class="why">2PC could theoretically span them but couples availability — one system down stalls all commits. Hence the outbox: local atomicity, distributed retry.</p>
+  </details>
+  <details>
+    <summary>Q2. A saga fails at step 3 of 4. What exactly runs next?</summary>
+    <p class="answer">Compensating transactions for the completed steps, reversed.</p>
+    <p class="why">Undo is for what <em>happened</em> — steps 1–2. The failed step leaves nothing to undo. Compensations are themselves saga steps: retryable, idempotent.</p>
+  </details>
+  <details>
+    <summary>Q3. Choreography or orchestration for a five-step branching flow?</summary>
+    <p class="answer">Orchestration — a branching flow needs one visible home.</p>
+    <p class="why">Five subscribers chained by bindings buries the process logic. Rule of thumb: choreography to ~3 steps, orchestration beyond or with branches/timeouts.</p>
+  </details>
+  <details>
+    <summary>Q4. The UI must acknowledge payment instantly. What does it show?</summary>
+    <p class="answer">A pending state immediately, confirmed when the event lands.</p>
+    <p class="why">Pending is a real domain state, not a spinner. Faking certainty ("paid!") before the saga confirms it is the classic eventual-consistency bug.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Design it — before you reveal</span>
+  <p style="margin-top:0">Refund flow for the food-delivery platform (L5's capstone): customer requests refund after delivery. Steps: <strong>(1)</strong> verify order was delivered, <strong>(2)</strong> refund the payment, <strong>(3)</strong> claw back the restaurant's payout, <strong>(4)</strong> notify the customer. The payment provider is eventually consistent itself (refund accepted ≠ refund completed). Choose choreography or orchestration, list the messages (commands vs events), define compensations if any, and say what the customer's app shows at t=0.</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal one good answer</summary>
+      <p class="answer"><strong>Orchestration</strong> — 4 steps, an external eventually-consistent provider, and refunds are money: you want the state machine auditable in one place.</p>
+      <ul>
+        <li>Messages: commands <code>verify.delivery</code>, <code>refund.payment</code>, <code>clawback.payout</code>, <code>notify.customer</code>; the world hears the fact <code>refund.completed</code>.</li>
+        <li>The provider's async completion comes back as event <code>refund.provider_completed</code> (or a webhook → outbox); the orchestrator advances on it, not on "accepted".</li>
+        <li>Compensations: verify-fail → nothing to undo, emit <code>refund.rejected</code>. Payment refund fails → terminate + notify (no clawback). Clawback fails → retry ladder (L4); it is <em>not</em> compensated by re-charging the customer — money asymmetries go to humans (parking lot), not automation.</li>
+        <li>Outboxes: every step's state change + next message commit together (the orchestrator's own DB, the payment service's DB). Consumers idempotent throughout.</li>
+        <li>UI at t=0: <strong>"refund requested"</strong> — pending is a real state; confirm on <code>refund.completed</code>.</li>
+      </ul>
+      <p class="why">The three hard-won points: orchestrator waits on <em>completion</em> events, not acknowledgements; some steps are terminal-for-humans rather than compensable; the outbox recurses — it's the same pattern at every service boundary.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <strong>microservices.io — Chris Richardson's pattern catalog</strong>: <a href="https://microservices.io/patterns/data/saga.html">Saga</a>, <a href="https://microservices.io/patterns/data/transactional-outbox.html">Transactional Outbox</a>, and <a href="https://microservices.io/patterns/data/event-sourcing.html">Event Sourcing</a> (the adjacent idea we deliberately didn't cover). Richardson's catalog is the most cited, coherent treatment of exactly these patterns.
+</div>
+
+<div class="ask"><b>Ask me anything.</b> Worth arguing about: "isn't the orchestrator just a distributed transaction with extra steps?" (no — but the reasons are subtle), "when is event sourcing worth it over an outbox?", and "how do you test a saga?" (contract tests + the L4 short-TTL trick).</div>
+
+<div class="nav">
+  <span>◄ <a href="0005-topology-design.html">Lesson 5 — Topology design</a></span>
+  <span><a href="../reference/glossary.html">Glossary</a> · Next: RabbitMQ vs Kafka vs SQS ►</span>
+</div>
+
+<h2 id="sources">Sources</h2>
+<ol class="note">
+  <li id="s1">microservices.io — Saga &amp; Transactional Outbox: <a href="https://microservices.io/patterns/data/saga.html">saga</a> · <a href="https://microservices.io/patterns/data/transactional-outbox.html">outbox</a>; pattern vocabulary cross-checked against <a href="https://www.enterpriseintegrationpatterns.com">Enterprise Integration Patterns</a> (Hohpe &amp; Woolf)</li>
+</ol>

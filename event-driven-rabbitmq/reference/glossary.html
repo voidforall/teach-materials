@@ -1,0 +1,153 @@
+<title>MQ · Glossary</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Event-Driven Systems · Reference</span><span>living doc</span></div>
+  <h1>Glossary</h1>
+  <p class="dek">Authoritative vocabulary for the course. Lessons adhere to these definitions.</p>
+</header>
+
+<style>
+  dl.gloss dt { font-family: var(--sans); font-weight: 700; margin-top: 1.1rem; }
+  dl.gloss dd { margin: 0.25rem 0 0 0; }
+  dl.gloss dd .aka { font-family: var(--sans); font-size: 0.8rem; color: var(--muted); }
+</style>
+
+<dl class="gloss">
+
+<dt>Producer (publisher)</dt>
+<dd>The client that <span class="term">publish</span>es messages <strong>to an exchange</strong>. It never addresses a queue directly (except via the default exchange's name-as-routing-key special case).</dd>
+
+<dt>Exchange</dt>
+<dd>A routing table inside the broker. Receives published messages plus a <em>routing key</em>, and copies each message into every queue whose <em>binding</em> matches. Types: <span class="term">direct</span>, <span class="term">fanout</span>, <span class="term">topic</span>, <span class="term">headers</span>.</dd>
+
+<dt>Routing key</dt>
+<dd>An arbitrary string the publisher attaches to a message. What it means is defined entirely by the exchange type's match rule; dot-separated words for <span class="term">topic</span> (<code>order.paid</code>).</dd>
+
+<dt>Binding</dt>
+<dd>The rule attaching a queue to an exchange — for topic exchanges, a pattern with <code>*</code> (exactly one word) and <code>#</code> (zero or more words). A message matching no binding is dropped.</dd>
+
+<dt>Queue</dt>
+<dd>A durable-ish FIFO buffer holding messages until a consumer acknowledges them. Competing consumers share one queue; pub/sub gives each consumer its own.</dd>
+
+<dt>Consumer</dt>
+<dd>A client subscribed to a queue, receiving deliveries it must <span class="term">ack</span> (Lesson 2).</dd>
+
+<dt>Default exchange</dt>
+<dd>The nameless <span class="term">direct</span> exchange every broker has: routing key = queue name. The source of the "publish to a queue" folk model.</dd>
+
+<dt>Competing consumers <span class="aka">(work queue)</span></dt>
+<dd>Many consumers on one queue; each message processed exactly once by one of them. Shape for <em>doing</em> work. <span class="aka">EIP name: Competing Consumers.</span></dd>
+
+<dt>Pub/sub</dt>
+<dd>One exchange, one queue per consumer group, every group gets its own copy. Shape for <em>reacting</em> to facts. <span class="aka">EIP name: Publish-Subscribe Channel.</span></dd>
+
+<dt>Ack (basic.ack)</dt>
+<dd>The consumer's verdict "handled — delete it." The <strong>only</strong> thing that deletes a message from a queue with manual acks. Placement of the ack call (after processing succeeds, not on receipt) is the consumer's durability policy.</dd>
+
+<dt>Nack / reject</dt>
+<dd>"Can't handle it." With <span class="term">requeue=true</span> it goes back to the queue (careful: instant redelivery loop); with <code>false</code> it is dropped or dead-lettered (Lesson 4).</dd>
+
+<dt>Unacked</dt>
+<dd>Limbo state: delivered to a consumer, awaiting verdict. Hidden from competitors but not deleted. If the channel/connection dies, everything unacked requeues.</dd>
+
+<dt>At-least-once delivery</dt>
+<dd>The guarantee manual acks buy you: a message is delivered one-or-more times, never zero. Consequence: consumers must be <strong>idempotent</strong> (safe to run twice on the same message).</dd>
+
+<dt>Auto-ack</dt>
+<dd>Mode where the broker deletes messages as it sends them — at-most-once. Crash mid-processing loses work. Only for lossy traffic (metrics, ticks).</dd>
+
+<dt>Prefetch (QoS)</dt>
+<dd>Cap on unacked in-flight messages per consumer channel. Never 0 (unlimited) in production; 1 for strict fairness/order-sensitivity; 10–100 typical. Also the fairness mechanism for competing consumers.</dd>
+
+<dt>Redelivered flag</dt>
+<dd>Marker on a message the broker has delivered before. A signal for retry logic, not a substitute for idempotency.</dd>
+
+<dt>Publisher confirms</dt>
+<dd>Broker-side acks for publishes: the broker confirms each message it accepted (and persisted, if the queue is durable). No confirm → retry → duplicates possible. Complements consumer acks to make at-least-once a system-wide property.</dd>
+
+<dt>Mandatory / returns</dt>
+<dd>Publish flag making unroutable messages (no binding matched) come back to the publisher as a <code>basic.return</code> instead of being silently dropped. In production, treat an unroutable message as an alarm.</dd>
+
+<dt>Idempotency</dt>
+<dd>Handler property: running twice on the same message has the same effect as once. Achieved by natural idempotency (set state, don't apply deltas), a deduplication key (unique message ID + processed-table insert), or state/version guards.</dd>
+
+<dt>Deduplication key</dt>
+<dd>Unique ID assigned to a message at creation; consumers record processed IDs atomically (<code>ON CONFLICT DO NOTHING</code>) to detect redeliveries.</dd>
+
+<dt>Dual-write problem</dt>
+<dd>Writing to a DB and publishing to a broker in one code path — no shared transaction, so crashes produce phantom or lost events. Solved by the transactional outbox (write event + state in one transaction; relay separately).</dd>
+
+<dt>Outbox <span class="aka">(transactional outbox)</span></dt>
+<dd>Pattern: persist the event in an <code>outbox</code> table inside the same DB transaction as the state change; a separate relay publishes it with confirms and marks rows sent. Full lesson: 6.</dd>
+
+<dt>Dead-letter exchange <span class="aka">(DLX)</span></dt>
+<dd>A queue attribute naming an exchange that receives the queue's dead-lettered messages. Triggers: <span class="term">rejected</span> (nack with requeue=false), <span class="term">expired</span> (TTL ran out), <span class="term">overflow</span> (max length hit). Dead-lettered messages gain an <code>x-death</code> header and are re-published through the DLX with normal routing.</dd>
+
+<dt>x-death header</dt>
+<dd>Array the broker attaches to dead-lettered messages: source queue, reason, count, timestamps. The count powers retry caps ("park after 3 deaths").</dd>
+
+<dt>Retry ladder</dt>
+<dd>Backoff pattern: a chain of TTL queues (10s → 1m → 5m …), each dead-lettering back to the work exchange on expiry. Broker holds the message during backoff; consumers never sleep. One TTL <em>per queue</em> — mixed per-message TTLs head-of-line block.</dd>
+
+<dt>Poison message</dt>
+<dd>A message that can never succeed (malformed, dangling reference, handler bug). Mechanically detected by capped <code>x-death</code> count; routed to a parking-lot queue for humans. Wire the parking lot to alerts/tickets or it's a black hole.</dd>
+
+<dt>Parking lot</dt>
+<dd>Terminal queue for exhausted retries. No consumer; monitored. Not a bug tracker — feed one.</dd>
+
+<dt>TTL <span class="aka">(time to live)</span></dt>
+<dd>Per-queue (preferred) or per-message expiry. Expiry dead-letters the message — the mechanism that turns a TTL queue + DLX into a delay timer.</dd>
+
+<dt>Durability trinity</dt>
+<dd>Durable exchange + durable queue (quorum) + persistent message (<code>delivery_mode=2</code>) — all three, or a confirmed message still vanishes on broker restart. Defaults are <em>not</em> this combination.</dd>
+
+<dt>Quorum queue</dt>
+<dd>Replicated, consensus-based queue type; the modern default for data that matters. Application-code impact ~zero; it's a durability/ops upgrade over classic queues.</dd>
+
+<dt>Consistent-hash exchange</dt>
+<dd>Exchange type (bundled plugin) that routes by hashing the routing key across bound queues — entity-scoped ordering with parallelism. Kafka-partition behavior in RabbitMQ.</dd>
+
+<dt>Tolerant reader</dt>
+<dd>Consumer that ignores unknown fields and defaults missing optional ones — makes additive schema changes coordination-free. Paired with versioned routing keys (<code>order.placed.v2</code>) for breaking changes.</dd>
+
+<dt>Transactional outbox <span class="aka">(relay)</span></dt>
+<dd>Pattern making "commit state + publish event" safe: both rows commit in one DB transaction; a separate relay publishes pending outbox rows with confirms and marks them sent. Relays may double-publish — consumers stay idempotent. Relay implementations: poller or CDC (Debezium).</dd>
+
+<dt>Saga</dt>
+<dd>A multi-service business process as a sequence of <em>local</em> transactions, each with its own outbox. No atomicity spans services; instead every forward step has a <strong>compensating action</strong> (reserve ↔ release, charge ↔ refund). Failures are recovered, not prevented.</dd>
+
+<dt>Choreography</dt>
+<dd>Saga coordination by events alone: services react to each other's facts; the flow emerges from bindings. Loose coupling, but process logic scatters as steps grow. Rule of thumb: ≤3 steps.</dd>
+
+<dt>Orchestration</dt>
+<dd>Saga coordination by a state machine that sends commands and consumes results, owning failure branches and compensations explicitly. The process is auditable in one place. Use for ≥4 steps, branching, timeouts, money. Failure mode: the god orchestrator.</dd>
+
+<dt>Compensating action</dt>
+<dd>The undo for a completed saga step (refund, release, cancel). Ordered reverse execution on failure. Some steps have no meaningful compensation — route them to humans, not automation.</dd>
+
+<dt>Eventual consistency</dt>
+<dd>Cross-service state converges asynchronously. Technically handled by idempotency + version guards; the remaining burden is UX — model pending states, don't fake synchronous answers, monitor lag as an SLA.</dd>
+
+<dt>Log of record <span class="aka">(vs task queue)</span></dt>
+<dd>The broker-choice axis: what happens after handling? A <em>task queue</em> deletes on ack (work to do once — RabbitMQ, SQS); a <em>log of record</em> retains and is re-readable at any offset (history — Kafka). Mature systems often run both: Kafka stream of record + RabbitMQ work queues at the seam.</dd>
+
+<dt>Offset <span class="aka">(Kafka)</span></dt>
+<dd>A consumer group's per-partition read position — the analogue of an ack, committed in batches, never per message. Failure handling and retries are application-level (retry topics).</dd>
+
+<dt>Consumer group <span class="aka">(Kafka)</span></dt>
+<dd>Kafka's competing consumers: members share a group, partitions are assigned among them — parallelism capped at partition count, strict per-partition ordering. Independent groups each read the full log (pub/sub shape).</dd>
+
+<dt>Visibility timeout <span class="aka">(SQS)</span></dt>
+<dd>SQS's ack analogue: a received message hides for N seconds; if not deleted in time it reappears. At-least-once with the same idempotency bill; timer tuning replaces prefetch tuning.</dd>
+
+<dt>Redrive policy <span class="aka">(SQS)</span></dt>
+<dd>SQS's built-in parking lot: after <code>maxReceiveCount</code>, messages move to a dead-letter queue. The nicest opinionated version of Lesson 4's ladder.</dd>
+
+<dt>Event <span class="aka">(fact)</span></dt>
+<dd>A notification that something already happened (<code>order.created</code>). Contrast with a <em>command</em> (<code>charge.card</code>), which asks something to happen. Drives who owns naming and payloads.</dd>
+
+</dl>
+
+<p class="note">Entries expand as lessons cover acks, confirms, DLX, prefetch, and patterns (outbox, saga).</p>

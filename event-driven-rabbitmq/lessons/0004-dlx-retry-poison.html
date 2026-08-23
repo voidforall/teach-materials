@@ -1,0 +1,157 @@
+<title>MQ · Lesson 4 — Dead Letters, Retry &amp; Poison</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Event-Driven Systems · Lesson 4</span><span>≈13 min</span></div>
+  <h1>Failing a Message, Properly</h1>
+  <p class="dek">Dead-letter exchanges, the retry ladder with backoff, and the parking lot for poison.</p>
+</header>
+
+<p>Lesson 2 gave you <span class="term">nack</span>, and a warning I deferred: <code>nack(requeue=true)</code> sends the message straight back to the head of the queue — instant redelivery, hot loop, same failure, forever. This lesson is the production answer: a <em>mechanical</em> pipeline for messages that can't be handled right now.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>Dead-lettering: the redirect you configure, not code</h2>
+
+<p>A queue can declare a <span class="term">dead-letter exchange</span> (DLX) — "where messages go when they leave this queue without being consumed." Three triggers:<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>What dead-letters a message out of a queue</caption>
+  <tr><th>Trigger</th><th>When</th></tr>
+  <tr><td class="match">rejected</td><td>consumer <code>nack</code>/<code>reject</code> with <code>requeue=false</code></td></tr>
+  <tr><td class="match">expired</td><td>message TTL ran out (per-message or per-queue)</td></tr>
+  <tr><td class="match">overflow</td><td>queue hit its max length — oldest messages evicted</td></tr>
+</table>
+</div>
+
+<p>The dead-lettered message is <em>re-published</em> to the DLX with all its original properties plus an <span class="term">x-death</span> header (queue it came from, reason, count, timestamps). From there, normal routing applies — which is the trick everything below exploits: <strong>the DLX can route back into your own topology</strong>, not just into an error bucket.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  A queue's TTL expiry dead-letters the message; the DLX routes it back to the work queue. <strong>Put a queue in front of that redirect and you've built a timer — a delayed retry — with zero code.</strong> Backoff is just a ladder of such queues with growing TTLs. The broker does the sleeping; your consumer only ever sees "try again, later."
+</div>
+
+<h2>The retry ladder</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <!-- work exchange -->
+  <rect class="fl-box broker" x="20" y="30" width="150" height="52"/>
+  <text class="fl-name" x="95" y="52" text-anchor="middle">exchange: work</text>
+  <text class="fl-sub" x="95" y="68" text-anchor="middle">topic</text>
+  <!-- work queue -->
+  <rect class="fl-box broker hot" x="20" y="130" width="150" height="52"/>
+  <text class="fl-name" x="95" y="152" text-anchor="middle">q.orders</text>
+  <text class="fl-sub" x="95" y="168" text-anchor="middle">DLX → retry</text>
+  <!-- consumer -->
+  <rect class="fl-box" x="230" y="132" width="130" height="48"/>
+  <text class="fl-name" x="295" y="152" text-anchor="middle">Consumer</text>
+  <text class="fl-sub" x="295" y="168" text-anchor="middle">nack(requeue=false)</text>
+  <!-- retry queues ladder -->
+  <rect class="fl-box" x="420" y="40" width="140" height="44"/>
+  <text class="fl-name" x="490" y="58" text-anchor="middle">retry.10s</text>
+  <text class="fl-sub" x="490" y="74" text-anchor="middle">TTL 10s · DLX→work</text>
+  <rect class="fl-box" x="420" y="130" width="140" height="44"/>
+  <text class="fl-name" x="490" y="148" text-anchor="middle">retry.1m</text>
+  <text class="fl-sub" x="490" y="164" text-anchor="middle">TTL 1m · DLX→work</text>
+  <rect class="fl-box" x="420" y="220" width="140" height="44"/>
+  <text class="fl-name" x="490" y="238" text-anchor="middle">retry.5m</text>
+  <text class="fl-sub" x="490" y="254" text-anchor="middle">TTL 5m · DLX→work</text>
+  <!-- retry exchange -->
+  <rect class="fl-box broker" x="230" y="30" width="150" height="52"/>
+  <text class="fl-name" x="305" y="52" text-anchor="middle">exchange: retry</text>
+  <text class="fl-sub" x="305" y="68" text-anchor="middle">routes by x-death count</text>
+  <!-- parking lot -->
+  <rect class="fl-box" x="610" y="130" width="100" height="44" style="stroke:#a12d2d; fill:#f7ecec"/>
+  <text class="fl-name" x="660" y="148" text-anchor="middle" style="fill:#a12d2d">parking</text>
+  <text class="fl-sub" x="660" y="164" text-anchor="middle">humans look</text>
+  <!-- edges -->
+  <line class="fl-edge msg" x1="95" y1="82" x2="95" y2="126"/>
+  <line class="fl-edge msg2" x1="170" y1="156" x2="225" y2="156"/>
+  <path class="fl-edge dashed" d="M 295 132 C 295 95, 290 60, 385 55"/>
+  <text class="fl-lbl o" x="330" y="70">failed → retry exch</text>
+  <line class="fl-edge" x1="380" y1="55" x2="415" y2="60"/>
+  <path class="fl-edge dashed" d="M 490 84 C 470 105, 430 130, 385 150"/>
+  <text class="fl-lbl" x="415" y="115">TTL fires → back to work</text>
+  <path class="fl-edge dashed" d="M 420 242 C 380 230, 300 215, 180 190"/>
+  <text class="fl-lbl" x="330" y="235">and again, later</text>
+  <path class="fl-edge msg2" d="M 560 100 C 600 110, 620 120, 635 128"/>
+  <text class="fl-lbl o" x="600" y="95">x-death ≥ 3</text>
+</svg>
+<p class="flowlegend">Failure path: <code>q.orders</code> dead-letters into the retry exchange → lands in a TTL queue → expiry routes it <em>back to the work queue</em>. After too many deaths (<code>x-death</code> count), route to a parking lot instead of around again.</p>
+</div>
+
+<p>Walk one message through: the consumer fails on it → <code>nack(requeue=false)</code> → <code>q.orders</code> dead-letters it to the <code>retry</code> exchange → it sits in <code>retry.10s</code> for ten seconds → TTL expiry dead-letters it back to <code>work</code> → the consumer tries again. Third failure: the retry exchange sees <code>x-death.count ≥ 3</code> and routes it to <span class="term">parking</span> — a plain queue with no consumer, whose <em>job</em> is to be watched by humans and dashboards.</p>
+
+<div class="antipattern">
+  <span class="label">Two traps, both common</span>
+  <strong>(1) In-memory sleep in the handler</strong> — blocks a consumer slot (prefetch, Lesson 2) while doing nothing; under load your whole worker pool is sleeping. Never sleep in the handler; let the broker hold the message. <strong>(2) Per-message TTL in a shared retry queue</strong> — expiry is only checked at the queue's <em>head</em>, so one long-TTL message pins shorter ones behind it (head-of-line blocking). One TTL per queue — that's why it's a <em>ladder</em> of queues.
+</div>
+
+<h2>Poison messages, and cycle protection</h2>
+
+<p>A <span class="term">poison message</span> fails every time — malformed payload, missing reference, bug in the handler. It can never succeed, so retrying is pure waste; worse, it clogs the queue and starves good messages. The ladder handles it automatically via the <code>x-death</code> count: capped retries, then parking lot. The parking lot is not a bug tracker — wire it to one (alert, dump to a table, ticket) or nobody will ever look.</p>
+
+<p class="note">RabbitMQ also protects against <em>immediate</em> cycles: a message dead-lettered back to a queue it already passed through, with nothing changed, is dropped rather than spun forever. Your ladder avoids cycles anyway — every hop changes TTL queue and bumps the count.</p>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. Why a ladder of TTL queues instead of one retry queue?</summary>
+    <p class="answer">Expiry is only checked at a queue's head.</p>
+    <p class="why">Mixed TTLs in one queue head-of-line block: one 5-minute message pins every 10-second message behind it. One TTL per queue avoids it.</p>
+  </details>
+  <details>
+    <summary>Q2. Which nack call puts a message on the retry path?</summary>
+    <p class="answer">nack with requeue set to false.</p>
+    <p class="why"><code>requeue=true</code> is the instant-redelivery hot loop from Lesson 2; <code>false</code> triggers the queue's dead-lettering.</p>
+  </details>
+  <details>
+    <summary>Q3. What distinguishes a retryable failure from poison, mechanically?</summary>
+    <p class="answer">The x-death count after repeated failures.</p>
+    <p class="why">You can't know the future — so you cap attempts (count ≥ 3) and park. Transient errors recover within the ladder; poison never does.</p>
+  </details>
+  <details>
+    <summary>Q4. Who "sleeps" during a five-minute backoff?</summary>
+    <p class="answer">Nobody — the message waits in the broker's retry queue.</p>
+    <p class="why">The consumer keeps processing other messages; handler-side sleeps would burn prefetch slots and stall the pool.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Design it — before you reveal</span>
+  <p style="margin-top:0">Your email-sending consumer fails whenever the SMTP provider 500s (transient, recovers in ~a minute) and also occasionally gets an address like <code>nobody@invalid</code> (permanent). Design the failure path: exchanges, queues, TTLs, bindings, and what the consumer does differently in each failure case. <strong>Hint: can the consumer tell the two cases apart before it nacks?</strong></p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal one good answer</summary>
+      <p class="answer"><strong>Yes — classify before nack.</strong> A 5xx from the provider is retryable: <code>nack(requeue=false)</code> onto the ladder (10s → 1m → 5m, then park). A rejected address (4xx / validation failure) is poison — retrying can never fix it, so don't even start the ladder: either publish straight to <code>parking</code>, or keep a two-hop micro-ladder (one retry) for safety. Beyond that, the topology is exactly the ladder diagram: <code>q.emails</code> with DLX → <code>retry</code> exchange → TTL queues bound by routing key; TTL expiry routes back to <code>work</code>; binding <code>x-death ≥ 3 → parking</code>.</p>
+      <p class="why">The deep point: <strong>retry policy is per-failure-class, and the consumer is the only place that knows the class.</strong> The ladder handles "later might help"; parking handles "later never helps"; classification is a <em>code</em> responsibility the topology can't do for you.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary sources — read both</span>
+  <strong>RabbitMQ: Dead Lettering</strong> — exact x-death semantics and cycle rules: <a href="https://rabbitmq.com/docs/dlx">rabbitmq.com/docs/dlx</a>. Then CloudAMQP's practical walkthrough: <a href="https://www.cloudamqp.com/blog/when-and-how-to-use-the-rabbitmq-dead-letter-exchange.html">When and how to use the DLX</a>. Revisit the <a href="https://www.rabbitmq.com/blog/2022/03/29/at-least-once-dead-lettering.html">at-least-once dead-lettering blog post</a> when you care about the edge where dead-lettering itself can drop.
+</div>
+
+<div class="ask"><b>Ask me anything.</b> Good threads to pull: "should the parking lot have one queue per domain or one global?", "when is the delayed-message plugin better than a TTL ladder?", and "how do I test a retry topology without waiting for real TTLs?" (spoiler: short TTLs in CI).</div>
+
+<div class="nav">
+  <span>◄ <a href="0003-publisher-confirms-idempotency.html">Lesson 3 — Confirms &amp; idempotency</a></span>
+  <span><a href="../reference/glossary.html">Glossary</a> · Next: Topology design for real services ►</span>
+</div>
+
+<h2 id="sources">Sources</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — Dead lettering: <a href="https://rabbitmq.com/docs/dlx">rabbitmq.com/docs/dlx</a></li>
+  <li id="s2">CloudAMQP — When and how to use the DLX: <a href="https://www.cloudamqp.com/blog/when-and-how-to-use-the-rabbitmq-dead-letter-exchange.html">cloudamqp.com/blog</a></li>
+</ol>

@@ -1,0 +1,150 @@
+<title>MQ · Lesson 2 — Consumer Acks &amp; Prefetch</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Event-Driven Systems · Lesson 2</span><span>≈12 min</span></div>
+  <h1>The Message Isn't Gone Until You Ack It</h1>
+  <p class="dek">Delivery semantics from the consumer's side: acks, redelivery, and the prefetch window.</p>
+</header>
+
+<p>Last lesson you learned where messages go. This one is about <strong>when a message stops existing</strong> — and it's the difference between a system that survives a crash and one that quietly loses work. Everything here is one idea with consequences.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>The delivery contract</h2>
+
+<p>When your consumer receives a message, the broker puts it in a limbo state for your channel: <span class="term">unacked</span> ("delivered, awaiting verdict"). The message is hidden from other consumers but <strong>not deleted</strong>. You then return exactly one of three verdicts:</p>
+
+<div style="overflow-x:auto">
+<table class="bindings">
+  <caption>The three verdicts a consumer can return</caption>
+  <tr><th>Call</th><th>Meaning</th><th>Broker's response</th></tr>
+  <tr><td class="match">ack</td><td>handled, done</td><td>delete the message</td></tr>
+  <tr><td>nack / reject</td><td>can't handle it</td><td>requeue it, or dead-letter it (Lesson 4)</td></tr>
+  <tr><td><em>(connection dies)</em></td><td>no verdict arrived</td><td>requeue automatically</td></tr>
+</table>
+</div>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A message is deleted only on <span class="term">ack</span>.</strong> Crash, timeout, channel closed — anything short of an ack means the broker requeues and <em>redelivers</em>, to you or a competitor. That's <strong>at-least-once delivery</strong>: you may see the same message twice, never zero times. Every consumer you write must be safe to run twice on the same message — <em>idempotent</em>. This is not a caveat; it's the contract you design against.
+</div>
+
+<h2>The failure scenario, played out</h2>
+
+<div class="flow">
+<svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="fl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667080"/>
+    </marker>
+  </defs>
+  <!-- queue -->
+  <rect class="fl-box broker" x="20" y="20" width="150" height="200"/>
+  <text class="fl-name" x="95" y="42" text-anchor="middle">Queue</text>
+  <!-- messages -->
+  <rect x="40" y="150" width="110" height="24" fill="#fff" stroke="#1d5c8a" stroke-width="1.4"/>
+  <text class="fl-sub" x="95" y="166" text-anchor="middle">m2, m3 (ready)</text>
+  <rect x="40" y="60" width="110" height="24" fill="#fff" stroke="#b8560f" stroke-width="1.8"/>
+  <text class="fl-sub" x="95" y="76" text-anchor="middle" style="fill:#b8560f">m1 (unacked)</text>
+  <!-- consumer -->
+  <rect class="fl-box hot" x="300" y="40" width="160" height="60"/>
+  <text class="fl-name" x="380" y="64" text-anchor="middle">Consumer A</text>
+  <text class="fl-sub" x="380" y="80" text-anchor="middle">processing m1… 💥</text>
+  <!-- consumer B -->
+  <rect class="fl-box" x="300" y="160" width="160" height="50"/>
+  <text class="fl-name" x="380" y="182" text-anchor="middle">Consumer B</text>
+  <text class="fl-sub" x="380" y="198" text-anchor="middle">(competitor, same queue)</text>
+  <!-- verdict box -->
+  <rect class="fl-box" x="550" y="105" width="150" height="46"/>
+  <text class="fl-name" x="625" y="125" text-anchor="middle">Broker</text>
+  <text class="fl-sub" x="625" y="141" text-anchor="middle">requeues m1</text>
+  <!-- edges -->
+  <line class="fl-edge msg2" x1="170" y1="70" x2="295" y2="70"/>
+  <text class="fl-lbl o" x="228" y="60" text-anchor="middle">deliver m1</text>
+  <path class="fl-edge dashed" d="M 300 160 C 260 160, 240 100, 175 95"/>
+  <text class="fl-lbl" x="228" y="130" text-anchor="middle">redeliver m1 ✔</text>
+  <path class="fl-edge dashed" d="M 460 65 C 520 65, 530 105, 545 120"/>
+  <text class="fl-lbl o" x="512" y="60">connection dies</text>
+  <line class="fl-edge msg" x1="170" y1="162" x2="295" y2="180"/>
+  <text class="fl-lbl" x="230" y="200" text-anchor="middle">deliver m2</text>
+</svg>
+<p class="flowlegend">Consumer A crashes mid-<code>m1</code> with no ack → broker requeues <code>m1</code> → competitor B gets it. Work queue semantics from Lesson 1 + at-least-once: <strong>B may be re-doing work A already half-finished.</strong></p>
+</div>
+
+<h2>Auto-ack: the footgun</h2>
+
+<div class="antipattern">
+  <span class="label">Anti-pattern</span>
+  <span class="term">auto-ack</span> (no-ack mode) tells the broker to delete messages <em>as it sends them</em>. Crash mid-processing and that work is gone forever — at-<em>most</em>-once delivery. Legit only for lossy work (metrics, live ticks). For anything your business cares about: manual acks, and <strong>ack after processing, not on receipt</strong>.
+</div>
+
+<p>The matching beginner bug is the inverse: ack-on-receipt, then process. That's auto-ack with extra steps — the crash window just moved. Placement of the <code>ack</code> call <em>is</em> your durability policy.</p>
+
+<h2>Prefetch: the flow-control dial</h2>
+
+<p>Without limits, the broker floods a consumer with thousands of unacked messages — all stuck in limbo, none processed, and if the consumer dies, <em>all</em> of them requeue in a thundering herd. <span class="term">prefetch</span> (QoS) caps the count of unacked messages per consumer channel.<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<ul>
+  <li><strong>prefetch = 0</strong> (unlimited): the flood above. Never in production.</li>
+  <li><strong>prefetch = 1</strong>: one at a time — fair, slow. Right when processing is expensive or strictly order-sensitive within a consumer.</li>
+  <li><strong>prefetch = 10–100</strong>: the usual sweet spot. The consumer always has the next message locally; throughput rises sharply from 1, flattens after a few dozen.</li>
+</ul>
+
+<p>Prefetch is also your <strong>fairness mechanism</strong>: with competing consumers, the broker only dispatches to a consumer that has window space — a slow consumer stops hogging messages instead of hoarding them.</p>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. Your consumer processed a message, then crashed before acking. Redelivered?</summary>
+    <p class="answer">Yes — no ack means the broker requeues the message.</p>
+    <p class="why">Hence at-least-once, hence idempotent handlers: this exact sequence is routine, not exceptional.</p>
+  </details>
+  <details>
+    <summary>Q2. Where exactly in your handler does the ack call belong?</summary>
+    <p class="answer">After processing fully succeeds — the very last step.</p>
+    <p class="why">Ack placement <em>is</em> the durability policy. Ack-on-receipt equals auto-ack with extra steps.</p>
+  </details>
+  <details>
+    <summary>Q3. Prefetch is 1,000 and a consumer dies holding 900 unacked messages. Effect?</summary>
+    <p class="answer">All 900 requeue at once — a thundering herd.</p>
+    <p class="why">Huge windows also starve competitors, since one consumer can hoard the entire queue. Keep it modest.</p>
+  </details>
+  <details>
+    <summary>Q4. A redelivered message carries which marker, and what do you do with it?</summary>
+    <p class="answer">The redelivered flag is set on it.</p>
+    <p class="why">Use it as a signal — check it in dead-letter/retry logic (Lesson 4), and never as a substitute for idempotency: the flag can be lost across topology changes.</p>
+  </details>
+</div>
+
+<h2>Now you drive</h2>
+
+<div class="task">
+  <span class="label">Audit your code — before you reveal</span>
+  <p style="margin-top:0">Find (or imagine) one consumer you've written at work and answer: <strong>(a)</strong> auto-ack or manual? <strong>(b)</strong> if manual, where is the ack — receipt or completion? <strong>(c)</strong> is the handler idempotent — what happens if the same message runs twice? <strong>(d)</strong> what prefetch, and was it chosen or defaulted?</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>What a passing audit looks like</summary>
+      <p class="answer">(a) manual acks; (b) ack after the handler's success path completes — including DB commit; (c) duplicate-safe, typically by deduplication key or upsert (same row written twice = no-op); (d) an explicit, modest value (10–100), tuned if throughput matters.</p>
+      <p class="why">Most real-world consumers fail (b) or (c). If yours fails (c), that's not a RabbitMQ problem — it's a handler design problem, and Lesson 3 doubles down on why.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <strong>RabbitMQ: Consumer Acknowledgements</strong> — the first half of the confirms guide, with delivery-tag mechanics and the prefetch throughput data: <a href="https://rabbitmq.com/docs/confirms">rabbitmq.com/docs/confirms</a>. Then skim <a href="https://rabbitmq.com/docs/consumer-prefetch">consumer prefetch</a> for the tuning numbers.
+</div>
+
+<div class="ask"><b>Ask me anything.</b> "Why not just process fast enough that none of this matters?" is a great question — ask it. So is anything about your audit findings: bring me a real consumer and we'll dissect it together.</div>
+
+<div class="nav">
+  <span>◄ <a href="0001-amqp-routing-model.html">Lesson 1 — Routing model</a></span>
+  <span><a href="../reference/glossary.html">Glossary</a> · Next: Publisher confirms &amp; idempotency ►</span>
+</div>
+
+<h2 id="sources">Sources</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — Consumer acknowledgements: <a href="https://rabbitmq.com/docs/confirms">rabbitmq.com/docs/confirms</a></li>
+  <li id="s2">RabbitMQ — Consumer prefetch: <a href="https://rabbitmq.com/docs/consumer-prefetch">rabbitmq.com/docs/consumer-prefetch</a></li>
+</ol>

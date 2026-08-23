@@ -1,0 +1,130 @@
+<title>MQ · Lesson 5 — Topology Design for Real Services</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<header class="masthead">
+  <div class="kicker"><span>Event-Driven Systems · Lesson 5</span><span>≈14 min</span></div>
+  <h1>The Topology Is an API</h1>
+  <p class="dek">Durability, ordering, scaling, and schema evolution — the four decisions every production topology makes, deliberately or not.</p>
+</header>
+
+<p>Lessons 1–4 gave you the mechanics. Now the design work: the exchanges, queues, and bindings you lay down are a <strong>public contract</strong> — services you don't own will publish to your exchanges and consume from your queues. Treat naming, durability, ordering, and versioning as API-design decisions, because after launch, that's what they are.<sup class="cite"><a href="#s1">1</a></sup></p>
+
+<h2>First, make durability real: the trinity</h2>
+
+<p>Lesson 3's confirms promise "accepted and persisted" — but only if the storage beneath cooperates. A message survives a broker restart only when <strong>all three</strong> hold:</p>
+
+<ol>
+  <li><span class="term">durable exchange</span> — survives restart;</li>
+  <li><span class="term">durable queue</span> — survives restart (use <span class="term">quorum queues</span> for anything that matters: replicated, the modern default);</li>
+  <li><span class="term">persistent message</span> (<code>delivery_mode=2</code>) — the message itself is written to disk.</li>
+</ol>
+
+<div class="antipattern">
+  <span class="label">The silent lie</span>
+  Defaults are <strong>not</strong> the durable combination. A confirmed publish to a non-durable queue is confirmed into a queue that evaporates on restart. Nothing errors; the confirm just told you the wrong thing. Checklist the trinity once, in topology-as-code, and never think per-message again.
+</div>
+
+<h2>Ordering: the guarantee you don't have</h2>
+
+<p>Here is the precise claim, and it's weaker than people assume: RabbitMQ delivers FIFO <em>per queue, per publishing channel</em>. But with <strong>competing consumers</strong> (Lesson 1), message A delivered before B can still <em>finish</em> after B — the slow consumer's message lands second. Add retries (Lesson 4) and A can fail, cycle through a TTL queue, and process a minute later. Cross-message order is best-effort, always.<sup class="cite"><a href="#s2">2</a></sup></p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Don't design for global order — scope ordering to where it matters: per <em>entity</em>.</strong> Two tools: <strong>(1) shard by routing key</strong> — a consistent-hash exchange spreads messages across N queues by hashing the key, so all events for <code>customer-42</code> land on one queue with one consumer: ordered <em>and</em> parallel (Kafka's partition trick, in RabbitMQ). <strong>(2) make consumers order-independent</strong> — carry state versions and let the state guard from Lesson 3 ignore stale events. Most real systems want a mix: sharding where sequences matter (per-account ledger), version guards everywhere else.
+</div>
+
+<h2>Scaling: when one queue is not enough</h2>
+
+<ul>
+  <li><strong>First lever — more consumers</strong> on the queue (competing consumers). Gets you far: a single queue handles tens of thousands of messages/sec.</li>
+  <li><strong>Second lever — shard the queue</strong> with the consistent-hash exchange when you need ordered parallelism or exceed one queue's throughput.</li>
+  <li><strong>Watch, don't guess:</strong> queue depth and consumer acknowledgement rate tell you when to pull a lever. Depth growing while consumers sit idle → prefetch too low; depth growing with consumers busy → add or shard.</li>
+</ul>
+
+<h2>Schema evolution: events will change</h2>
+
+<p>Your <code>order.created</code> payload will grow fields, and one day it will break shape. Two layers of defense:</p>
+
+<ul>
+  <li><strong>Tolerant readers as the default:</strong> consumers must ignore unknown fields and treat missing optional fields as defaults. Additive change then needs no coordination at all.</li>
+  <li><strong>Versioned routing keys for breaking change:</strong> publish <code>order.created.v2</code>. Old consumers stay bound to <code>order.created.v1</code> — wait, the pattern: bind <code>order.created.*</code> only if you tolerate both, or bind the exact version you support. Run both versions side by side, migrate consumers, then retire the old binding. Nobody updates in lockstep.</li>
+</ul>
+
+<p>Same discipline as REST versioning, with one gift: unlike a request/response API, the old version keeps working while you migrate — the broker holds both traffic streams without conflict.</p>
+
+<h2>House style — a default topology</h2>
+
+<p>A starting point that serves most domains well, deviating only with reason:</p>
+
+<ul>
+  <li><strong>One durable topic exchange per domain</strong> (<code>orders</code>, <code>payments</code>) — not one global exchange, not one per service.</li>
+  <li><strong>One durable quorum queue per consumer group</strong>, named <code>&lt;service&gt;.&lt;purpose&gt;</code> (<code>email.retries</code>, <code>analytics.orders</code>): the owner is visible in the name.</li>
+  <li><strong>Routing keys are events with versions:</strong> <code>order.created.v1</code> — dot-separated, name-what-happened (events, not commands, when the fact is what matters).</li>
+  <li><strong>Declared as code, centrally</strong> — definitions in the repo, applied declaratively; client-side ad-hoc declares are for dev only.</li>
+  <li><strong>Retry ladder + parking lot per domain</strong> (Lesson 4), attached to each work queue.</li>
+</ul>
+
+<h2>Check yourself</h2>
+
+<div class="quiz">
+  <details>
+    <summary>Q1. Which three settings make a confirmed message survive restart?</summary>
+    <p class="answer">Durable exchange, durable quorum queue, persistent delivery mode.</p>
+    <p class="why">Any one missing and the confirm is technically honest but practically a lie — the queue or message vanishes on restart.</p>
+  </details>
+  <details>
+    <summary>Q2. Two competing consumers: A delivered before B. Which finishes first?</summary>
+    <p class="answer">Either one — delivery order never binds processing completion order.</p>
+    <p class="why">The slow consumer's message lands last regardless of delivery. Retries widen the gap further.</p>
+  </details>
+  <details>
+    <summary>Q3. How do you keep per-customer ordering while scaling out consumers?</summary>
+    <p class="answer">Hash the routing key across sharded queues, one consumer each.</p>
+    <p class="why">Same customer → same queue → same consumer → ordered; different customers still parallelize. This is Kafka-partition behavior.</p>
+  </details>
+  <details>
+    <summary>Q4. A breaking payload change ships. How do old consumers survive it?</summary>
+    <p class="answer">Publish under a new versioned key; consumers bind selectively.</p>
+    <p class="why">Both streams flow side by side during migration. No lockstep updates, no big-bang cutover.</p>
+  </details>
+</div>
+
+<h2>Now you drive — the capstone</h2>
+
+<div class="task">
+  <span class="label">Design the whole thing — before you reveal</span>
+  <p style="margin-top:0">A food-delivery platform. Events: <code>order.placed</code>, <code>order.accepted</code>, <code>order.delivered</code>, <code>restaurant.menu_changed</code>. Consumers: <strong>(a)</strong> a payment worker pool (exactly-one processing, flaky PSP — transient 500s); <strong>(b)</strong> a courier-dispatch service that needs <em>per-order</em> event ordering, scaled to 3 instances; <strong>(c)</strong> analytics wanting every order event; <strong>(d)</strong> a menu-cache service that must not miss <code>menu_changed</code> but tolerates delay. Design exchanges, queues, bindings, durability, retry, and how you'd version <code>order.placed</code> later.</p>
+  <div class="quiz" style="margin-top:0.6rem">
+    <details>
+      <summary>Reveal one good answer</summary>
+      <p class="answer"><strong>Exchanges:</strong> <code>orders</code> (topic, durable) for order events; <code>restaurants</code> (topic, durable) for menu events; one <code>retry</code> + parking lot per domain.</p>
+      <ul>
+        <li><strong>(a)</strong> <code>payments.orders</code> quorum queue bound <code>order.placed</code>, worker pool as competing consumers, retry ladder from L4 (PSP 500s = transient). Exactly-one processing = work-queue shape + idempotent handler (L3).</li>
+        <li><strong>(b)</strong> <strong>consistent-hash exchange</strong> in front of 3 queues <code>dispatch.shard-0/1/2</code>, hashing on <code>order_id</code> in the routing key (<code>order.&lt;event&gt;.&lt;order-id&gt;</code>) — each order's events hit one shard with one consumer: ordered per order, parallel across orders. All 3 order events bound in.</li>
+        <li><strong>(c)</strong> <code>analytics.orders</code> quorum queue bound <code>order.#</code> — its own copy, its own pace (pub/sub).</li>
+        <li><strong>(d)</strong> <code>menu.cache</code> quorum queue on <code>restaurants</code> bound <code>restaurant.menu_changed</code>; if a refresh fails, retry ladder with long TTLs — delay tolerated, loss not (durable everything + parking lot on exhaustion).</li>
+        <li><strong>Versioning:</strong> when <code>order.placed</code> breaks shape, add <code>order.placed.v2</code>; tolerant readers for additive fields meanwhile.</li>
+      </ul>
+      <p class="why">Notice every requirement maps to exactly one lesson: (a) = L1 work queues + L3 idempotency + L4 ladders; (b) = today's ordering section; (c) = L1 pub/sub; (d) = durability trinity. If your sketch has those four shapes, you've internalized the course so far.</p>
+    </details>
+  </div>
+</div>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <strong>RabbitMQ production checklist</strong> — the official word on durability, quorum queues, monitoring, and capacity: <a href="https://rabbitmq.com/docs/production-checklist">rabbitmq.com/docs/production-checklist</a>. It's the doc to re-read the week before any launch.
+</div>
+
+<div class="ask"><b>Ask me anything.</b> Rich threads here: "isn't consistent-hash sharding just reinventing Kafka?", "quorum vs classic queues — what changes for my code?" (spoiler: almost nothing, it's an ops win), and "should each service own its topology declares, or a central pipeline?" — genuinely contested; let's argue it.</div>
+
+<div class="nav">
+  <span>◄ <a href="0004-dlx-retry-poison.html">Lesson 4 — DLX &amp; retry</a></span>
+  <span><a href="../reference/glossary.html">Glossary</a> · Next: Patterns — outbox, saga, eventual consistency ►</span>
+</div>
+
+<h2 id="sources">Sources</h2>
+<ol class="note">
+  <li id="s1">RabbitMQ — Production checklist: <a href="https://rabbitmq.com/docs/production-checklist">rabbitmq.com/docs/production-checklist</a> · Quorum queues: <a href="https://rabbitmq.com/docs/quorum-queues">docs/quorum-queues</a></li>
+  <li id="s2">RabbitMQ — Consistent hash exchange plugin: <a href="https://github.com/rabbitmq/rabbitmq-server/tree/main/deps/rabbitmq_consistent_hash_exchange">github.com/rabbitmq (deps)</a>; ordering semantics in the AMQP model guide: <a href="https://rabbitmq.com/tutorials/amqp-concepts">tutorials/amqp-concepts</a></li>
+</ol>
