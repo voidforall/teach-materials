@@ -15,6 +15,11 @@ Working notes on how the learner wants to be taught. Update as preferences surfa
 - Compare-with-alternatives (Kafka/SQS) is in scope as a secondary thread.
 
 ## Teaching preferences (carried over from game-theory course)
+- **Reads in Chinese, terminology in English.** Every lesson/reference page now ships
+  bilingual (see repo README convention: `NNNN-name.zh.html` siblings, masthead
+  cross-links, index 中 badges). New lessons must be created in BOTH languages from
+  the start. Key terms (exchange, binding, prefetch, ack…) stay English, optionally
+  with a Chinese gloss on first use.
 - Short, self-contained lessons finishable in one sitting.
 - Tufte-ish beautiful docs, re-readable. Shared stylesheet `assets/lesson.css`.
 - Each lesson: keystone callout, retrieval quiz, a "you drive" task with hidden
