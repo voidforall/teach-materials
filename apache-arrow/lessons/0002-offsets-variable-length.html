@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 2 — Offsets &amp; Variable-Length Layout</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.null { fill: #fdf1de; stroke: var(--accent); }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+  .span { fill: #c9e3d3; fill-opacity: 0.55; stroke: var(--gain); stroke-width: 1.4; stroke-dasharray: 3 2; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 2</span><span>Memory format</span></div>
+  <h1>Offsets &amp; Variable-Length Layout</h1>
+  <p class="dek">Strings have no fixed stride — so Arrow stores one contiguous byte soup, plus fenceposts saying where each value begins and ends.</p>
+</div>
+
+<p><a href="0001-buffers-validity-bitmaps.html">Lesson 1</a> gave you the fixed-width recipe: one bitmap, one values buffer, stride = type width. But <span class="term">"paris"</span> is 5 bytes and <span class="term">"al"</span> is 2. You can't SIMD-scan a buffer whose stride changes per row. Arrow's answer is the mechanism this whole course keeps reusing: <strong>offsets</strong>.</p>
+
+<h2>Three buffers, one soup</h2>
+<p>Here is <span class="term">["al", "paris", null, "hi"]</span> as Arrow lays it out (<a href="https://arrow.apache.org/docs/format/Columnar.html#variable-size-binary-layout">Variable-size Binary Layout</a>):</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 580 210" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">Buffer 1 — validity bitmap</text>
+  <rect x="0" y="24" width="90" height="32" class="membuf null"/>
+  <text x="45" y="44" text-anchor="middle" class="mem-byte">0b00001101</text>
+  <text x="0" y="72" class="mem-sub">same as Lesson 1: slot 2 null</text>
+
+  <text x="0" y="106" class="mem-lbl">Buffer 2 — offsets (int32, length+1 entries)</text>
+  <g>
+    <rect x="0" y="114" width="104" height="32" class="membuf"/><text x="52" y="134" text-anchor="middle" class="mem-byte">0</text>
+    <rect x="106" y="114" width="104" height="32" class="membuf"/><text x="158" y="134" text-anchor="middle" class="mem-byte">2</text>
+    <rect x="212" y="114" width="104" height="32" class="membuf"/><text x="264" y="134" text-anchor="middle" class="mem-byte">7</text>
+    <rect x="318" y="114" width="104" height="32" class="membuf null"/><text x="370" y="134" text-anchor="middle" class="mem-byte">7</text>
+    <rect x="424" y="114" width="104" height="32" class="membuf"/><text x="527" y="134" text-anchor="middle" class="mem-byte">9</text>
+  </g>
+  <text x="0" y="162" class="mem-sub">slot i = data[offsets[i] : offsets[i+1]] — n values need n+1 fenceposts</text>
+
+  <text x="0" y="192" class="mem-lbl">Buffer 3 — data (9 bytes, the soup)</text>
+  <g>
+    <rect x="0" y="200" width="58" height="32" class="membuf"/><text x="29" y="220" text-anchor="middle" class="mem-byte">a</text>
+    <rect x="60" y="200" width="58" height="32" class="membuf"/><text x="89" y="220" text-anchor="middle" class="mem-byte">l</text>
+    <rect x="120" y="200" width="58" height="32" class="membuf"/><text x="149" y="220" text-anchor="middle" class="mem-byte">p</text>
+    <rect x="180" y="200" width="58" height="32" class="membuf"/><text x="209" y="220" text-anchor="middle" class="mem-byte">a</text>
+    <rect x="240" y="200" width="58" height="32" class="membuf"/><text x="269" y="220" text-anchor="middle" class="mem-byte">r</text>
+    <rect x="300" y="200" width="58" height="32" class="membuf"/><text x="329" y="220" text-anchor="middle" class="mem-byte">i</text>
+    <rect x="360" y="200" width="58" height="32" class="membuf"/><text x="389" y="220" text-anchor="middle" class="mem-byte">s</text>
+    <rect x="420" y="200" width="58" height="32" class="membuf"/><text x="449" y="220" text-anchor="middle" class="mem-byte">h</text>
+    <rect x="480" y="200" width="58" height="32" class="membuf"/><text x="509" y="220" text-anchor="middle" class="mem-byte">i</text>
+  </g>
+</svg>
+</div>
+
+<p>Read slot 1 aloud: <span class="term">data[2:7]</span> = <span class="term">"paris"</span>. Slot 2 is null — the bitmap says so — but its offsets are still <em>well-formed</em>: <span class="term">[7,7]</span>, an empty span. A null string has length 0 by construction, never a garbage span. (Distinct from an <em>empty</em> string <span class="term">""</span>, which is also <span class="term">[k,k]</span> — the bitmap is the only thing distinguishing them.)</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Variable-length = fixed-width offsets + one contiguous soup.</strong> The offsets buffer has perfectly regular int32 stride — <em>it</em> is the thing you can vectorize, and the soup never moves. This exact recipe (offsets → child buffer, or offsets → child <em>array</em>) is how Arrow handles <span class="term">utf8</span>, <span class="term">binary</span>, <span class="term">list</span>, and by recursion every nested type.
+</div>
+
+<h2>The generalization you'll actually use</h2>
+
+<p>Swap the byte soup for a child <strong>array</strong> and you have <span class="term">list&lt;T&gt;</span> — the <a href="https://arrow.apache.org/docs/format/Columnar.html#variable-size-list-layout">Variable-size List Layout</a>. <span class="term">[[1,2,3], null, [4]]</span> is: bitmap (slot 1 null), offsets <span class="term">[0,3,3,4]</span>, and a child int32 array <span class="term">[1,2,3,4]</span>. A <span class="term">list&lt;list&lt;int&gt;&gt;</span>? Just run the recipe again on the child. Nesting costs one offsets buffer per level — no pointers, no per-node allocation, which is exactly why passing nested Arrow data between C++ and Python costs nothing (lesson 4, zero-copy).</p>
+
+<p>Two boundaries worth knowing:</p>
+<ul>
+  <li>int32 offsets cap the soup at <strong>2&nbsp;GB</strong>; beyond that, <span class="term">large_string</span> / <span class="term">large_list</span> use int64 offsets (twice the fencepost tax).</li>
+  <li><span class="term">string_view</span> (C++17-era layout) instead stores inline <em>pointer+length</em> per row — different tradeoff, appears in DuckDB/Polars territory, not part of the core spec.</li>
+</ul>
+
+<h2>Drill it</h2>
+<p>Extract the value at the requested slot. The fencepost habit — <em>offsets[i] to offsets[i+1]</em>, check the bitmap first — should become automatic. Streak of 5.</p>
+<div data-offsets-drill></div>
+<script src="../assets/offsets-drill.js"></script>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>A utf8 array of 1000 rows carries how many int32 offsets?</summary>
+    <p class="answer">1001 fenceposts.</p>
+    <p class="why">length + 1, always. n values need n+1 boundaries — like fenceposts and fence panels. 1001 × 4 bytes ≈ 4 KB of pure bookkeeping, regardless of the strings themselves.</p>
+  </details>
+  <details><summary>A string column of a million tiny strings ("OK", "NO", …) — where does the memory go?</summary>
+    <p class="answer">Offsets dominate.</p>
+    <p class="why">4 bytes of offset tax per row vs ~2 bytes of actual data. Short-string columns are fencepost-dominated; this is the honest cost column, not a pathology to fix (but it's why dictionary encoding exists — Lesson 6).</p>
+  </details>
+  <details><summary>How do a null string and an empty string differ in the buffers?</summary>
+    <p class="answer">The bitmap bit.</p>
+    <p class="why">Both are a zero-length span <span class="term">[k,k]</span> in the data soup. Only the validity bit differs: clear for null, set for <span class="term">""</span>. If you only look at offsets, you cannot tell them apart.</p>
+  </details>
+  <details><summary>Layout of <span class="term">[[1,2], [3]]</span> — name every buffer.</summary>
+    <p class="answer">Bitmap, offsets, child.</p>
+    <p class="why">Validity (no nulls → omittable); int32 offsets <span class="term">[0,2,3]</span>; one child int32 array <span class="term">[1,2,3]</span> with its own (omittable) bitmap. Same three-part recipe as strings — only the soup became an array.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — pyarrow, 5 minutes</span>
+  <pre><code>import pyarrow as pa
+s = pa.array(["al", "paris", None, "hi"])
+validity, offsets, data = s.buffers()
+
+import struct
+off = struct.unpack("5i", offsets.buffer()[:20])   # n+1 int32 fenceposts
+print(off)                                          # predict me: [0, 2, 7, ?, 9]
+
+# bonus: read slot 3 by hand
+start, end = off[3], off[4]
+print(data.buffer()[start:end])                     # b'hi'?
+
+# and the list generalization:
+l = pa.array([[1, 2], None, [4]])
+print(l.type, l.flatten())                          # what did flatten() drop?</code></pre>
+  If <code>off[3]</code> surprises you, reread the null-span rule above. And check <code>l.buffers()</code> — the list's buffers are just bitmap + offsets; the ints live in the child.
+</div>
+
+<h2>Where this goes next</h2>
+<p>You now hold the two core layout recipes — fixed-width (Lesson 1) and offsets (this one). Everything remaining in format-land is composition: <span class="term">struct</span> (pure child bundling, no offsets), dictionaries, and then the payoff chapters — <strong>zero-copy slicing & buffer lifetimes</strong> (Lesson 3), and <strong>IPC / the Arrow file format</strong> (Lesson 4): why an Arrow-recorded byte stream can be <em>mmapped</em> straight into arrays without parsing. The <a href="../reference/columnar-layout-cheatsheet.html">cheat sheet</a> already summarizes all recipes.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://arrow.apache.org/docs/format/Intro.html">Introduction to the Arrow format</a> — the nested-data section is the best prose the project has on this exact mechanism.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "why n+1 offsets instead of n lengths?", "show me list-of-struct bytes", "when should I pick large_list?".</div>
+
+<div class="nav">
+  <span>← <a href="0001-buffers-validity-bitmaps.html">Lesson 1: Buffers &amp; bitmaps</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 3 (soon): zero-copy slicing &amp; lifetimes</span>
+</div>
+</body>
+</html>

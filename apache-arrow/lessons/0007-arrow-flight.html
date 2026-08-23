@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 7 — Arrow Flight</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .seg { stroke-width: 1.5; }
+  .seg.meta { fill: #fdf1de; stroke: var(--accent); }
+  .seg.body  { fill: var(--flow-soft); stroke: var(--flow); }
+  .seg.grpc  { fill: #e9edf1; stroke: var(--rule); }
+  .seg-lbl { font-family: var(--sans); font-size: 11px; fill: var(--ink); font-weight: 600; }
+  .seg-sub { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+  .legend { font-family: var(--sans); font-size: 0.8rem; color: var(--muted); text-align: center; margin: 0.3rem 0 0; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 7</span><span>Transport</span></div>
+  <h1>Arrow Flight</h1>
+  <p class="dek">Lesson 4's stream format, wrapped in a gRPC envelope, with seven verbs for finding and moving data.</p>
+</div>
+
+<p>Everything so far has been in-process or on-disk. <a href="https://arrow.apache.org/docs/format/Flight.html">Arrow Flight</a> is the network chapter: a standard RPC protocol for serving Arrow data. The point isn't novelty — it's that the wire format is <em>already the memory format</em>, so the traditional serialize/parse tax of data-over-network just… doesn't apply.</p>
+
+<h2>The envelope</h2>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 620 150" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="seg-lbl">One FlightData message on the wire</text>
+  <g transform="translate(0,24)">
+    <rect x="0" y="0" width="150" height="44" class="seg meta"/><text x="75" y="20" text-anchor="middle" class="seg-lbl">data_header</text><text x="75" y="35" text-anchor="middle" class="seg-sub">IPC metadata (manifest)</text>
+    <rect x="154" y="0" width="230" height="44" class="seg body"/><text x="269" y="20" text-anchor="middle" class="seg-lbl">data_body</text><text x="269" y="35" text-anchor="middle" class="seg-sub">your Lesson 1–6 buffers, verbatim</text>
+    <rect x="388" y="0" width="110" height="44" class="seg meta"/><text x="443" y="20" text-anchor="middle" class="seg-lbl">descriptor /</text><text x="443" y="35" text-anchor="middle" class="seg-sub">app_metadata</text>
+  </g>
+  <g transform="translate(0,84)">
+    <rect x="0" y="0" width="498" height="36" class="seg grpc"/><text x="249" y="23" text-anchor="middle" class="seg-sub">gRPC/HTTP2 frame — protobuf bytes fields, TLS, flow control, auth headers</text>
+  </g>
+  <text x="0" y="142" class="seg-sub">same encapsulation as Lesson 4: manifest + body — the stream format lifted into protobuf fields</text>
+</svg>
+<p class="legend"><span style="color:var(--accent)">■</span> metadata&nbsp;&nbsp;<span style="color:var(--flow)">■</span> body&nbsp;&nbsp;<span style="color:var(--muted)">■</span> transport</span></p>
+</div>
+
+<p>Honest caveat, because you care about mechanisms: gRPC is a protobuf-based protocol, and protobuf message assembly <em>copies</em> into its send buffers. Flight is "zero-copy" in the sense that no <em>conversion of the data's representation</em> ever happens — the body bytes go on the wire as-is and are wrapped as Buffers on receipt — but the gRPC layer does memcpy on both ends. Compare: any JSON/Avro path pays representation conversion on <em>every row</em>; Flight pays a bulk memcpy per message. Also inherited from gRPC: the <strong>default ~4 MB message limit</strong> — servers must chunk into multiple FlightData messages, which is why writers expose a <span class="term">max_chunksize</span>.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Flight's model is: advertise data by descriptor, fetch it by ticket, stream it as IPC.</strong> <span class="term">GetFlightInfo(descriptor)</span> returns schema + endpoints; each endpoint carries an opaque <strong>ticket</strong>; <span class="term">DoGet(ticket)</span> streams the Arrow record batches. The ticket is deliberately opaque bytes — your query plan, partition ID, page token — so Flight the protocol never parses your intent.
+</div>
+
+<h2>The seven verbs</h2>
+<ul>
+  <li><span class="term">Handshake</span> — optional auth preamble (token exchange).</li>
+  <li><span class="term">ListFlights</span> — catalog: what descriptors exist.</li>
+  <li><span class="term">GetFlightInfo</span> — plan a read: schema, endpoints+tickets, total rows/bytes. <span class="term">GetSchema</span> — the cheap schema-only variant.</li>
+  <li><span class="term">DoGet</span> — server→client data stream (the common read).</li>
+  <li><span class="term">DoPut</span> — client→server upload; server acks per stream.</li>
+  <li><span class="term">DoExchange</span> — bidirectional; the substrate <a href="https://arrow.apache.org/docs/sql/index.html">Flight SQL</a> runs on.</li>
+</ul>
+
+<p>And the Lesson 6 connection: dictionaries ride the stream as dictionary messages before the batches — a Flight reader must track replace/delta dictionaries per stream, or batches arrive with indices pointing at nothing. The layout subtlety became a <em>protocol state machine</em>.</p>
+
+<h2>Match it</h2>
+<p>Scenario → verb. Streak of 7 (one per verb — they all show up).</p>
+<div data-flight-verbs-drill></div>
+<script src="../assets/flight-verbs-drill.js"></script>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does Flight avoid the per-row serialization tax of JSON/Avro services?</summary>
+    <p class="answer">Body bytes pass through.</p>
+    <p class="why">The data_body field carries the Arrow buffers verbatim — the same representation on wire, on disk, and in RAM. No row-level conversion; the only cost is gRPC's bulk memcpy into/out of the HTTP/2 stream.</p>
+  </details>
+  <details><summary>What's in a ticket, and who decides?</summary>
+    <p class="answer">Opaque server bytes.</p>
+    <p class="why">The ticket is whatever the issuing server wants — query handle, partition number, continuation token. Flight never parses it; it's the correlation between GetFlightInfo's advertisement and DoGet's stream.</p>
+  </details>
+  <details><summary>Your Flight upload fails with "received message larger than max". Why?</summary>
+    <p class="answer">gRPC's 4 MB default.</p>
+    <p class="why">FlightData rides in gRPC messages, which cap at ~4 MB by default. Fix on the write side: smaller <span class="term">max_chunksize</span> so each batch is its own message (streaming sidesteps the limit), or raise the gRPC cap on both ends.</p>
+  </details>
+  <details><summary>Why must a Flight reader track dictionary state across a stream?</summary>
+    <p class="answer">Indices need payloads.</p>
+    <p class="why">Dictionary messages precede batches (Lesson 6). A replace message invalidates prior indices; a delta appends. A reader that ignores them will decode batches with indices into a stale or missing payload.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — pyarrow, 15 minutes</span>
+  <pre><code>import pyarrow as pa
+import pyarrow.flight as fl
+
+class Demo(fl.FlightServerBase):
+    def list_flights(self, ctx, crit):
+        info = fl.FlightInfo(
+            pa.schema([("n", pa.int64())]),
+            fl.Descriptor.for_path("demo"),
+            [fl.Ticket(b"page-1")], total_records=3, total_bytes=24)
+        yield info
+    def do_get(self, ctx, ticket):
+        table = pa.table({"n": [1, 2, 3]})
+        return fl.RecordBatchStream(table)
+
+with Demo("grpc://localhost:8815"):
+    client = fl.connect("grpc://localhost:8815")
+    for f in client.list_flights(): print(f.schema, f.endpoints[0].ticket)
+    reader = client.do_get(fl.Ticket(b"page-1"))
+    print(reader.read_all())</code></pre>
+  A complete advertise→fetch loop in ~20 lines. Then break it on purpose: try <span class="term">reader.read_chunk()</span> and inspect the message types — you'll see Schema, then RecordBatch messages, the Lesson 4 stream arriving over gRPC.
+</div>
+
+<h2>Course status: the format arc is complete</h2>
+<p>Seven lessons: layout (1–2), ownership (3), serialization (4), compute (5), encoding (6), transport (7). You can now trace a value from bytes to network. The next arc turns to your <em>build</em> mission: constructing arrays efficiently in C++ (<span class="term">ArrayBuilder</span>s, chunked builders, why builders preallocate), memory pools and allocation strategy, and a guided read of real libarrow source — the graduation from understanding Arrow to building on it.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://arrow.apache.org/docs/format/Flight.html">Flight RPC specification</a> — verbs, auth, and the FlightData framing; pair with the <a href="https://arrow.apache.org/docs/python/flight.html">pyarrow Flight guide</a> you just exercised.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "how does Flight SQL extend DoExchange?", "what does RecordBatchStream chunk on?", "TLS vs token auth options?"</div>
+
+<div class="nav">
+  <span>← <a href="0006-dictionary-encoding.html">Lesson 6: Dictionaries</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 8 (soon): builders &amp; memory pools in C++</span>
+</div>
+</body>
+</html>

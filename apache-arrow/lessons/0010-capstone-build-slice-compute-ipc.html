@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 10 — Capstone: Build · Slice · Compute · IPC</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  code { font-family: var(--mono); font-size: 0.88em; background: #eef0ee; padding: 0.05em 0.3em; border-radius: 3px; }
+  pre { background: #f4f5f3; border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; }
+  .map { border-collapse: collapse; font-family: var(--sans); font-size: 0.9rem; margin: 1rem 0; }
+  .map th, .map td { border: 1px solid var(--rule); padding: 0.4rem 0.7rem; text-align: left; }
+  .map th { font-size: 0.75rem; background: #f1f3f5; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 10</span><span>Capstone</span></div>
+  <h1>Build · Slice · Compute · IPC</h1>
+  <p class="dek">One C++ file, no framework, every line attributable to a lesson. This is the mission statement made executable.</p>
+</div>
+
+<p>The full source is in the workspace: <a href="../reference/capstone-build-slice-compute-ipc.cc"><span class="term">reference/capstone-build-slice-compute-ipc.cc</span></a> (~100 lines, heavily annotated). It constructs the exact table you decoded by hand in Lessons 1–2, then slices it, computes on it, writes it to disk, and mmaps it back — asserting the property that summarizes the whole course at each step.</p>
+
+<h2>Line-to-lesson map</h2>
+<table class="map">
+  <tr><th>Code</th><th>What it proves</th><th>Taught by</th></tr>
+  <tr><td><span class="term">Int64Builder.Append / AppendNull</span></td><td>One bit set or cleared; garbage stays in the value slot</td><td><a href="0001-buffers-validity-bitmaps.html">1</a>, <a href="0008-builders-memory-pools.html">8</a></td></tr>
+  <tr><td><span class="term">StringBuilder.Append("paris")</span></td><td>Fencepost + 5 soup bytes, one call</td><td><a href="0002-offsets-variable-length.html">2</a></td></tr>
+  <tr><td><span class="term">pool-&gt;bytes_allocated()</span> before/after</td><td>You can watch scratch allocations live</td><td><a href="0008-builders-memory-pools.html">8</a></td></tr>
+  <tr><td><span class="term">data-&gt;GetBuffer(0/1)</span></td><td>ArrayData's buffers, in manifest order — validity may be <em>omitted</em></td><td><a href="0001-buffers-validity-bitmaps.html">1</a>, <a href="0009-reading-libarrow-source.html">9</a></td></tr>
+  <tr><td><span class="term">Slice(1,2)</span> + buffer identity check</td><td>A slice owns nothing: <span class="term">GetBuffer(1) == values</span> prints true</td><td><a href="0003-zero-copy-slicing-lifetimes.html">3</a></td></tr>
+  <tr><td><span class="term">CallFunction("add", …)</span></td><td>Fresh output buffers, validity = AND of inputs — predicted before inspected</td><td><a href="0005-compute-kernels.html">5</a></td></tr>
+  <tr><td><span class="term">MakeFileWriter / WriteRecordBatch</span></td><td>Buffers serialized verbatim behind a manifest + footer</td><td><a href="0004-ipc-feather-mmap.html">4</a></td></tr>
+  <tr><td><span class="term">MemoryMappedFile::Open</span> → <span class="term">!is_mutable()</span></td><td>The round-tripped array is views over page cache, read-only</td><td><a href="0003-zero-copy-slicing-lifetimes.html">3</a>, <a href="0004-ipc-feather-mmap.html">4</a></td></tr>
+</table>
+
+<h2>Build it</h2>
+<pre><code># CMakeLists.txt
+cmake_minimum_required(VERSION 3.16)
+project(capstone CXX)
+set(CMAKE_CXX_STANDARD 17)
+find_package(ApacheArrow REQUIRED)   # e.g. brew install apache-arrow
+add_executable(capstone reference/capstone-build-slice-compute-ipc.cc)
+target_link_libraries(capstone PRIVATE Arrow::arrow_static)</code></pre>
+<p>Arrow installs a CMake config under <span class="term">lib/cmake/Arrow</span>; if CMake can't find it, point <span class="term">CMAKE_PREFIX_PATH</span> at the install prefix (Homebrew: <span class="term">$(brew --prefix apache-arrow)</span>).</p>
+
+<h2>Expected run</h2>
+<pre><code>$ ./capstone out.arrow
+pool before: 0 bytes
+pool after build: 128 bytes            # values 32B + offsets/soup + bitmaps, 64-aligned
+validity: present, 1B · null_count=1 · offset=0
+slice shares values buffer: 1
+add(n,5) validity = AND of inputs: 1B
+mmap'd read-only buffer: 1 · schema batches: 1
+wrote out.arrow — inspect with: xxd out.arrow | head</code></pre>
+<p>Exact byte counts may differ (pool granularity, padding) — but <em>every boolean</em> must print <span class="term">1</span>. Those four lines are the course's theorems, now checked on your machine.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>The capstone is short because Arrow's architecture is deep:</strong> one memory format, uniform primitives (buffers, ArrayData, kernels), and everything else composition. When you extend this file for real work — Flight in Lesson 7's shape, dictionaries from Lesson 6, chunked building from Lesson 8 — you'll be adding lines, not learning new models.
+</div>
+
+<h2>Retrieve it (course-wide, interleaved)</h2>
+<div class="quiz">
+  <details><summary>The capstone's slice shares a buffer. Which field keeps the parent alive?</summary>
+    <p class="answer">The parent shared_ptr.</p>
+    <p class="why">Buffer's parent reference (Lesson 9's Stop 2) pins the allocation — the slice's ArrayData holds shared_ptrs to the very same Buffer objects (Lesson 3).</p>
+  </details>
+  <details><summary>Why must <span class="term">add(n, 5)</span> allocate instead of updating <span class="term">n</span>?</summary>
+    <p class="answer">Buffers are immutable.</p>
+    <p class="why">Sharing is only safe because nothing mutates (Lessons 3, 5) — the mmap'd view of an on-disk file could be watching those exact bytes.</p>
+  </details>
+  <details><summary>The output file's first and last 6 bytes?</summary>
+    <p class="answer">ARROW1 twice.</p>
+    <p class="why">Feather V2 magic at both ends (Lesson 4); OpenFile trusts the footer between them for random batch access.</p>
+  </details>
+  <details><summary>Encode <span class="term">name</span> as a dictionary before writing. What changes on disk?</summary>
+    <p class="answer">A dictionary message.</p>
+    <p class="why">Indices ride the record batch manifest; the 3-value payload travels as a separate dictionary message before it (Lessons 6, 4).</p>
+  </details>
+</div>
+
+<h2>Extensions — pick one for your first real build</h2>
+<ul>
+  <li><strong>Dictionary:</strong> cast <span class="term">name</span> via <span class="term">dictionary_encode</span>, confirm the payload appears as its own IPC message (Lesson 6).</li>
+  <li><strong>Chunking:</strong> build in 1k-row chunks into a <span class="term">ChunkedArray</span>, watch pool bytes stay flat vs doubling (Lesson 8's simulator, live).</li>
+  <li><strong>Flight:</strong> serve the batch over <span class="term">FlightServerBase::do_get</span> and fetch it back (Lesson 7's pyarrow client works against C++ servers — same wire).</li>
+</ul>
+
+<div class="source">
+  <span class="label">Primary sources</span>
+  The <a href="https://arrow.apache.org/docs/cpp/index.html">C++ docs</a> you've been citing all course — you no longer need a lesson to read them.
+</div>
+
+<div class="ask"><b>Course complete — but the teacher stays.</b> Ask the agent to extend the capstone, review any lesson, drill you again, or explain run-end encoding (the fourth layout trick waiting in the kernels dir).</div>
+
+<div class="nav">
+  <span>← <a href="0009-reading-libarrow-source.html">Lesson 9: Source reading</a> · <a href="../reference/capstone-build-slice-compute-ipc.cc">The capstone source</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · review schedule below</span>
+</div>
+
+<h2>Review schedule</h2>
+<p>Storage strength comes from spaced retrieval. Re-run (don't re-read!): the bitmap drill + cheat sheet in <strong>3 days</strong>; the offsets and dictionary drills in <strong>1 week</strong>; the zero-copy classifier and Flight verbs in <strong>2 weeks</strong>; the full quiz set in <strong>1 month</strong>. Ask the agent for any of these — "drill me on validity" works.
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 3 — Zero-Copy Slicing &amp; Buffer Lifetimes</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.shade { fill: #e9edf1; stroke: var(--rule); stroke-dasharray: 4 3; }
+  .membuf.hot { fill: #c9e3d3; stroke: var(--gain); stroke-width: 2.2; }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 3</span><span>Ownership &amp; sharing</span></div>
+  <h1>Zero-Copy Slicing &amp; Buffer Lifetimes</h1>
+  <p class="dek">That <span class="term">offset = 0</span> integer you met in Lesson 1? It's the tip of Arrow's whole ownership model.</p>
+</div>
+
+<p>You now know the layout recipes. This lesson is about what happens when data <em>moves between views</em> — slices, chunks, languages — and the discovery that in Arrow it usually doesn't move at all.</p>
+
+<h2>A slice moves nothing</h2>
+
+<p>Take <span class="term">a = pa.array([10, 20, 30, 40])</span> and slice it: <span class="term">b = a[1:3]</span> (the values <span class="term">[20, 30]</span>). What does <span class="term">b</span> own? <strong>Nothing.</strong> It's the same two buffers, with the array-level metadata re-pointed:</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 580 150" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">values buffer (one allocation, forever)</text>
+  <g>
+    <rect x="0"   y="24" width="130" height="36" class="membuf shade"/><text x="65"  y="46" text-anchor="middle" class="mem-byte">10</text>
+    <rect x="134" y="24" width="130" height="36" class="membuf hot"/>  <text x="199" y="46" text-anchor="middle" class="mem-byte">20</text>
+    <rect x="268" y="24" width="130" height="36" class="membuf hot"/>  <text x="333" y="46" text-anchor="middle" class="mem-byte">30</text>
+    <rect x="402" y="24" width="130" height="36" class="membuf shade"/><text x="467" y="46" text-anchor="middle" class="mem-byte">40</text>
+  </g>
+  <text x="0" y="86" class="mem-sub">a: offset=0, length=4 ── sees all four slots</text>
+  <text x="0" y="106" class="mem-sub" style="fill:var(--gain)">b: offset=1, length=2 ── same buffer, window [1,3)</text>
+  <text x="0" y="136" class="mem-lbl">b's buffer overhangs: slots 0 and 3 are still allocated, just outside b's window</text>
+</svg>
+</div>
+
+<p>This is why <span class="term">Slice()</span> (C++) and Python slicing are O(1) in both time and memory — a 10 GB table sliced into a thousand windows allocates nothing. The mechanism composes: <span class="term">a[1:3][1:]</span> just adds offsets; <span class="term">ChunkedArray.slice()</span> narrows a list of zero-copy views; <span class="term">Table.select(['b','a'])</span> reorders metadata only.</p>
+
+<p>One wrinkle to carry from Lesson 1: the array-level <span class="term">offset</span> shifts <em>everything</em> — the values window <em>and</em> the validity bitmap's starting bit. A slice's bitmap doesn't start at bit 0 of the buffer; bit arithmetic is always relative to the offset. That's why library code never reads buffers raw — it goes through the accessor.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Arrow's sharing model: one immutable allocation, many lightweight views.</strong> Buffers are never mutated in place — every "derived" array is new metadata (offset, length, buffers list) over the same bytes. Copying only happens when the result <em>cannot</em> be a window: concatenation, gather/take, filter, cast, chunk-merging.
+</div>
+
+<h2>Who frees the bytes?</h2>
+
+<p>Buffers are reference-counted and immutable — in C++, <span class="term">std::shared_ptr&lt;Buffer&gt;</span> handed out by an <a href="https://arrow.apache.org/docs/cpp/api/memory.html"><span class="term">arrow::MemoryPool</span></a>; in pyarrow, Python's GC holds a reference on top of Arrow's. A slice keeps its parent's buffers alive; you cannot create a dangling Arrow view. The lifetime rules worth memorizing:</p>
+<ul>
+  <li><strong>Buffers outlive views:</strong> a 3-element slice pins the entire 10 GB allocation. Freeing big memory sometimes requires explicitly dropping the parent — or <em>copying</em> the window (<span class="term">combine_chunks()</span>, <span class="term">pa.concat_arrays</span>) to release the overhang. Yes — sometimes you copy <em>on purpose</em> to shrink.</li>
+  <li><strong>Zero-copy bridges:</strong> <span class="term">np.asarray(int64_arr)</span> wraps the same buffer when the array is primitive — numpy has no validity bitmap, so a nullable or string array forces a copy. Same deal in C++ wrapping external memory (<span class="term">Buffer::FromWrap</span>-family, or mmap): Arrow references bytes it did not allocate, and frees via callback.</li>
+  <li><strong>Chunks are not windows:</strong> a <span class="term">ChunkedArray</span> is just a Python/C++ list of independent arrays. <span class="term">combine_chunks()</span> must copy — N buffers can't become one.</li>
+</ul>
+
+<h2>Classify it</h2>
+<p>For each operation: does it move bytes, or share buffers? Mixed with retrieval from Lessons 1–2 on purpose — interleaving is the point. Streak of 8.</p>
+<div data-zerocopy-drill></div>
+<script src="../assets/zero-copy-drill.js"></script>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>You slice 100 rows out of a 10 GB table and delete the table's variable. What's still in memory?</summary>
+    <p class="answer">All ten gigabytes.</p>
+    <p class="why">The slice holds references to the parent's buffers — the overhang stays allocated. To keep just the window, materialize a copy and drop the parent.</p>
+  </details>
+  <details><summary>Why can <span class="term">pa.concat_arrays</span> never be zero-copy?</summary>
+    <p class="answer">Two buffers, one result.</p>
+    <p class="why">The result must be one contiguous buffer; two separate allocations can't be fused by any metadata trick. Every element is copied.</p>
+  </details>
+  <details><summary>When does <span class="term">np.asarray(arrow_arr)</span> copy?</summary>
+    <p class="answer">Nullable or nested.</p>
+    <p class="why">numpy has no validity bitmap and no variable-length layout. Primitive, no-nulls arrays share the buffer; anything else must be converted into numpy's representation.</p>
+  </details>
+  <details><summary>A string array sliced to <span class="term">[:3]</span> — what happens to the data soup?</summary>
+    <p class="answer">Untouched, overhanging.</p>
+    <p class="why">The slice re-points offsets/metadata only; bytes for later strings stay in the buffer past the window's end, pinned alive by the slice.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — pyarrow, 5 minutes</span>
+  <pre><code>import pyarrow as pa
+
+a = pa.array([10, 20, 30, 40])
+b = a[1:3]
+print(a.buffers()[1] is b.buffers()[1])   # same Buffer object?
+
+big = pa.array(range(10_000_000))
+window = big[9_000_000:]
+import sys; print("window len:", len(window))
+del big                                    # guess: is the memory freed?
+# (check with: import resource; resource.getrusage(...).ru_maxrss)
+
+c = pa.chunked_array([[1, 2], [3, 4]])
+print(c.combine_chunks().buffers())        # one values buffer now — at what cost?</code></pre>
+  The identity check on line 4 is the whole lesson in one <span class="term">True</span>.
+</div>
+
+<h2>Where this goes next</h2>
+<p>The immutable-buffer model has one more spectacular consequence, and it's the reason Arrow exists as a <em>project</em> and not just a C++ library: if buffers are just bytes, you can <strong>serialize them without rewriting them</strong> — write the buffers to disk, mmap them back, and the mmapped bytes <em>are</em> the array. That's the IPC / Feather file format, Lesson 4, where zero-copy stops being in-process trivia and becomes cross-process architecture.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://arrow.apache.org/docs/python/data.html">pyarrow data &amp; memory docs</a> (slicing, zero-copy numpy conversion, chunking) — paired with the <a href="https://arrow.apache.org/docs/cpp/api/memory.html">C++ memory management reference</a> for the pool/refcount layer.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "when would I slice-filter instead of filter?", "how do memory pools work?", "what does Buffer::FromWrap do exactly?".</div>
+
+<div class="nav">
+  <span>← <a href="0002-offsets-variable-length.html">Lesson 2: Offsets &amp; variable length</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 4 (soon): IPC &amp; the Feather file format</span>
+</div>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 1 — Buffers &amp; Validity Bitmaps</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.null { fill: #fdf1de; stroke: var(--accent); }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 1</span><span>Memory format</span></div>
+  <h1>Buffers &amp; Validity Bitmaps</h1>
+  <p class="dek">An Arrow array is not an object graph. It is two slabs of bytes — and once you can read them, every Arrow API becomes a view.</p>
+</div>
+
+<p>Your mission is to build on libarrow and pyarrow <em>understanding the machine</em>. So we start not with an API, but with bytes. Take the column you've typed a thousand times:</p>
+
+<p style="text-align:center"><span class="term">[10, 20, null, 40]</span> <span style="color:var(--muted)">(int64)</span></p>
+
+<p>Ask: what does this look like in memory? Arrow's answer is the foundation of everything else in the course — SIMD scans, zero-copy slices, IPC, the works.</p>
+
+<h2>The two-slab layout</h2>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="18" class="mem-lbl">Buffer 1 — validity bitmap</text>
+  <rect x="0" y="26" width="90" height="34" class="membuf null"/>
+  <text x="45" y="47" text-anchor="middle" class="mem-byte">0b00001101</text>
+  <text x="0" y="78" class="mem-sub">1 byte = ceil(4/8); bit i of byte i÷8, LSB first</text>
+  <text x="0" y="103" class="mem-lbl">Buffer 2 — values</text>
+  <g>
+    <rect x="0" y="111" width="120" height="34" class="membuf"/><text x="60" y="132" text-anchor="middle" class="mem-byte">10</text>
+    <rect x="122" y="111" width="120" height="34" class="membuf"/><text x="182" y="132" text-anchor="middle" class="mem-byte">20</text>
+    <rect x="244" y="111" width="120" height="34" class="membuf null"/><text x="304" y="132" text-anchor="middle" class="mem-byte">—</text>
+    <rect x="366" y="111" width="120" height="34" class="membuf"/><text x="426" y="132" text-anchor="middle" class="mem-byte">40</text>
+  </g>
+  <text x="0" y="162" class="mem-sub" transform="translate(0,-8)">4 × 8 bytes, contiguous little-endian int64 (null slot's bytes unspecified)</text>
+</svg>
+</div>
+
+<p>That's the entire array. Alongside the buffers, the <span class="term">Array</span> object carries just three integers: <span class="term">length = 4</span>, <span class="term">null_count = 1</span>, <span class="term">offset = 0</span>. In C++ this is literally the <a href="https://arrow.apache.org/docs/cpp/api/datamodel.html"><span class="term">arrow::ArrayData</span></a> struct; pyarrow wraps the same thing.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Values live in one contiguous buffer, nullness lives in a separate packed bitmap — one bit per value.</strong> A null costs 1 bit of overhead, not a tagged pointer or a sentinel value. Separating "is it null" from "what is it" is what lets the values buffer stay dense, regular, and SIMD-scannable.
+</div>
+
+<h2>Reading the bitmap, bit by bit</h2>
+
+<p>The bitmap is <strong>LSB-first within each byte</strong>: slot <em>i</em>'s bit lives in byte <em>i ÷ 8</em>, at position <em>i mod 8</em> — so the <em>first</em> slot is the <em>least</em> significant bit. Set bit = value present; clear bit = null. Our <span class="term">0b00001101</span> reads right-to-left: slot 0 ✓, slot 1 ✓, slot 2 <strong>null</strong>, slot 3 ✓. That matches the column.</p>
+
+<p>Two spec wrinkles worth burning in:</p>
+<ul>
+  <li>If <span class="term">null_count = 0</span>, the validity buffer may be omitted entirely — an all-ones bitmap is implied.</li>
+  <li>The <em>bytes</em> at a null slot in the values buffer are unspecified garbage. Never read them; check the bitmap first.</li>
+</ul>
+
+<h2>Drill it</h2>
+<p>Decode the byte, click the null slots. Get a streak of 5 — the LSB-first direction is the part everyone gets backwards.</p>
+<div data-drill></div>
+<script src="../assets/validity-drill.js"></script>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>An int32 array of 100 rows, 37 nulls. How many bytes are in its validity bitmap?</summary>
+    <p class="answer">13 bytes.</p>
+    <p class="why">ceil(100 / 8) = 13. The bitmap sizes on <em>length</em>, never on null_count — 37 nulls or 1 null, same 13 bytes.</p>
+  </details>
+  <details><summary>Bitmap byte <span class="term">0b01000000</span>. Which slot is null — and what's its index?</summary>
+    <p class="answer">Slot 1.</p>
+    <p class="why">Only bit 1 is clear. Bits index LSB-first, so 0b01000000 → slot 1 null, slots 0 and 2–7 present.</p>
+  </details>
+  <details><summary>Why does Arrow use a bitmap instead of a reserved null sentinel in the values buffer?</summary>
+    <p class="answer">Dense buffers scan fast.</p>
+    <p class="why">A packed bitmap costs ~1 bit/row and leaves the values buffer uniform: every value the same stride, every type fully representable, vectorized kernels loop over raw memory without per-value null checks interleaved in the data path.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — pyarrow, 5 minutes</span>
+  <pre><code>import pyarrow as pa
+a = pa.array([10, 20, None, 40], type=pa.int64())
+buf = a.buffers()          # [validity, values]
+print(buf[0])              # what's the size? is it even there?
+print(a.null_count, a.offset)
+
+b = pa.array([1, 2, 3], type=pa.int64())   # no nulls...
+print(b.buffers()[0])      # ...so what happened to the validity buffer?</code></pre>
+  Predict both outputs <em>before</em> running. If the second validity buffer surprises you, re-read the "two spec wrinkles" above.
+</div>
+
+<h2>Where this goes next</h2>
+<p>Fixed-width types were the easy case — one bitmap, one values buffer. The natural question for your mission: what does <span class="term">["al", "paris", null, "hi"]</span> lay out as? That's the offsets mechanism (Lesson 2), and it generalizes to <span class="term">list</span> and nested types. Full buffer recipes for every type live in the <a href="../reference/columnar-layout-cheatsheet.html">layout cheat sheet</a>.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://arrow.apache.org/docs/format/Columnar.html">Arrow Columnar Format spec</a>, sections "Buffering and Memory Model" + "Validity Bitmaps" (short — the normative version of everything above).
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> This lesson is one command away from a teacher — ask the agent anything: "why LSB-first?", "show me the ArrayData struct in C++", "what's a buffer's lifetime?".</div>
+
+<div class="nav">
+  <span>Course · Mission</span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 2 (soon): offsets &amp; strings</span>
+</div>
+</body>
+</html>

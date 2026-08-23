@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Arrow Columnar Layout — Buffer Cheat Sheet</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  table.layout { border-collapse: collapse; font-family: var(--mono); font-size: 0.84rem; margin: 1rem 0; width: 100%; }
+  table.layout th, table.layout td { border: 1px solid var(--rule); padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }
+  table.layout th { font-family: var(--sans); font-size: 0.72rem; background: #f1f3f5; color: var(--muted); }
+  table.layout td .buf { font-weight: 700; color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Reference</span><span>Apache Arrow</span></div>
+  <h1>Columnar Layout — Buffer Cheat Sheet</h1>
+  <p class="dek">Which buffers every Arrow array type carries, and how big each one is.</p>
+</div>
+
+<p>Every Arrow array is <strong>buffers + length + null_count + offset</strong>. The buffers are the whole story — the API objects are just views over them. Derived from the <a href="https://arrow.apache.org/docs/format/Columnar.html">columnar format specification</a>.</p>
+
+<h2>Universal rules</h2>
+<ul>
+  <li>All values are <strong>little-endian</strong>; buffers are padded to <strong>8 bytes</strong> (implementations target 64-byte alignment).</li>
+  <li><span class="term">validity bitmap</span>: 1 bit per slot, <strong>LSB-first</strong> — bit <em>i</em> of byte <em>i/8</em>, mask <code>1 &lt;&lt; (i%8)</code>. Bit set = value present, 0 = null. Size: <code>ceil(length / 8)</code> bytes.</li>
+  <li>A buffer may be <strong>omitted when it can be all-default</strong>: validity when <code>null_count = 0</code>, offsets/data when empty.</li>
+  <li><span class="term">offset</span> (the array-level one) enables <strong>zero-copy slicing</strong>: a slice is the same buffers with shifted offset/length — no bytes copied.</li>
+</ul>
+
+<h2>Buffer recipes by type</h2>
+<table class="layout">
+  <tr><th>Type</th><th>Buffer 1 (validity)</th><th>Buffer 2</th><th>Buffer 3</th><th>Widths</th></tr>
+  <tr><td>int / float (fixed)</td><td class="buf">bitmap (optional)</td><td class="buf">values</td><td>—</td><td>values: length × T bits (8/16/32/64)</td></tr>
+  <tr><td>bool</td><td class="buf">bitmap (optional)</td><td class="buf">data bitmap</td><td>—</td><td>data: ceil(length/8) bytes — packed bits, not bytes!</td></tr>
+  <tr><td>utf8 / binary / list</td><td class="buf">bitmap (optional)</td><td class="buf">offsets (int32)</td><td class="buf">values (bytes / child array)</td><td>offsets: (length+1) × 4; values: offsets[last] − offsets[0]</td></tr>
+  <tr><td>large variants</td><td class="buf">bitmap (optional)</td><td class="buf">offsets (int64)</td><td class="buf">values</td><td>same, 8-byte offsets → &gt; 2 GB children</td></tr>
+  <tr><td>struct</td><td class="buf">bitmap (optional)</td><td>—</td><td>—</td><td>children each carry their own buffers; struct adds only the validity bitmap</td></tr>
+  <tr><td>dictionary</td><td class="buf">bitmap (optional)</td><td class="buf">indices (int)</td><td>—</td><td>indices: length × index-width; plus a separate <em>dictionary</em> array of the value type</td></tr>
+</table>
+
+<h2>Worked example: <code>["al", "paris", null, "hi"]</code></h2>
+<table class="layout">
+  <tr><th>Buffer</th><th>Bytes</th><th>Reading</th></tr>
+  <tr><td>validity</td><td><code>0b00000101</code></td><td>bit0=1 ✓, bit1=1 ✓, bit2=0 null, bit3=1 ✓</td></tr>
+  <tr><td>offsets (i32)</td><td><code>0, 2, 7, 7, 9</code></td><td>slot i = values[offsets[i] : offsets[i+1]]; null slot still has valid (here empty) span</td></tr>
+  <tr><td>data</td><td><code>a l p a r i s h i</code></td><td>9 bytes, single contiguous backing store</td></tr>
+</table>
+
+<h2>Beyond one array</h2>
+<ul>
+  <li><strong>Dictionary encoding:</strong> column = indices array (bitmap + int values) + separate shared <em>payload</em> array. Nulls live in the indices bitmap; slicing keeps the full payload pinned; <code>take</code> gathers indices only. Wins when cardinality ≪ length. Two dictionaries with different payloads/numbering must be <em>unified</em> (re-index = copy) before combine/compare.</li>
+  <li><strong>IPC message:</strong> Flatbuffer manifest (buffer offset/length pairs into the body, zero-length entries for omitted buffers) + body = raw buffers verbatim, 8-byte aligned. <strong>Stream</strong> = append-only frames; <strong>file</strong> (Feather V2) adds a footer indexing every batch + <code>ARROW1</code> magic at both ends ⇒ random access. Dictionaries travel as separate messages before the batches that use them (replace or delta).</li>
+  <li><strong>Elementwise kernel validity:</strong> output bitmap = bitwise AND of input bitmaps (absent buffer = all-ones). <code>add</code> propagates nulls, <code>coalesce</code> absorbs, aggregates skip. Kernel outputs are always fresh buffers.</li>
+</ul>
+
+<h2>Sizes at a glance</h2>
+<ul>
+  <li>int64 column, n rows, k nulls → <code>ceil(n/8) + 8n</code> bytes total.</li>
+  <li>string column → <code>4(n+1) + total_string_bytes</code> (+ bitmap). The 4 bytes/row offset tax is why short strings are offset-dominated.</li>
+  <li>Slicing <code>[2:5]</code> of any array → <strong>0 new bytes</strong>.</li>
+</ul>
+
+<div class="source">
+  <span class="label">Primary source</span>
+  <a href="https://arrow.apache.org/docs/format/Columnar.html">Arrow Columnar Format specification</a> — buffer layout is normative here; this sheet is a compression of it.
+</div>
+
+<div class="nav"><span>Course home · <a href="../lessons/0001-buffers-validity-bitmaps.html">Lesson 1: Buffers &amp; validity bitmaps</a></span></div>
+</body>
+</html>

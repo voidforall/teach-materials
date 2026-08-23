@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 6 — Dictionary Encoding</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.dict { fill: #fdf1de; stroke: var(--accent); }
+  .membuf.null { fill: #f3e9e9; stroke: #a12d2d; stroke-dasharray: 4 3; }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+  .gain { fill: var(--gain); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 6</span><span>Layout trick #3</span></div>
+  <h1>Dictionary Encoding</h1>
+  <p class="dek">Repeated values? Store each once, then gossip about them by number.</p>
+</div>
+
+<p>Lesson 2 left an honest cost on the table: a million rows of <span class="term">"GET"</span> / <span class="term">"POST"</span> / <span class="term">"PUT"</span> pay 4 bytes of offsets + ~4 bytes of soup <em>per row</em> for information that barely varies. Dictionary encoding is Arrow's answer, and it's the third layout trick in your collection (fixed-width, offsets, now this).</p>
+
+<h2>Indices + payload</h2>
+
+<p>A <span class="term">dictionary&lt;T&gt;</span> array is two arrays in a trenchcoat. The <strong>indices array</strong> is a plain fixed-width array (Lesson 1 recipe — bitmap + values of some int type) that sits where your column sits. The <strong>dictionary** payload is a separate, ordinary array of the value type (Lesson 2 recipe if strings) holding each distinct value once. Column slot <em>i</em> = <span class="term">dictionary[indices[i]]</span>.</p>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 620 240" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">Column: 1M log rows, 3 distinct values</text>
+  <text x="0" y="44" class="mem-lbl">indices array (int8) — what the column "is"</text>
+  <g transform="translate(0,52)">
+    <rect x="0" y="0" width="110" height="30" class="membuf null"/><text x="55" y="20" text-anchor="middle" class="mem-byte">0b111…</text>
+    <rect x="114" y="0" width="480" height="30" class="membuf"/><text x="16" y="20" class="mem-byte">0 1 1 0 2 1 0 0 1 2 1 1 0 …</text>
+  </g>
+  <text x="0" y="112" class="mem-sub">1M × 1 byte + bitmap ≈ 1.1 MB — vs ≈ 8 MB as plain utf8</text>
+
+  <text x="0" y="148" class="mem-lbl" style="fill:var(--accent)">dictionary payload (utf8 array) — stored once</text>
+  <g transform="translate(0,156)">
+    <rect x="0" y="0" width="110" height="30" class="membuf dict"/><text x="55" y="20" text-anchor="middle" class="mem-byte">0b111</text>
+    <rect x="114" y="0" width="90" height="30" class="membuf dict"/><text x="159" y="20" text-anchor="middle" class="mem-byte">0</text>
+    <rect x="206" y="0" width="90" height="30" class="membuf dict"/><text x="251" y="20" text-anchor="middle" class="mem-byte">6</text>
+    <rect x="298" y="0" width="90" height="30" class="membuf dict"/><text x="343" y="20" text-anchor="middle" class="mem-byte">11</text>
+  </g>
+  <g transform="translate(0,196)">
+    <rect x="114" y="0" width="274" height="30" class="membuf dict"/><text x="251" y="20" text-anchor="middle" class="mem-byte">"GET" "POST" "PUT"</text>
+  </g>
+  <text x="0" y="232" class="mem-sub">3 values × (offsets+bytes) — nanoscale next to the indices</text>
+</svg>
+</div>
+
+<p>Decode is two loads: index, then payload slot. And the parts compose with everything you know:</p>
+<ul>
+  <li><strong>Nulls:</strong> null-ness lives in the <em>indices</em> bitmap, exactly like any array. A null row is a null index — the payload never contains a "null entry".</li>
+  <li><strong>Slicing:</strong> zero-copy, but the slice keeps the <em>full dictionary</em> pinned (Lesson 3 pinning, again). Slicing can't shrink the payload because other rows might still reference it.</li>
+  <li><strong>Compute:</strong> kernels special-case dictionaries. <span class="term">take</span> on a dictionary array gathers <em>indices</em> only — payload untouched, still zero payload work. Equality/filter can compare small ints instead of strings. Not everything is smart: some kernels force a decode to plain values first.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>A dictionary array is a fixed-width index column plus a shared payload — so operations on rows become operations on small integers, and the payload is touched by reference, not by value.</strong> The payoff scales with repetition ratio: cardinality ≪ length is the win condition. Cardinality ≈ length (UUIDs, floats) makes it pure overhead — an extra indirection, plus a dictionary bigger than the data would have been.
+</div>
+
+<h2>The IPC wrinkle (and why Lesson 4 foreshadowed it)</h2>
+
+<p>A dictionary array's payload isn't one of its buffers — it's metadata pointing at a separate array. So IPC carries it out-of-band: <strong>dictionary messages</strong> (one per field) are written before the record batches that use them, and the batch's buffer manifest (Lesson 4) contains only the indices. Streams of batches share one dictionary message; if the dictionary changes mid-stream, a new dictionary message appears with a flag saying <em>replace</em> or <em>delta</em> (append rows, keep existing numbering — which keeps old indices valid). This is also the trap: two dictionary arrays can only be compared/concatenated cheaply if their payload <em>and numbering</em> match — otherwise Arrow must <em>unify</em> dictionaries (re-map indices, allocate a new payload — a real copy).</p>
+
+<h2>Decode it</h2>
+<p>dictionary[indices[i]] until it's reflex — including the bitmap check. Streak of 6.</p>
+<div data-dict-decode-drill></div>
+<script src="../assets/dictionary-decode-drill.js"></script>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Where does null-ness live in a dictionary array?</summary>
+    <p class="answer">The indices bitmap.</p>
+    <p class="why">The indices array is a first-class array with its own validity bitmap. Null rows have null indices; the payload contains only real distinct values — never a "null entry".</p>
+  </details>
+  <details><summary>Why is <span class="term">take</span> on dictionary-encoded log levels nearly free?</summary>
+    <p class="answer">It gathers indices.</p>
+    <p class="why">take re-orders rows; the values are unchanged, so only the small int indices are gathered and the payload rides along untouched — the dictionary special-case in the kernel dispatch from Lesson 5.</p>
+  </details>
+  <details><summary>When is dictionary encoding a net loss?</summary>
+    <p class="answer">High cardinality.</p>
+    <p class="why">Cardinality ≈ length (UUIDs, timestamps, floats): every row points at a different payload entry, so you pay the index bytes AND a payload as big as the original data, plus indirection on every read.</p>
+  </details>
+  <details><summary>Two chunks of the same column arrive with different dictionaries. What does <span class="term">concat_arrays</span> have to do?</summary>
+    <p class="answer">Unify, re-indexing.</p>
+    <p class="why">Indices only mean something relative to their payload. Different payload/order ⇒ Arrow builds a merged dictionary and re-maps every index — a genuine copy of the index buffers (and possibly payloads). Lesson 3's concat-copies rule, with a dictionary-shaped reason.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — pyarrow, 10 minutes</span>
+  <pre><code>import pyarrow as pa, pyarrow.compute as pc
+
+plain = pa.array(["GET", "POST", "GET", "PUT", "GET"] * 200_000)
+enc = plain.cast(pa.dictionary(pa.int8(), pa.utf8()))
+
+print(enc.buffers())          # manifest: bitmap + int8 values. Where's the soup?
+print(enc.dictionary)         # the payload, all 3 values
+print(enc.slice(0, 5).dictionary is enc.dictionary)   # pinned payload?
+
+# compute sees the trick:
+import time
+t = time.perf_counter(); pc.equal(enc, enc); print("dict cmp:", time.perf_counter()-t)
+t = time.perf_counter(); pc.equal(plain, plain); print("plain cmp:", time.perf_counter()-t)
+
+# and decode is just a take:
+decoded = enc.cast(pa.utf8())
+print(decoded[:5])            # dictionary_take under the hood</code></pre>
+  The buffer inspection is the lesson: the column's own manifest holds two tiny buffers — and everything big lives in <span class="term">.dictionary</span>.
+</div>
+
+<h2>Where this goes next</h2>
+<p>One stop left in the format-and-transport story: <strong>Arrow Flight</strong> (Lesson 7) — the Lesson 4 stream protocol over gRPC, where the dictionary-wrangling you just learned becomes a real protocol concern. After that the course pivots to builder-side C++ work: constructing these layouts efficiently (<span class="term">ArrayBuilder</span>s, memory pools) and reading libarrow source for real. That's the closest reach toward your build-on-Arrow mission.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://arrow.apache.org/docs/format/Columnar.html#dictionary-encoded-layout">Dictionary-encoded layout in the columnar spec</a>, plus the <a href="https://arrow.apache.org/docs/format/IPC.html#dictionary-messages">IPC dictionary messages</a> section it links to.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "when does Parquet dictionary-encoding differ from Arrow's?", "what's delta dictionaries good for?", "show me dictionary_unify in the C++ source".</div>
+
+<div class="nav">
+  <span>← <a href="0005-compute-kernels.html">Lesson 5: Compute kernels</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 7 (soon): Arrow Flight</span>
+</div>
+</body>
+</html>

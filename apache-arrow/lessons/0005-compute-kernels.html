@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 5 — The Compute Layer</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .membuf { fill: var(--flow-soft); stroke: var(--flow); stroke-width: 1.5; }
+  .membuf.null { fill: #fdf1de; stroke: var(--accent); }
+  .membuf.out { fill: #c9e3d3; stroke: var(--gain); stroke-width: 2; }
+  .mem-lbl { font-family: var(--sans); font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .mem-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mem-byte { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 5</span><span>Compute</span></div>
+  <h1>The Compute Layer</h1>
+  <p class="dek">A kernel is just a pure function from buffers to buffers. Once you see that, "compute" stops being magic and becomes layout arithmetic.</p>
+</div>
+
+<p>You have the whole memory story. Now: <span class="term">pa.compute.add(a, b)</span> — what actually runs? No rows, no objects, no interpreter. The <a href="https://arrow.apache.org/docs/cpp/compute.html">compute layer</a> is a registry of <strong>kernels</strong>: compiled, vectorized functions with a uniform shape.</p>
+
+<h2>The kernel contract</h2>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 620 190" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="16" class="mem-lbl">input a: [10, 20, null, 40] (int64)</text>
+  <g transform="translate(0,24)">
+    <rect x="0" y="0" width="100" height="30" class="membuf null"/><text x="50" y="20" text-anchor="middle" class="mem-byte">0b1101</text>
+    <rect x="0" y="34" width="100" height="30" class="membuf"/><text x="50" y="54" text-anchor="middle" class="mem-byte">10 20 _ 40</text>
+  </g>
+  <text x="180" y="70" class="mem-lbl" style="fill:var(--gain)">kernel: add</text>
+  <path d="M 130 55 L 175 55" stroke="var(--gain)" stroke-width="2.4" marker-end="url(#k)"/>
+  <defs><marker id="k" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="var(--gain)"/></marker></defs>
+  <g transform="translate(300,24)">
+    <text x="0" y="-8" class="mem-lbl" style="fill:var(--gain)">output (fresh buffers)</text>
+    <rect x="0" y="0" width="100" height="30" class="membuf out"/><text x="50" y="20" text-anchor="middle" class="mem-byte">0b1101</text>
+    <rect x="0" y="34" width="100" height="30" class="membuf out"/><text x="50" y="54" text-anchor="middle" class="mem-byte">12 25 _ 44</text>
+  </g>
+  <text x="0" y="118" class="mem-sub">same shape, same type rules — validity computed, values computed, garbage slots never read</text>
+  <text x="0" y="152" class="mem-lbl">input b: [2, 5, 99, 4]</text>
+  <g transform="translate(0,160)">
+    <rect x="0" y="0" width="100" height="30" class="membuf"/><text x="50" y="20" text-anchor="middle" class="mem-byte">0b1111</text>
+    <rect x="0" y="34" width="100" height="30" class="membuf"/><text x="50" y="54" text-anchor="middle" class="mem-byte">2 5 99 4</text>
+  </g>
+  <text x="0" y="180" class="mem-sub">b has no nulls → validity buffer absent (Lesson 1). The kernel must handle a missing bitmap!</text>
+</svg>
+</div>
+
+<p>Three things to extract from that picture:</p>
+<ul>
+  <li><strong>Elementwise kernels are buffer-in, buffer-out.</strong> The hot loop is a strided scan of the two value buffers writing a third — three contiguous regions, which is exactly the shape auto-vectorizers and <span class="term">SIMD</span> love. The bitmap layout from Lesson 1 wasn't aesthetics; it <em>created</em> this loop shape.</li>
+  <li><strong>Validity is computed, not stored as an afterthought.</strong> Output null = AND of input validities. The kernel writes a fresh output bitmap; a null input slot's garbage value bytes are never read (so they can't leak).</li>
+  <li><strong>Outputs are new buffers.</strong> Buffers are immutable (Lesson 3) — every kernel result is a new allocation. Chained expressions allocate per step, which is why Arrow has expression fusion on some paths and why kernels like <span class="term">replace_with_mask</span> exist instead of in-place update.</li>
+</ul>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Null semantics live in the kernel's type signature, not in your data.</strong> <span class="term">add(a, b)</span> propagates null (either null → null); <span class="term">coalesce(a, b)</span> absorbs them (both null → null); <span class="term">min_max</span> skips them by option. Same bitmaps in, different bitmap logic out — the propagation rule is part of the kernel, listed in the <a href="https://arrow.apache.org/docs/cpp/compute.html#functions">function docs</a>.
+</div>
+
+<h2>How one kernel serves every type</h2>
+
+<p>Under <span class="term">pa.compute.add</span> sit dozens of registered <em>kernel implementations</em> — one per type combination: int8+int8, int64+int64, timestamp+duration, …. Dispatch happens in two steps. Name lookup finds the <span class="term">ScalarFunction</span> in the registry; then its <strong>kernel signatures</strong> are matched against your argument types (with implicit promotion — e.g. int32 + int64 → int64). The matched kernel's loop runs over your buffers. This is plain function-table dispatch, per call — no JIT, no specialization on <em>your</em> data. (Contrast: DataFusion/DuckDB build on top and add their own planning; Arrow compute itself stays a vector library.)</p>
+
+<p>The function registry sorts into four families, worth knowing by name:</p>
+<ul>
+  <li><span class="term">Scalar functions</span> — elementwise, output length = input length (<span class="term">add</span>, <span class="term">equal</span>, <span class="term">utf8_upper</span>).</li>
+  <li><span class="term">Vector functions</span> — shape-changing (<span class="term">filter</span>, <span class="term">take</span>: the copy-makers from Lesson 3).</li>
+  <li><span class="term">Scalar aggregates</span> — many rows → one value (<span class="term">sum</span>, <span class="term">min_max</span>).</li>
+  <li><span class="term">Hash aggregates</span> — group → aggregate (<span class="term">hash_sum</span>), the engine building-block.</li>
+</ul>
+
+<p>And one plumbing rule that surprises people: kernels take <em>arrays</em>, so a <span class="term">ChunkedArray</span> input gets its kernels run per chunk and re-assembled (or <span class="term">combine_chunks</span>'d first — Lesson 3's copy). Everything you learned about chunking is compute-layer relevant.</p>
+
+<h2>Drill it</h2>
+<p>Validity propagation until it's reflex: given the input bitmaps and the kernel's null rule, mark the output nulls. Streak of 6.</p>
+<div data-validity-logic-drill></div>
+<script src="../assets/validity-logic-drill.js"></script>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does the output of <span class="term">add(a, b)</span> have nulls exactly where a or b does?</summary>
+    <p class="answer">Bitmap AND rule.</p>
+    <p class="why">The kernel's signature defines elementwise null propagation: output valid = a-valid AND b-valid. That's literally a bitwise AND of the two validity bitmaps — 64 rows per instruction.</p>
+  </details>
+  <details><summary>Input a lacks a validity buffer (no nulls). What must the elementwise kernel do?</summary>
+    <p class="answer">Treat as all-ones.</p>
+    <p class="why">Lesson 1's omittable-buffer rule surfaces in every kernel: an absent bitmap is implied all-valid. Kernels branch on buffer presence — that's why the layout allows omission: it's a real fast path, not just space savings.</p>
+  </details>
+  <details><summary>Why can't Arrow compute update a column in place?</summary>
+    <p class="answer">Buffers stay immutable.</p>
+    <p class="why">Sharing (Lesson 3) is only safe because buffers never mutate — a slice or mmap view could be watching. So kernels allocate fresh outputs; "in-place" APIs like replace_with_mask still produce new buffers under the hood.</p>
+  </details>
+  <details><summary><span class="term">filter</span> and <span class="term">add</span> are both kernels. What's the structural difference?</summary>
+    <p class="answer">Output length differs.</p>
+    <p class="why">add is a scalar (elementwise) function — output slot i from input slot i, length preserved. filter is a vector function — a variable number of rows survive, so the result can't be a window over the input (hence Lesson 3: it copies).</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — pyarrow, 10 minutes</span>
+  <pre><code>import pyarrow as pa, pyarrow.compute as pc
+
+a = pa.array([10, 20, None, 40])
+b = pa.array([2, 5, 99, 4])
+
+out = pc.add(a, b)
+print(out)                                   # where are the nulls?
+print(out.buffers()[0])                      # ...and is the bitmap what AND predicts?
+
+# null semantics are per-kernel:
+print(pc.coalesce(a, b))                     # absorbs the null
+print(pc.min_max(a))                         # skips it
+print(pc.sum(a))                             # and the scalar aggregate?
+
+# dispatch: peek at what one name holds
+f = pc.get_function("add")
+print(len(f.kernels), "kernel variants")     # int8+int8 ... timestamp+duration ...
+
+# and the chunk plumbing:
+chunked = pa.chunked_array([[1, 2], [3, None]])
+print(pc.add(chunked, chunked))              # per-chunk? null preserved?</code></pre>
+  Cross-check the add output bitmap against your own <span class="term">a_valid &amp; b_valid</span> by hand — you now know enough to audit a compute kernel's validity handling.
+</div>
+
+<h2>Where this goes next</h2>
+<p>Remaining stops: <strong>dictionary encoding</strong> (Lesson 6) — the third great layout trick, and the one compute kernels treat specially (<span class="term">take</span> over a dictionary is just an index gather); and <strong>Arrow Flight</strong> (Lesson 7) — the IPC stream from Lesson 4 over the network. After that the course bends toward your build mission: builders and memory pools in C++, expression management, and reading real libarrow source.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://arrow.apache.org/docs/cpp/compute.html">Arrow C++ compute docs</a> — the function families, kernel dispatch, and per-function null semantics. The <a href="https://arrow.apache.org/docs/python/compute.html">pyarrow compute guide</a> is the practical companion.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "show me the elementwise loop in libarrow source", "how does filter actually work — bitmap→indices?", "what's implicit promotion costing me?"</div>
+
+<div class="nav">
+  <span>← <a href="0004-ipc-feather-mmap.html">Lesson 4: IPC &amp; mmap</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 6 (soon): dictionary encoding</span>
+</div>
+</body>
+</html>

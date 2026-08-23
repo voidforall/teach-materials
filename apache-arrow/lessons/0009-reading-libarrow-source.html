@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 9 — Reading libarrow Source</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  code { font-family: var(--mono); font-size: 0.88em; background: #eef0ee; padding: 0.05em 0.3em; border-radius: 3px; }
+  pre { background: #f4f5f3; border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; }
+  .stop { border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 4px; padding: 0.9rem 1.1rem; margin: 1.2rem 0; background: #fbfbf9; }
+  .stop h3 { margin-top: 0; color: var(--ink); }
+  .stop .file { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); }
+  .checklist input { margin-right: 0.45rem; }
+  .checklist label { display: block; font-family: var(--sans); font-size: 0.92rem; margin: 0.35rem 0; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 9</span><span>Graduation</span></div>
+  <h1>Reading libarrow Source</h1>
+  <p class="dek">Eight lessons of theory, one repository. Everything below should read like a letter from an old friend.</p>
+</div>
+
+<p>This is the graduation exercise: a guided tour through four files in <a href="https://github.com/apache/arrow/tree/main/cpp/src/arrow">the real Arrow C++ tree</a>, each one hiding in plain sight the machinery you already know. Read on GitHub or clone locally — <span class="term">git clone --depth 1 https://github.com/apache/arrow</span> and live in <span class="term">cpp/src/arrow/</span>.</p>
+
+<div class="stop">
+<h3>Stop 1 — the struct you've been using all along</h3>
+<p class="file"><a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/array/data.h">array/data.h</a> → class <span class="term">ArrayData</span></p>
+<p>Find the member list. You will see, nearly verbatim, Lesson 1's sidecar: <span class="term">length</span>, <span class="term">null_count</span> (note: it's <em>kUnknown</em>-able — lazy computation), <span class="term">offset</span>, <span class="term">buffers</span> (a vector of shared_ptr&lt;Buffer&gt; — Lesson 3's refcounting, in the type). Then two members that were foreshadowed but unnamed: <span class="term">child_data</span> (Lesson 2's recursion — a list's child lives here) and <span class="term">dictionary</span> (Lesson 6's out-of-band payload). Six fields; the entire course so far.</p>
+</div>
+
+<div class="stop">
+<h3>Stop 2 — the byte-owners</h3>
+<p class="file"><a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/buffer.h">buffer.h</a> and <a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/memory_pool.cc">memory_pool.cc</a></p>
+<p>In <span class="term">Buffer</span>: it's just <span class="term">{data, size, capacity, parent, ...}</span> — a view, not an owner (why slices can be O(1)). Look for the constructor taking a <em>parent</em> buffer: that's Lesson 3's pinning, explicit in the field. In <span class="term">memory_pool.cc</span>: find the 64-byte alignment constant and the <span class="term">bytes_allocated()</span> accounting from Lesson 8, and where jemalloc/mimalloc/system-malloc backends switch.</p>
+</div>
+
+<div class="stop">
+<h3>Stop 3 — a builder, in the flesh</h3>
+<p class="file"><a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/array/builder_base.h">array/builder_base.h</a> and the primitive builder in <a href="https://github.com/apache/arrow/tree/main/cpp/src/arrow/array">array/</a> (<span class="term">builder_primitive.h</span> / type builders); bitmap machinery in <a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/util/bit_util.h">util/bit_util.h</a></p>
+<p>Three things to find: the <strong>capacity-doubling</strong> in <span class="term">Reserve</span>/<span class="term">UnsafeAppendToBitmap</span> paths (Lesson 8's simulator, as code); the <span class="term">BitmapWriter</span>/<span class="term">FirstTimeBitmapWriter</span> in bit_util — the LSB-first writer from Lesson 1; and <span class="term">Finish()</span> calling <span class="term">FinishInternal</span> → ArrayData construction, where scratch is trimmed and transferred. If you read only one function: <span class="term">AppendNull</span> — watch it clear one bit and skip the value slot.</p>
+</div>
+
+<div class="stop">
+<h3>Stop 4 — one kernel, end to end</h3>
+<p class="file"><a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/compute/function.cc">compute/function.cc</a> (dispatch), <a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/compute/exec.h">compute/exec.h</a> (<span class="term">KernelContext</span>, exec loop), <a href="https://github.com/apache/arrow/blob/main/cpp/src/arrow/compute/kernels/scalar_arithmetic.cc">compute/kernels/scalar_arithmetic.cc</a> (the kernel you've called as <span class="term">pc.add</span>)</p>
+<p>In <span class="term">function.cc</span>: the Execute path that matches <strong>kernel signatures</strong> against argument types (Lesson 5's dispatch). In <span class="term">scalar_arithmetic.cc</span>: an <span class="term">ARROW_SCALAR…</span>-style macro table generating one loop per type pair — the "dozens of kernel variants behind one name," generated. In the elementwise exec path: the argument null-check — output validity = AND of inputs, possibly as an actual bitwise AND (<span class="term">bit_util::and_bitmaps</span>) when the compiler can prove all-nulls handling isn't needed per-element. This is Lesson 5's diagram with line numbers.</p>
+</div>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>libarrow is ~600k lines, but the load-bearing core you just read is six struct fields, one view type, one pool, and one generated loop.</strong> The rest is breadth (types, kernels, formats, bindings) composed from those primitives. That's the test of a good architecture — and now the test of your understanding: you navigated it without a guidebook.
+</div>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>In <span class="term">ArrayData</span>, why can <span class="term">null_count</span> be "unknown"?</summary>
+    <p class="answer">Counting is deferred.</p>
+    <p class="why">Scanning a bitmap to count nulls costs O(n/64); Arrow defers it until someone asks (kUnknown sentinel) — construction and slicing stay O(1). Lazy metadata, same spirit as omitted buffers.</p>
+  </details>
+  <details><summary>What does a <span class="term">Buffer</span>'s <em>parent</em> field exist for?</summary>
+  <p class="answer">Slices pin parents.</p>
+    <p class="why">A slice Buffer holds a shared_ptr to the allocation it views — Lesson 3's "a slice keeps its parent alive," implemented as one field rather than an ownership convention.</p>
+  </details>
+  <details><summary>Where do the "dozens of kernels behind one name" come from, mechanically?</summary>
+    <p class="answer">Macro-generated tables.</p>
+    <p class="why">scalar_arithmetic.cc uses codegen-style macro expansion to emit one typed loop per type pair and registers each with its signature. Dispatch then just matches signatures — no runtime code generation.</p>
+  </details>
+</div>
+
+<h2>The exercise</h2>
+<div class="task">
+  <span class="label">Do it — a 30-minute source safari</span>
+  <p class="checklist">
+    <label><input type="checkbox"> Found <span class="term">ArrayData</span>'s six fields and said "yep, that's the course" out loud</label>
+    <label><input type="checkbox"> Found the alignment constant in <span class="term">memory_pool.cc</span> and the backend switch</label>
+    <label><input type="checkbox"> Read <span class="term">AppendNull</span> end to end (bit clear, no value write)</label>
+    <label><input type="checkbox"> Found the signature-matching loop in <span class="term">function.cc</span> Execute</label>
+    <label><input type="checkbox"> Found one macro-expanded kernel loop in <span class="term">scalar_arithmetic.cc</span></label>
+    <label><input type="checkbox"> Bonus: grepped <span class="term">and_bitmaps</span> usage — where does validity-AND appear as an actual bitwise op?</label>
+  </p>
+  <pre><code># handy greps, run in cpp/src/arrow:
+grep -n "null_count" array/data.h | head
+grep -rn "and_bitmaps" compute/ | head
+grep -n "AppendNull" array/builder_primitive.h   # or the type builder you chose
+grep -n "kUnknown" array/data.h</code></pre>
+  Every checkbox that feels <em>hard</em> marks a lesson worth re-reading — that's spaced-retrieval pointing at your gaps, not a failure.
+</div>
+
+<h2>Course status &amp; what's next</h2>
+<p>Nine lessons: the format arc (1–7), construction (8), and now source-reading fluency (9). One optional capstone remains, and it's the closest thing to your mission statement: <strong>Lesson 10 — build a small C++ tool</strong> that constructs an array with a builder, slices it, computes on it, and writes IPC to disk — no framework between you and the buffers, every line annotated by which lesson taught it. After that this workspace pivots to maintenance: spaced review sessions over the reference sheets, and drills re-run for storage strength.</p>
+
+<div class="source">
+  <span class="label">Primary source — this lesson IS the source</span>
+  <a href="https://github.com/apache/arrow/tree/main/cpp/src/arrow">cpp/src/arrow</a> in the Apache Arrow repo — with <a href="https://arrow.apache.org/docs/cpp/api.html">the C++ API docs</a> as the index.
+</div>
+
+<div class="ask"><b>Stuck in the tree?</b> Ask the agent: "walk me through this function", "why is this kernel AVX2-specialized?", "what's REE in the kernels dir?" (hint: run-end encoding — a fourth layout trick worth a future lesson).</div>
+
+<div class="nav">
+  <span>← <a href="0008-builders-memory-pools.html">Lesson 8: Builders &amp; pools</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 10 (soon): the capstone C++ tool</span>
+</div>
+</body>
+</html>

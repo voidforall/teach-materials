@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 4 — IPC, Feather &amp; mmap</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  .layout-diagram { margin: 1.4rem 0; }
+  .layout-diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .seg { stroke-width: 1.5; }
+  .seg.meta { fill: #fdf1de; stroke: var(--accent); }
+  .seg.body  { fill: var(--flow-soft); stroke: var(--flow); }
+  .seg.foot  { fill: #c9e3d3; stroke: var(--gain); }
+  .seg.magic { fill: #e9edf1; stroke: var(--rule); }
+  .seg-lbl { font-family: var(--sans); font-size: 10.5px; fill: var(--ink); }
+  .seg-sub { font-family: var(--mono); font-size: 9px; fill: var(--muted); }
+  .legend { font-family: var(--sans); font-size: 0.8rem; color: var(--muted); text-align: center; margin: 0.3rem 0 0; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 4</span><span>Serialization</span></div>
+  <h1>IPC, Feather &amp; mmap</h1>
+  <p class="dek">Arrow serialization doesn't convert data — it prefixes it with instructions. That's the whole trick.</p>
+</div>
+
+<p>Lesson 3 ended on the cliffhanger: buffers are just bytes, so what if you never rewrote them? This lesson is that idea made physical — the <a href="https://arrow.apache.org/docs/format/IPC.html">IPC protocol</a> and the Arrow file format (Feather V2). By the end you'll know why a 40 GB file can "load" instantly.</p>
+
+<h2>Encapsulation: metadata + body</h2>
+
+<p>An IPC <strong>message</strong> is two parts. First a <em>metadata</em> block — a serialized <a href="https://arrow.apache.org/docs/format/Metadata.html">Flatbuffer</a> saying "this is a RecordBatch of schema S, with N buffers at these (offset, length) pairs, this many rows". Then the <em>body</em>: the buffers themselves, laid out exactly as they live in RAM (Lesson 1–2 layouts), 8-byte aligned. The metadata doesn't contain data — it contains a <strong>buffer manifest</strong>: where each buffer starts inside the body block.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>The body is a memcpy of live buffers; the metadata is a manifest pointing into it.</strong> No per-row serialization, no parsing values back into objects. Deserialize = read the manifest, wrap the body region in Buffer views. If the body came from an mmap, those views point at page cache — the file <em>is</em> the memory. This is why Arrow IPC is GB/s while JSON/protobuf row formats crawl.
+</div>
+
+<h2>Two containers</h2>
+
+<div class="layout-diagram">
+<svg viewBox="0 0 620 210" xmlns="http://www.w3.org/2000/svg">
+  <text x="0" y="14" class="seg-lbl" style="font-weight:700">Stream (one pass: socket, pipe)</text>
+  <g transform="translate(0,22)">
+    <rect x="0" y="0" width="130" height="40" class="seg meta"/><text x="65" y="24" text-anchor="middle" class="seg-lbl">Schema msg</text>
+    <rect x="134" y="0" width="150" height="40" class="seg meta"/><text x="209" y="24" text-anchor="middle" class="seg-lbl">Dictionary msg</text>
+    <rect x="288" y="0" width="150" height="40" class="seg body"/><text x="363" y="24" text-anchor="middle" class="seg-lbl">RecordBatch</text>
+    <rect x="442" y="0" width="150" height="40" class="seg body"/><text x="517" y="24" text-anchor="middle" class="seg-lbl">RecordBatch…</text>
+    <rect x="0" y="46" width="592" height="0" fill="none"/>
+  </g>
+  <text x="0" y="96" class="seg-sub">sequential, length-prefixed frames; ends with 0-length message (or just EOF)</text>
+
+  <text x="0" y="134" class="seg-lbl" style="font-weight:700">File (random access: Feather V2, .arrow)</text>
+  <g transform="translate(0,142)">
+    <rect x="0" y="0" width="90" height="40" class="seg magic"/><text x="45" y="24" text-anchor="middle" class="seg-lbl">ARROW1</text>
+    <rect x="94" y="0" width="120" height="40" class="seg meta"/><text x="154" y="24" text-anchor="middle" class="seg-lbl">Schema</text>
+    <rect x="218" y="0" width="140" height="40" class="seg body"/><text x="288" y="24" text-anchor="middle" class="seg-lbl">Dictionaries</text>
+    <rect x="362" y="0" width="150" height="40" class="seg body"/><text x="437" y="24" text-anchor="middle" class="seg-lbl">RecordBatches</text>
+    <rect x="516" y="0" width="90" height="40" class="seg foot"/><text x="561" y="18" text-anchor="middle" class="seg-lbl">Footer</text>
+    <text x="561" y="31" text-anchor="middle" class="seg-sub">offsets</text>
+    <rect x="610" y="0" width="0" height="0"/>
+  </g>
+  <text x="0" y="200" class="seg-sub">same messages, plus a footer indexing every batch's position ── and "ARROW1" magic at both ends</text>
+</svg>
+<p class="legend"><span style="color:var(--accent)">■</span> metadata (Flatbuffer)&nbsp;&nbsp;<span style="color:var(--flow)">■</span> body (raw buffers)&nbsp;&nbsp;<span style="color:var(--gain)">■</span> footer&nbsp;&nbsp;<span style="color:var(--muted)">■</span> magic bytes</span></p>
+</div>
+
+<p>Same messages, two shapings. The <strong>stream</strong> is append-only: read frames as they arrive, no seeking — right shape for sockets (and for Arrow Flight, Lesson 7's territory). The <strong>file</strong> adds a <em>footer</em>: a Flatbuffer indexing each schema/dictionary/batch block by offset, plus <span class="term">ARROW1</span> magic bytes at head and tail (check both ends to catch truncated files). Footer ⇒ random access: <span class="term">open_file(...).read_batch(417)</span> seeks straight to batch 417 without touching the other 5 000.</p>
+
+<p>Spec details that matter: every block is length-prefixed and 8-byte aligned (64 recommended, so buffers land on cache lines); a RecordBatch's buffers appear in manifest order — for our Lesson 2 string array: validity, offsets, data — <em>but</em> omitted buffers (all-default validity, remember?) are encoded as zero-length entries, so the manifest always has a slot per buffer even when the buffer is absent.</p>
+
+<h2>mmap: the payoff</h2>
+
+<p>Open a file with a memory-mapped source (<span class="term">pa.memory_map</span> → <span class="term">pa.ipc.open_file</span>): "reading" returns arrays whose buffers <em>are views into the mapping</em>. No copy, no parse — the OS pages data in lazily as kernels touch it. Consequences you can now derive rather than memorize:</p>
+<ul>
+  <li>"Opening" a 40 GB file is instant; you pay I/O per page actually touched — a filter that reads one column of ten touches ~1/10th.</li>
+  <li>The arrays pin the mapping, exactly like Lesson 3's slices pinned parents: same ownership model, one level up.</li>
+  <li>Writes require a copy — mapped buffers are read-only. Zero-copy is a read-path superpower.</li>
+</ul>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>What's inside an IPC "metadata" block — data, schema, or something else?</summary>
+    <p class="answer">A buffer manifest.</p>
+    <p class="why">A Flatbuffer with the schema reference, row count, and each buffer's (offset, length) into the following body. Values never appear in metadata — they're already bytes in the body.</p>
+  </details>
+  <details><summary>Why can the file format support <span class="term">read_batch(417)</span> but the stream format can't?</summary>
+    <p class="answer">The footer indexes.</p>
+    <p class="why">The file's footer records every block's offset, so readers can seek. A stream is append-only frames on a pipe — random access is impossible; you read batches in order.</p>
+  </details>
+  <details><summary>Which Arrow mechanism makes mmap "loading" instant for huge files?</summary>
+    <p class="answer">Buffers become views.</p>
+    <p class="why">Deserialization is just reading the manifest and wrapping body regions in Buffer views — with mmap those regions are page cache. Lazy paging means you only pay for pages actually touched.</p>
+  </details>
+  <details><summary>A nullable-in-schema column has no nulls in batch 3. What's in its IPC body for validity?</summary>
+    <p class="answer">A zero-length buffer.</p>
+    <p class="why">From Lesson 1: null_count = 0 lets the validity buffer be omitted. IPC encodes that as a zero-length manifest entry — the slot exists, the bytes don't.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — pyarrow, 10 minutes</span>
+  <pre><code>import pyarrow as pa, pyarrow.ipc as ipc
+
+table = pa.table({"name": ["al", "paris", None, "hi"], "n": [10, 20, None, 40]})
+with ipc.new_file("batch.arrow", table.schema) as w:
+    w.write_table(table)
+
+blob = open("batch.arrow", "rb").read()
+print(blob[:6], blob[-6:])                     # ARROW1 on both ends?
+
+# now the payoff — zero-copy from disk:
+with pa.memory_map("batch.arrow") as src:
+    m = ipc.open_file(src)
+    t2 = m.read_all()
+    print(t2.combine_chunks().column("n").buffers()[1])  # read-only & mmap'd?
+
+# and check the two-container claim:
+with ipc.new_stream(open("batch.arrows", "wb"), table.schema) as w:
+    w.write_table(table)
+print(len(open("batch.arrows","rb").read()) - len(blob),  # footer+magic delta ≈ small
+      "extra bytes for the footer")</code></pre>
+  Bonus: hexdump the file (<span class="term">xxd batch.arrow | head -20</span>) and find the Flatbuffer manifest — the readable fragments — versus the raw body blocks. You are looking at Lesson 1's buffers serialized verbatim.
+</div>
+
+<h2>Where this goes next</h2>
+<p>You now own the full pipeline: layout (1–2) → ownership (3) → serialization (4). Two directions remain. The <strong>compute layer</strong> (Lesson 5): how <span class="term">pa.compute</span> kernels consume these buffers — vectorized scans, kernels as buffer-in/buffer-out functions, and the visitor dispatch that makes one kernel serve every type. And <strong>dictionaries + Flight</strong> (Lessons 6–7): dictionary encoding as the third great layout trick, and IPC over the network. The buffer-first mental model you've built is the prerequisite for all of them.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://arrow.apache.org/docs/format/IPC.html">Arrow IPC specification</a> — encapsulated message framing, stream vs file, and the exact footer/magic layout.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "why Flatbuffers for metadata?", "what does write_table chunk into, exactly?", "how does Feather V1 differ?"</div>
+
+<div class="nav">
+  <span>← <a href="0003-zero-copy-slicing-lifetimes.html">Lesson 3: Zero-copy slicing</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 5 (soon): the compute layer</span>
+</div>
+</body>
+</html>

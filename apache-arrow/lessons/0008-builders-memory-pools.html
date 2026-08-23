@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 8 — Builders &amp; Memory Pools</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<style>
+  code { font-family: var(--mono); font-size: 0.88em; background: #eef0ee; padding: 0.05em 0.3em; border-radius: 3px; }
+  pre { background: #f4f5f3; border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.83rem; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="kicker"><span>Apache Arrow · Lesson 8</span><span>Construction · the build arc</span></div>
+  <h1>Builders &amp; Memory Pools</h1>
+  <p class="dek">Buffers are immutable — so how does anything ever get created? Scratch space, geometric growth, and a finish that hands over ownership.</p>
+</div>
+
+<p>The build arc begins where Lesson 3's rule bites hardest: no buffer is ever mutated, yet data arrives one row at a time. The <a href="https://arrow.apache.org/docs/cpp/api/builder.html"><span class="term">ArrayBuilder</span></a> family is Arrow's answer — and it's the C++ machinery you'll actually build on.</p>
+
+<h2>A builder is scratch + a handoff</h2>
+
+<p><span class="term">Int64Builder</span> holds the <em>same layout</em> you've read since Lesson 1 — a validity scratch bitmap and a values scratch buffer — but mutable and over-provisioned. You append; it grows; <span class="term">Finish()</span> seals the scratch into an immutable <span class="term">ArrayData</span> and <strong>transfers</strong> the buffers out (no final copy — the builder hands over its allocations and resets).</p>
+
+<pre><code>arrow::Int64Builder bld(pool);
+for (auto v : values) {
+  if (v) bld.Append(*v);      // sets validity bit + writes value
+  else    bld.AppendNull();   // clears bit; value slot left garbage
+}
+auto maybe = bld.Finish();    // ArrayData built from scratch buffers — transferred, not copied</code></pre>
+
+<p>Every layout lesson maps to a builder: <span class="term">StringBuilder</span> owns <em>three</em> scratches (bitmap, offsets, soup) and <span class="term">Append("paris")</span> writes one int32 fencepost plus 5 bytes; <span class="term">ListBuilder</span> wraps a child builder and appends a fencepost when the list closes; <span class="term">StructBuilder</span> is a bundle of field builders sharing one bitmap. Nested construction is recursive appends — exactly the recursive layout from Lesson 2.</p>
+
+<div class="keystone">
+  <span class="label">Keystone</span>
+  <strong>Builders amortize: capacity doubles, so appends are O(1) amortized with ~2 element-copies total — but the final doubling momentarily holds 2× your data.</strong> The escape is chunking: <span class="term">Finish()</span> every N rows into a <span class="term">ChunkedArray</span> and memory waste never exceeds one chunk. Doubling = speed of a single buffer; chunking = bounded slack and early availability. Arrow's own writers do both (that's <span class="term">max_chunksize</span> from Lesson 7, one layer down).
+</div>
+
+<h2>Watch it grow</h2>
+<div data-growth-sim></div>
+<script src="../assets/growth-sim.js"></script>
+
+<h2>The MemoryPool under everything</h2>
+
+<p>Every scratch allocation comes from an <span class="term">arrow::MemoryPool</span> — the accounting layer introduced in Lesson 3. Three things it does for you:</p>
+<ul>
+  <li><strong>Aligned allocation:</strong> 64-byte aligned (buffer padding to 8 is the spec; 64 keeps cache lines and SIMD loads happy — the Lesson 5 loop shape, protected at the source).</li>
+  <li><strong>Backend choice:</strong> the default pool can back onto <strong>jemalloc</strong> or <strong>mimalloc</strong> (Arrow builds often bundle one), or plain system malloc — selectable at link/init time.</li>
+  <li><strong>Accounting:</strong> <span class="term">pool->bytes_allocated()</span> is how you watch a builder's doublings live, and how engines meter memory per query (kill a query, not the process).</li>
+</ul>
+
+<p>Builders take the pool in their constructor; <span class="term">Finish()</span>'s transferred buffers keep referencing it, so freeing happens through the same pool. This is also where custom allocators plug in — your build mission will likely meet <span class="term">MemoryPool::MakeBuilder</span>-adjacent territory when embedding Arrow.</p>
+
+<h2>Retrieve it</h2>
+<div class="quiz">
+  <details><summary>Why does <span class="term">Finish()</span> not copy the data?</summary>
+    <p class="answer">Scratch buffers transfer.</p>
+    <p class="why">The builder's mutable scratch allocations become the array's immutable buffers by ownership handoff; the builder resets to empty. Immutability (Lesson 3) starts at Finish — scratch is exempt because nothing else can see it.</p>
+  </details>
+  <details><summary>Append 1M rows via doubling vs chunked-1k. Compare worst-case memory waste.</summary>
+    <p class="answer">1M vs ~1k slots.</p>
+    <p class="why">Doubling lands capacity between 1× and 2× length, so up to ~1M slots are slack; the last growth also needs old+new alive at once. Chunked finishes at fixed boundaries — slack never exceeds one chunk, at the price of a ChunkedArray's bookkeeping.</p>
+  </details>
+  <details><summary>What does <span class="term">ListBuilder.Append()</span> write when the list is closed with 3 elements?</summary>
+    <p class="answer">One int32 fencepost.</p>
+    <p class="why">Child appends went to the child builder; closing the list appends the next offsets entry (child_length) — the Lesson 2 recipe, split across two builders sharing timing.</p>
+  </details>
+  <details><summary>Why do Arrow buffers get 64-byte alignment when the spec requires 8?</summary>
+    <p class="answer">Cache lines, SIMD.</p>
+    <p class="why">Spec mandates 8-byte alignment/portability; the memory pool rounds to 64 so buffer starts sit on cache-line boundaries and aligned SIMD loads in kernels (Lesson 5) never straddle lines.</p>
+  </details>
+</div>
+
+<h2>Prove it to yourself</h2>
+<div class="task">
+  <span class="label">Try it — pyarrow (the C++ builders underneath), 5 minutes</span>
+  <pre><code>import pyarrow as pa
+
+b = pa.array([10, None, 30])        # Python list → C++ ArrayBuilder path
+print(b.buffers())
+
+# watch the doubling from Python:
+import pyarrow.compute as pc
+big = pa.array(range(2**20 + 1))    # built by a builder somewhere —
+print(big.nbytes)                   # …but a finished array is tight: no slack survives Finish
+
+# vs. chunked construction (the bounded-slack strategy):
+t = pa.table({"n": range(3_000_000)}, schema=pa.schema([("n", pa.int64())]))
+t2 = t.combine_chunks()             # N appends → chunked → one tight copy at the end</code></pre>
+  Note the subtlety the second block shows: slack lives only <em>inside</em> builders — a finished ArrayData is trimmed (the builder copies once at Finish if needed). The 2× blow-up is a <em>construction-time</em> phenomenon.
+</div>
+
+<h2>Where this goes next</h2>
+<p>You now control the full lifecycle: construct (this lesson) → view/slice (3) → compute (5) → move (4, 7). The remaining build-arc stops: <strong>reading real libarrow source</strong> (Lesson 9) — a guided tour of <span class="term">ArrayData</span>, the builders you just met, and one compute kernel, in the actual repo; and if useful after that, a capstone: a small C++ tool building, slicing, and IPC-writing an array with no framework between you and the buffers.</p>
+
+<div class="source">
+  <span class="label">Primary source — read this</span>
+  <a href="https://arrow.apache.org/docs/cpp/api/builder.html">C++ ArrayBuilder API docs</a> (Append/AppendNull/Finish semantics per builder) with the <a href="https://arrow.apache.org/docs/cpp/api/memory.html">MemoryPool reference</a> next to it.
+</div>
+
+<div class="ask"><b>Stuck or curious?</b> Ask the agent: "when does Finish trim — always or only when there's slack?", "how does StringBuilder avoid soup reallocations?", "show me Reserve()/UnsafeAppend idioms".</div>
+
+<div class="nav">
+  <span>← <a href="0007-arrow-flight.html">Lesson 7: Flight</a></span>
+  <span><a href="../reference/columnar-layout-cheatsheet.html">Cheat sheet</a> · Lesson 9 (soon): reading libarrow source</span>
+</div>
+</body>
+</html>
